@@ -70,11 +70,14 @@ def oauth_configured(settings: Settings) -> bool:
 def connect_enabled(settings: Settings) -> bool:
     """Users may connect Upwork accounts: OAuth is configured and Upwork has
     approved commercial use in writing."""
-    return oauth_configured(settings) and settings.upwork_commercial_approved
+    return settings.upwork_api_enabled and oauth_configured(settings) and settings.upwork_commercial_approved
 
 
 def connect_blocker(settings: Settings) -> str | None:
     """Why connecting is off here, in words a user can act on; None when on."""
+    if not settings.upwork_api_enabled:
+        return ("Autopilot doesn't connect to your Upwork account. Add Upwork jobs from your alert emails "
+                "(Gigs → Add Upwork jobs), then review and submit proposals yourself on Upwork.")
     if not settings.upwork_commercial_approved:
         return "Upwork hasn't approved commercial API access for this app yet."
     missing = missing_settings(settings)

@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     upwork_client_secret: str | None = None
     upwork_redirect_uri: str | None = None
     upwork_commercial_approved: bool = False
+    # Master switch for the official-API connection. OFF: Upwork is used through
+    # email alerts only (docs/upwork-assistant.md) and nobody can connect an account.
+    upwork_api_enabled: bool = False
     # Operation-specific approval switches. A general API key or commercial
     # approval does not imply proposal or message permissions.
     upwork_proposal_submit_approved: bool = False

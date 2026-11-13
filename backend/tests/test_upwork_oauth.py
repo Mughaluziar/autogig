@@ -67,6 +67,7 @@ def upwork(monkeypatch):
     monkeypatch.setattr(settings, "upwork_client_id", "client-123")
     monkeypatch.setattr(settings, "upwork_client_secret", "secret-xyz")
     monkeypatch.setattr(settings, "upwork_redirect_uri", REDIRECT)
+    monkeypatch.setattr(settings, "upwork_api_enabled", True)
     monkeypatch.setattr(settings, "upwork_commercial_approved", True)
     monkeypatch.setattr(settings, "upwork_offers_read_approved", True)
     monkeypatch.setattr(settings, "public_site_url", SITE)
@@ -102,11 +103,13 @@ def user(client, email):
 # Configuration gates
 # --------------------------------------------------------------------------- #
 def test_connecting_stays_off_until_approved_and_configured(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "upwork_api_enabled", True)
     headers, _ = user(client, "gate@example.com")
     body = client.get("/api/upwork/connections", headers=headers).json()
     assert body["canConnect"] is False and "approved" in body["reason"]
     assert client.post("/api/upwork/oauth/start", headers=headers, json={}).status_code == 503
 
+    monkeypatch.setattr(get_settings(), "upwork_api_enabled", True)
     monkeypatch.setattr(get_settings(), "upwork_commercial_approved", True)
     body = client.get("/api/upwork/connections", headers=headers).json()
     assert body["canConnect"] is False
@@ -312,3 +315,14 @@ def test_keys_rotate_and_bad_keys_are_refused(monkeypatch):
     assert crypto.configured() is False and "UPWORK_CLIENT_ID" in uw_client.missing_settings(settings)
     with pytest.raises(RuntimeError):
         Settings(environment="production", secret_key="s" * 40, token_encryption_key="not-a-key").validate_for_production()
+
+
+def test_api_connection_is_off_by_default_even_when_fully_configured(client, upwork, monkeypatch):
+    """The client chose email alerts over the Upwork API: the master switch keeps every connect path closed."""
+    monkeypatch.setattr(get_settings(), "upwork_api_enabled", False)
+    headers = bearer(signup(client, email="agency@example.com")["token"])
+    body = client.get("/api/upwork/connections", headers=headers).json()
+    assert body["canConnect"] is False and "alert emails" in body["reason"]
+    assert client.post("/api/upwork/oauth/start", headers=headers, json={}).status_code == 503
+    status = client.get("/api/upwork/status", headers=headers).json()
+    assert status["canConnect"] is False and status["connected"] is False

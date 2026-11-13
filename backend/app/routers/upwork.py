@@ -135,7 +135,7 @@ def _normalize_gql(data: dict) -> list[dict]:
 @router.get("/upwork/status")
 async def status(user: dict = Depends(current_user)):
     settings = get_settings()
-    approved = settings.upwork_commercial_approved
+    approved = settings.upwork_commercial_approved and settings.upwork_api_enabled
     configured = upwork_client.oauth_configured(settings)
     connection = await newest_active_connection(user["id"]) if approved and configured else None
     return {

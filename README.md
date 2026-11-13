@@ -51,16 +51,16 @@ is observable/controllable from the dashboard.
 
 | Layer | Status | Details |
 |-------|--------|---------|
-| **Frontend** | ✅ Complete | Next.js 14 App Router, 76 routes — public/marketing, auth, admin dashboard (32 pages), freelancer portal, client portal, dev index `/dev`. |
-| **Backend API** | ✅ Complete (in-memory) | FastAPI app in [`backend/`](backend/) — ~70 REST endpoints covering the full §7 API surface, CORS-ready, OpenAPI docs at `/docs`. **In-memory store today** (no DB connected yet); seeded to mirror the frontend mock data 1:1. |
+| **Frontend** | ✅ Built | Next.js 14 App Router, 137 routes (`npm run build` passes; typecheck clean) — public/marketing, auth, admin dashboard, freelancer and investor portals. Security headers (CSP, HSTS…) are set in `next.config.mjs`. |
+| **Backend API** | ✅ Built | FastAPI app in [`backend/`](backend/), OpenAPI docs at `/docs`. Persists to MongoDB when `MONGODB_URI` is set; in production it **refuses to start** without it (or `ALLOW_IN_MEMORY_DB=true`). Test suite: `cd backend && pytest` (Python 3.12). |
 | **Command Center** | ✅ Complete | `/dashboard/command` — single-pane control of the whole agency: clickable KPIs, agent fleet toggles, revenue streams, HITL resolution, contract progress, security posture, live audit feed, notifications. |
 | **Security & API Vault** | ✅ Complete | `/dashboard/security` — centrally managed credentials (masked keys, connect/rotate actions), security-control checklist, security events. Backend hardening live: security headers, per-IP rate limiting, `X-Request-Id`, optional `X-API-Key` gate (`API_KEY` env). |
 | **User Testing** | ✅ Complete | `/dashboard/user-testing` — click-through scenario checklist per role (advance/reset status), pass-rate tracking, tester feedback log. |
 | **Client Onboarding** | ✅ Complete | `/dashboard/onboarding` — 4-step wizard (client → project → milestones → review) that creates client + contract + milestones via `POST /api/onboarding`. First client seeded: **Platinum Sound Records — AI Music Production Hub** (spec: [`docs/ai-music-hub-mvp.md`](docs/ai-music-hub-mvp.md)). |
 | **Frontend ↔ Backend wiring** | ✅ Complete | `lib/api.ts` + `useEntity`/`getEntity`/`useEntityQuery` hydrate every data-driven page from the API when `NEXT_PUBLIC_API_URL` is set; graceful fallback to mock data otherwise. Action buttons POST to the API (agent control, HITL, payouts, bids, messages, settings, billing, credential rotation, onboarding). **All stat cards and key table rows are clickable** and navigate to the relevant detail page. |
-| **Database** | ⏳ Not connected | Schema designed in §6; swap `backend/app/store.py` for SQLAlchemy repositories later — routers unchanged. |
-| **Auth / RBAC** | ⏳ Stub | JWT hooks reserved + optional `X-API-Key` gate; full auth in a later phase. |
-| **Automation & agents** | ⏳ Pending | LangGraph/Celery/Playwright workers in a later phase. |
+| **Database** | ✅ MongoDB | Accounts and per-user data live in MongoDB (`backend/app/db.py`, `repo.py`). Without `MONGODB_URI` (development only) everything is in memory. Backups: [`docs/backup-and-monitoring.md`](docs/backup-and-monitoring.md). |
+| **Auth / RBAC** | ✅ Built | JWT sessions, argon2 passwords, email verification, password reset by emailed single-use link, persistent login lockout, per-IP limits on credential endpoints, role guards on every data route, personal API keys. |
+| **Automation & agents** | ⏳ Partial | Approval-gated queue and a separate browser worker (`worker/`), simulation unless a worker is deployed. **Never used for Upwork**: Upwork is human-in-the-loop only ([`docs/upwork-assistant.md`](docs/upwork-assistant.md)). |
 | **External integrations** | ⏳ Pending | See [`API.md`](API.md) — accounts are **managed by the agency vault** (dedicated email + password manager + 2FA), not the client. |
 
 ### Current delivery for the five platform capabilities

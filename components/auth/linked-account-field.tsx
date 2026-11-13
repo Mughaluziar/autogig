@@ -104,7 +104,7 @@ export function LinkedAccountField({ required = false }: { required?: boolean })
           : result?.url
             ? <>Will link <span className="break-all font-medium text-foreground">{result.url}</span></>
             : platform === "upwork"
-              ? "After you confirm your email you can also connect Upwork securely, so jobs and orders sync."
+              ? "Autopilot never logs in to Upwork. Forward your Upwork job-alert emails to Autopilot and send each proposal yourself."
               : "Paste your profile link, or just your username where the platform has one."}
       </p>
     </fieldset>

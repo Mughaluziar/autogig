@@ -150,7 +150,8 @@ export default function VerifyEmailPage() {
         sessionStorage.removeItem(UPWORK_PROMPT_KEY);
       } catch { /* storage blocked */ }
       // Connecting Upwork's API lands on the agency workspace's Accounts page.
-      const upwork = wantsUpwork && role === "admin" ? await apiGet<UpworkConnections>("/api/upwork/connections") : null;
+      const offered = wantsUpwork && role === "admin" ? await apiGet<UpworkConnections>("/api/upwork/connections") : null;
+      const upwork = offered?.canConnect ? offered : null; // only when the API connection is switched on
       setDone({ role, upwork });
       login(role, fields, res.data.token);
       toast({ title: "Email confirmed", description: "Your account is ready.", variant: "success" });
