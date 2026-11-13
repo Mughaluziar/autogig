@@ -71,3 +71,42 @@ See `docs/upwork-assistant.md` for the flow, setup and the verified/not-verified
 3. Production accounts and keys: MongoDB Atlas (paid tier for backups), email provider, Stripe, Groq, Sentry, inbound-email provider.
 4. Lawyer review of Terms/Privacy; confirmation that Upwork's terms allow AI-drafted proposals that users submit personally.
 5. Which of the demo-only features (agents, arbitrage, spec auctions, client portal) are in scope for launch.
+
+
+---
+
+# QA pass 2026-11-14 (browser + real MongoDB)
+
+Stack under test: production Next.js build proxying `/api` to the FastAPI app (Python 3.12.14) on a throwaway MongoDB 7 container; synthetic accounts and synthetic Upwork emails only; a local mock "AI provider" answered the real HTTP call that the app makes to Groq (no real AI provider was configured). Nothing was deployed and no production data was touched.
+
+| Suite | Result |
+|---|---|
+| Browser E2E (`scripts/qa/e2e.mjs`, real Chromium, 6 roles) | **153/153 passed** (auth/cookies/CSRF/logout/reset, Upwork assistant, pool, roles/privacy, responsive, loading/error) |
+| Authenticated route crawl, every route of admin / freelancer / investor, desktop 1440 + mobile 390 | **220 page visits: 0 server errors, 0 page errors, 0 blank pages, 0 horizontal overflow** |
+| Backend suite, Python 3.12.14, in-memory | **427 passed, 4 skipped, 0 failed** |
+| Frontend typecheck / lint / production build | pass / 1 pre-existing warning / pass |
+| Backend log during the browser run | no tracebacks, no 5xx |
+| Data in MongoDB after the run | verified by query: users, specs, bids (awarded/rejected), contract, earning (paid), Upwork leads, proposal flagged manual-submit-only, revoked session, `session_version` bump, unique indexes `(spec_id, freelancer_id)` and `(user_id, dedupe_key)` |
+
+## Bugs found by this pass, all fixed and re-tested
+1. **Rate limit too tight (real).** 240 requests/min per IP was exhausted by normal use (one dashboard page makes ~25 calls; users behind one office IP share it) and returned 429s. Now `RATE_LIMIT_PER_MINUTE`, default 900 (unit-tested). The QA run used 4000 for its single-IP load; 900 for real traffic is a judgement, not measured.
+2. **Freelancer home page still called demo-only endpoints** (404/403 in the console, zeros/mock). Now uses the real pool data with loading/error states.
+3. **Upwork lead detail page showed "spent only when an auto-apply is actually sent"** (irrelevant, implies automation). Hidden for Upwork.
+4. **Fabricated "+8.1%" revenue trend** on the agency Command Center and Margins pages for accounts with $0. Removed.
+5. Test-script bugs (not product bugs): an award click matched the wrong row; an assertion counted the tester's own probe lead as a leak.
+
+## Not verified / still incomplete (honest list)
+- **MongoDB-mode run of the entire suite** after the last edits: started, see the note at the end of this file for its outcome. The pool/session/Upwork/auth/orders tests passed against Mongo in earlier runs; 5 older tests are memory-only by design.
+- **Real Upwork emails, real AI provider output, real inbound-email delivery, real email sending (reset links, verification codes): not tested** (no credentials). In QA the reset link is returned on screen because no email provider is configured; in production the same link is only emailed.
+- **Vercel to Render proxy in production:** same-site cookies and `X-Forwarded-*` trust were tested only on localhost. Vercel rewrites have their own timeout (about 30 s on some plans) which can be shorter than a sleeping Render free instance wakes; use a paid Render plan.
+- **Secure cookie flag** is verified by unit tests (production/https), not in a live https deployment.
+- **Admin dashboard sections that are demo-only** still make ~10 calls to endpoints that do not exist for real accounts (`/api/kpis`, `/api/agents`, ...): harmless 404s in the console, and the pages show empty zero states, but they are not features. Routes like `/dashboard/clients`, `/contracts`, `/milestones`, `/freelancers` redirect to the Command Center for real accounts.
+- **Anonymous visitors cause a 401 `/api/auth/me` console line** on every page load (expected probe; cosmetic).
+- **Mobile tables** (e.g. Open Specs) scroll sideways inside their card at 390 px; the page itself does not overflow. A card layout would be nicer.
+- **QA & Submissions** (freelancer) has no real backend.
+- **Payouts only record that the agency paid;** there is no Stripe Connect transfer. No escrow.
+- Third-party integrations awaiting credentials/approval: Stripe (live), email provider (Resend/SMTP), Groq (or another LLM), inbound-email provider, Google/GitHub/Microsoft/Apple sign-in apps, Sentry DSNs, Nango/Outlook (optional), MongoDB Atlas + backups, uptime monitor.
+- Production blockers: items above plus a lawyer's review of Terms/Privacy, Atlas backups and a restore drill, real-world check of the Upwork parser with 3-5 real alert emails, and a decision on the Upwork browser-assist extension.
+
+## MongoDB-mode full-suite outcome (final)
+Whole backend suite against real MongoDB 7: **413 passed, 7 skipped, 11 failed**. All 11 failures were in `test_session_cookies.py`: that file created extra `TestClient`s, and a Motor (MongoDB) client cannot be shared between event loops (a test-harness limit, not a product bug; the same flows passed in the real-browser run against MongoDB). The tests now use cookie-jar "devices" on one client and the file passes in **both** modes (21/21 memory, 21/21 Mongo). The other 413 stayed green; the 7 skips are the 4 normal skips plus 3 tests that read in-memory storage by design.

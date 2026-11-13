@@ -1,11 +1,10 @@
 """Cookie sessions: HttpOnly cookie, CSRF, Origin check, logout/revocation, expiry, regression for bearer auth."""
 import re
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from app.config import get_settings
-from app.main import app
 from conftest import bearer, signup
 
 ORIGIN = "http://localhost:3000"           # the default CORS_ORIGINS entry
@@ -13,8 +12,42 @@ COOKIE_MODE = {"X-Session-Mode": "cookie", "Origin": ORIGIN}
 PW = "correct-horse"
 
 
+_CLIENT = None
+
+
+@pytest.fixture(autouse=True)
+def _bind_client(client):
+    """All 'devices' share the one TestClient (one event loop), so the suite also runs against real MongoDB."""
+    global _CLIENT
+    _CLIENT = client
+
+
+class Device:
+    """A browser with its own cookie jar, sharing the app's single TestClient."""
+
+    def __init__(self, client):
+        self._c = client
+        self.cookies = httpx.Cookies()
+
+    def _call(self, name, *args, **kwargs):
+        self._c.cookies.clear()
+        for ck in self.cookies.jar:
+            self._c.cookies.jar.set_cookie(ck)
+        try:
+            return getattr(self._c, name)(*args, **kwargs)
+        finally:
+            self.cookies = httpx.Cookies()
+            for ck in self._c.cookies.jar:
+                self.cookies.jar.set_cookie(ck)
+            self._c.cookies.clear()
+
+    def get(self, *a, **k): return self._call("get", *a, **k)
+    def post(self, *a, **k): return self._call("post", *a, **k)
+    def options(self, *a, **k): return self._call("options", *a, **k)
+
+
 def new_client():
-    return TestClient(app, base_url="http://testserver")
+    return Device(_CLIENT)
 
 
 def cookie_login(c, email="agency@example.com", password=PW, extra=None):
@@ -78,13 +111,13 @@ def test_signup_in_cookie_mode_starts_a_cookie_session(client):
 def test_no_cookie_or_garbage_cookie_is_unauthorized(account):
     c = new_client()
     assert c.get("/api/auth/me").status_code == 401
-    c.cookies.set("autopilot_session", "not-a-jwt")
+    c.cookies.set("autopilot_session", "not-a-jwt", domain="testserver.local")
     assert c.get("/api/auth/me").status_code == 401
     c.cookies.clear()
     cookie_login(c)
     good = c.cookies.get("autopilot_session")
     c.cookies.delete("autopilot_session")
-    c.cookies.set("autopilot_session", good[:-4] + "AAAA")      # tampered signature
+    c.cookies.set("autopilot_session", good[:-4] + "AAAA", domain="testserver.local")      # tampered signature
     assert c.get("/api/auth/me").status_code == 401
 
 
@@ -149,7 +182,7 @@ def test_logout_requires_csrf_clears_cookies_and_revokes_the_session(account):
     assert c.get("/api/auth/me").status_code == 401
     # A copy of the old cookie no longer works: the session was revoked server-side.
     replay = new_client()
-    replay.cookies.set("autopilot_session", stolen)
+    replay.cookies.set("autopilot_session", stolen, domain="testserver.local")
     assert replay.get("/api/auth/me").status_code == 401
     assert replay.get("/api/auth/me").json()["detail"].startswith("Session ended")
 
@@ -184,7 +217,7 @@ def test_expired_session_cookie_is_rejected(account, monkeypatch):
     monkeypatch.setattr(get_settings(), "access_token_expire_minutes", -1)
     expired = account.post("/api/auth/login", json={"email": "agency@example.com", "password": PW}).json()["token"]
     c = new_client()
-    c.cookies.set("autopilot_session", expired)
+    c.cookies.set("autopilot_session", expired, domain="testserver.local")
     me = c.get("/api/auth/me")
     assert me.status_code == 401 and "expired" in me.json()["detail"].lower()
 
@@ -193,7 +226,12 @@ def test_deleted_or_replaced_account_cannot_keep_using_a_cookie(account):
     from app import db
     c = new_client()
     cookie_login(c)
-    db._mem_users.clear()
+    async def drop_accounts():
+        if db.enabled():
+            await db._get_db().users.delete_many({})
+        else:
+            db._mem_users.clear()
+    _CLIENT.portal.call(drop_accounts)
     assert c.get("/api/auth/me").status_code == 401
 
 
