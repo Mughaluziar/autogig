@@ -43,3 +43,7 @@ __pycache__/
 .venv/
 venv/
 all pages/
+
+# browser-test artefacts
+.playwright-mcp/
+/*.png
