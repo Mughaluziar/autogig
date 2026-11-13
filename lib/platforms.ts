@@ -51,9 +51,9 @@ export type PlatformSpec = {
 
 export const PLATFORM_MATRIX: PlatformSpec[] = [
   // ---- Freelance marketplaces -------------------------------------------
-  { id: "upwork", name: "Upwork", category: "marketplace", caps: ["inbox", "jobs", "bidding", "gigs", "account"], mode: "api", status: "demo",
+  { id: "upwork", name: "Upwork", category: "marketplace", caps: ["inbox", "jobs", "bidding", "gigs", "account"], mode: "email", status: "guided",
     url: "https://www.upwork.com", signupUrl: "https://www.upwork.com/signup", editorUrl: "https://www.upwork.com/nx/project-catalog/",
-    note: "Official API documents job search, proposal submission, and messaging. Commercial use needs API approval and prior written permission; live API calls stay off until approved." },
+    note: "Human-in-the-loop: Autopilot reads the job-alert emails you forward, drafts proposals with AI, and you review and submit them yourself on Upwork. It never uses the Upwork API or signs in to your account." },
   { id: "freelancer", name: "Freelancer.com", category: "marketplace", caps: ["inbox", "jobs", "bidding", "gigs", "account"], mode: "api", status: "planned", sourceId: "flx",
     url: "https://www.freelancer.com", signupUrl: "https://www.freelancer.com/signup",
     note: "Official SDK documents project search, bids, and messages, but written permission is required for automated API access. Production calls are disabled pending approval; sandbox/demo only." },

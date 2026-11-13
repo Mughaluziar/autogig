@@ -14,7 +14,6 @@ from pydantic import BaseModel, Field
 from . import job_sources, repo, seed
 from .auth import current_user, is_owner
 from .config import get_settings
-from .upwork import client as upwork_client, store as upwork_store
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 log = logging.getLogger("autopilot.integrations")
@@ -32,8 +31,8 @@ class NangoConnectionBody(BaseModel):
 def _nango_integrations_allowed(settings) -> set[str]:
     """Hide OAuth flows until their explicit approval gates pass.
 
-    Upwork is never a Nango integration: Nango has no Upwork provider, so it
-    connects directly (app/upwork/, routers/upwork_connect.py)."""
+    Upwork is never a Nango integration (Nango has no Upwork provider, and Upwork
+    is handled through email alerts only: docs/upwork-assistant.md)."""
     configured = {value.strip() for value in settings.nango_integrations.split(",") if value.strip()}
     configured.discard("upwork")
     if "microsoft-outlook" in configured and not (
@@ -175,10 +174,6 @@ async def list_marketplace_capabilities(user: dict = Depends(current_user)):
     present. It does not claim an end-user OAuth connection exists.
     """
     settings = get_settings()
-    upwork_ready = bool(
-        upwork_client.connect_enabled(settings)
-        and any(c.get("status") == "active" for c in await upwork_store.list_connections(user["id"]))
-    )
     freelancer_token = bool(settings.freelancer_oauth_token)
     freelancer_sandbox = bool(freelancer_token and settings.freelancer_sandbox)
     freelancer_live_ready = bool(
@@ -209,13 +204,20 @@ async def list_marketplace_capabilities(user: dict = Depends(current_user)):
         for platform in ("Upwork", "Freelancer.com", "Fiverr")
     }
 
+    # Upwork is human-in-the-loop: the user's own alert emails become Job Radar leads.
+    upwork_alerts = capability(
+        inbound_domain_ready and "upwork" in configured_email_platforms,
+        "Job-alert emails the user forwards become Job Radar leads. Autopilot does not connect to Upwork.",
+        "forwarded_email",
+    )
+
     return {
         "platforms": {
             "Upwork": {
-                "job_search": capability(upwork_ready, "Requires an API token and approved commercial access.", "api"),
+                "job_search": upwork_alerts,
                 "proposal_submit": capability(
                     False,
-                    "Proposal submission is not implemented yet; it also requires the approved Submit Proposal scope.",
+                    "Proposals are drafted by Autopilot and submitted by the user on Upwork; nothing is submitted automatically.",
                 ),
                 "message_read": forwarded_platforms["Upwork"],
                 "message_send": capability(
@@ -251,7 +253,7 @@ async def list_marketplace_capabilities(user: dict = Depends(current_user)):
                 source["name"]: capability(source["enabled"], source["reason"], source["mode"])
                 for source in job_sources.source_report(settings)
             },
-            "Upwork": capability(upwork_ready, "Requires an API token and approved commercial access.", "api"),
+            "Upwork": upwork_alerts,
         },
         "product_features": {
             "unified_inbox": capability(

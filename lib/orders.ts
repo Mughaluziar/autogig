@@ -73,7 +73,7 @@ export type OrderAccount = {
   label: string;
   handle: string;
   externalAccountId: string | null;
-  connection: "upwork_oauth" | "nango" | "platform_token" | "email";
+  connection: "nango" | "platform_token" | "email";
   status: "active" | "needs_reauth" | "disabled";
   inboundAddress: string | null;
   lastSyncAt: string | null;
@@ -93,7 +93,7 @@ export type PlatformCapability = {
   apiEnabled: boolean;
   canConnectApi: boolean;
   integrationId: string | null;
-  connection: "upwork_oauth" | "nango" | "platform_token" | "email";
+  connection: "nango" | "platform_token" | "email";
   emailReady: boolean;
   limitations: string[];
   emailDomains: string[];

@@ -12,7 +12,6 @@ import { CoveragePanel } from "@/components/dashboard/orders/coverage-panel";
 import { EventTimeline, OrderDetailDialog } from "@/components/dashboard/orders/order-detail";
 import { EMPTY_FILTERS, OrdersTable } from "@/components/dashboard/orders/orders-table";
 import { API_URL, apiCall, apiGet } from "@/lib/api";
-import { takeUpworkReturn } from "@/lib/upwork";
 import { useToast } from "@/components/ui/toast";
 import { DEMO_ACCOUNTS, DEMO_CAPABILITIES, DEMO_EVENTS, filterDemoOrders, type OrderFilters } from "@/lib/orders-demo";
 import { formatMoney, type CapabilityReport, type Order, type OrderAccount, type OrderEvent, type OrdersResponse } from "@/lib/orders";
@@ -46,27 +45,6 @@ export default function OrdersPage() {
   const refresh = React.useCallback(() => setTick((t) => t + 1), []);
   const { toast } = useToast();
 
-  // Back from Upwork's sign-in: add the new connection as an order account.
-  React.useEffect(() => {
-    const back = takeUpworkReturn();
-    if (!back) return;
-    setTab("accounts");
-    if (!back.ok) {
-      toast({ title: "Upwork not connected", description: back.message });
-      return;
-    }
-    void (async () => {
-      const res = await apiCall<OrderAccount & { detail?: string }>("/api/orders/accounts", {
-        platform: "Upwork", label: back.pending?.label ?? "", mode: "api", connectionId: back.connectionId,
-      });
-      if (!res || res.status >= 400) {
-        toast({ title: "Upwork connected, but the account wasn't added", description: res?.data?.detail ?? "Can't reach the server." });
-        return;
-      }
-      toast({ title: `${res.data.label} added`, description: "Existing orders are importing now.", variant: "success" });
-      refresh();
-    })();
-  }, [refresh, toast]);
 
   // Typing in search shouldn't fire a request per keystroke.
   React.useEffect(() => {

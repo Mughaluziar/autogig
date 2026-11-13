@@ -12,7 +12,6 @@ import { Select } from "@/components/ui/select";
 import { EmptyState } from "@/components/shared/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { API_URL, apiCall } from "@/lib/api";
-import { startUpworkConnect } from "@/lib/upwork";
 import type { OrderAccount, PlatformCapability } from "@/lib/orders";
 import { formatRelative } from "@/lib/utils";
 
@@ -165,13 +164,6 @@ function AddAccountDialog({
     setBusy(true);
     // The platform's own token is configured on the server: nothing to authorize here.
     if (cap.connection === "platform_token") return save("api");
-    // Upwork signs in on upwork.com; the orders page adds the account when the browser returns.
-    if (cap.connection === "upwork_oauth") {
-      const error = await startUpworkConnect("/dashboard/orders", { label });
-      setBusy(false);
-      toast({ title: "Couldn't connect Upwork", description: error });
-      return;
-    }
     if (!cap.integrationId) return setBusy(false);
     const res = await apiCall<{ sessionToken: string } & Detail>("/api/integrations/nango/session", { integration_id: cap.integrationId });
     if (!res || res.status >= 400 || !res.data.sessionToken) {

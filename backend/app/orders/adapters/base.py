@@ -47,7 +47,7 @@ class Capability:
     status_sync: bool
     # True when this environment has the approvals/credentials to call the API.
     api_enabled: bool
-    connection: str                    # "upwork_oauth", "nango", "platform_token" or "email"
+    connection: str                    # "nango", "platform_token" or "email"
     limitations: tuple[str, ...] = ()
     email_domains: tuple[str, ...] = ()
     email_parser_validated: bool = False
@@ -93,8 +93,7 @@ class OrderAdapter:
     key: str = ""
     platform: str = ""
     email_domains: tuple[str, ...] = ()
-    # How the API is reached: "upwork_oauth" (per-user OAuth straight to
-    # Upwork, app/upwork/), "nango" (per-user OAuth through Nango),
+    # How the API is reached: "nango" (per-user OAuth through Nango),
     # "platform_token" (the platform owner's configured token), or "email"
     # (no API — notification emails only).
     connection_kind: str = "email"

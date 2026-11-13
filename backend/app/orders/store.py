@@ -25,7 +25,7 @@ from pymongo.errors import DuplicateKeyError
 from .. import db
 
 # Connection kinds that reach a platform API (see adapters/base.py).
-API_CONNECTION_KINDS = ("nango", "platform_token", "upwork_oauth")
+API_CONNECTION_KINDS = ("nango", "platform_token")
 EVENT_TTL = timedelta(days=400)
 _MEM_EVENT_CAP = 2000
 

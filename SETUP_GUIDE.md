@@ -218,7 +218,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 # Encryption key for stored platform tokens (needs: pip install cryptography)
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
-Set `SECRET_KEY` with **different values for dev and prod**. `TOKEN_ENCRYPTION_KEY` will be added before OAuth tokens are stored; do not place platform tokens in workspace settings. If a key is ever exposed, generate a new one and replace it.
+Set `SECRET_KEY` with **different values for dev and prod**. do not place platform tokens in workspace settings. If a key is ever exposed, generate a new one and replace it.
 
 ---
 
@@ -236,7 +236,6 @@ Never commit these values. Locally they go in `backend/.env` (already git-ignore
 | Variable | Where | From item |
 |---|---|---|
 | `SECRET_KEY` | Render | 15 |
-| Upwork OAuth client ID/secret | `UPWORK_CLIENT_ID` / `UPWORK_CLIENT_SECRET` on the backend (only after approval) | 2 |
 | Freelancer OAuth client ID/secret | Nango console (only after written permission) | 4, 5 |
 | `FREELANCER_SANDBOX` | Render | 4, 5 |
 | `NANGO_SECRET_KEY`, `NANGO_INTEGRATIONS` | Render | 8 |

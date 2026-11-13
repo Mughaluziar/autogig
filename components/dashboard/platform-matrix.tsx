@@ -46,16 +46,14 @@ export function PlatformMatrix() {
   React.useEffect(() => {
     let dead = false;
     (async () => {
-      const [fl, uw, auto, radar] = await Promise.all([
+      const [fl, auto, radar] = await Promise.all([
         apiGet<any>("/api/freelancer/status"),
-        apiGet<any>("/api/upwork/status"),
         apiGet<any>("/api/automation/status"),
         apiGet<{ sources: ({ id: string } & SourceState)[] }>("/api/radar/sources"),
       ]);
       if (dead) return;
       setLive({
         freelancer: fl?.mode === "live",
-        upwork: uw?.mode === "live",
       });
       setWorkerOn(!!auto?.workerConfigured);
       setSources(Object.fromEntries((radar?.sources ?? []).map((s) => [s.id, s])));

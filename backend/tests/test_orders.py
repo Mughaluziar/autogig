@@ -28,10 +28,17 @@ def inbound(monkeypatch):
 
 
 class FakeUpwork:
-    """Stands in for the Upwork API: offers keyed by the account's user id."""
+    """A stand-in API platform for the generic order-sync engine.
+
+    Upwork itself has no API integration any more (email only), so the Upwork
+    adapter instance is patched to behave like an OAuth-through-Nango platform
+    for these engine tests. Offers are keyed by the account's external id."""
 
     def __init__(self, monkeypatch):
         self.adapter = get_adapter("Upwork")
+        monkeypatch.setattr(self.adapter, "connection_kind", "nango")
+        monkeypatch.setattr(self.adapter, "integration_id", "standin")
+        monkeypatch.setattr(self.adapter, "max_cache_age", timedelta(hours=24))
         self.offers: dict[str, list[OrderSignal]] = {}
         self.fail: Exception | None = None
         self.calls = 0
@@ -59,7 +66,7 @@ class FakeUpwork:
             return next((o for o in self.offers.get(account["external_account_id"], [])
                          if o.external_order_id == external_id), None)
 
-        monkeypatch.setattr(orders_router, "verify_upwork_connection", no_connection_check)
+        monkeypatch.setattr(orders_router, "verify_nango_connection", no_connection_check)
         monkeypatch.setattr(self.adapter, "identify", identify)
         monkeypatch.setattr(self.adapter, "list_orders", list_orders)
         monkeypatch.setattr(self.adapter, "fetch_order", fetch_order)
@@ -222,15 +229,14 @@ def test_email_signal_is_only_verified_by_the_platform(client, inbound, upwork):
     assert any(e["type"] == "field_mismatch" for e in events)
 
 
-def test_email_order_without_api_access_waits_instead_of_guessing(client, inbound):
+def test_upwork_email_order_is_never_claimed_verified(client, inbound):
     alice = bearer(signup(client, email="uw-noapi@example.com")["token"])
     account = client.post("/api/orders/accounts", headers=alice, json={"platform": "Upwork"}).json()
     client.post("/api/inbox/inbound", headers=WEBHOOK, json={
         "To": account["inboundAddress"], "From": "donotreply@upwork.com",
         "Subject": "Your contract has started: Mobile app", "TextBody": "Good luck!", "MessageID": "<uw-c@x>"})
     order = orders(client, alice)["orders"][0]
-    assert order["verification"]["status"] == "pending"
-    assert "email-only" in order["verification"]["reason"]
+    assert order["verification"]["status"] == "unverifiable"   # no Upwork API: the user confirms on upwork.com
     assert order["title"] == "Mobile app" and order["status"] == "active"
 
 
@@ -327,16 +333,14 @@ def test_nango_webhook_requires_a_valid_signature_and_only_hints(client, upwork,
     monkeypatch.setattr(settings, "nango_webhook_signing_key", "signing-key")
     session = signup(client, email="uw-hook@example.com")
     alice = bearer(session["token"])
-    # Upwork itself now connects directly (app/upwork/); the handler serves any
-    # account whose API connection runs through Nango, so add one as such.
+    # The handler serves any account whose API connection runs through Nango.
     account = run(client, store.add_account, session["user"]["id"], {
         "platform": "Upwork", "label": "Through Nango", "status": "active", "consecutive_failures": 0,
-        "connection": {"kind": "nango", "integrationId": "upwork", "connectionId": "conn-a"},
+        "connection": {"kind": "nango", "integrationId": "standin", "connectionId": "conn-a"},
         "external_account_id": "uw-a", "handle": "conn-a",
     })
-    direct = connect_upwork(client, alice, "conn-b")
     monkeypatch.setattr(upwork.adapter, "webhook_order_ids", lambda payload: [payload.get("id")])
-    body = json.dumps({"type": "forward", "from": "upwork", "providerConfigKey": "upwork",
+    body = json.dumps({"type": "forward", "from": "upwork", "providerConfigKey": "standin",
                        "connectionId": "conn-a", "payload": {"entity": "OFFER", "action": "CREATE", "id": "808"}})
     sig = hmac.new(b"signing-key", body.encode(), hashlib.sha256).hexdigest()
 
@@ -353,12 +357,12 @@ def test_nango_webhook_requires_a_valid_signature_and_only_hints(client, upwork,
     order = orders(client, alice)["orders"][0]
     assert order["verification"]["status"] == "verified" and order["accountId"] == account["id"]
 
-    # A direct Upwork OAuth connection is never matched by a Nango webhook.
-    other = json.dumps({"type": "forward", "from": "upwork", "providerConfigKey": "upwork",
-                        "connectionId": "conn-b", "payload": {"entity": "OFFER", "action": "CREATE", "id": "909"}})
+    # A connection that belongs to no account is never matched.
+    other = json.dumps({"type": "forward", "from": "standin", "providerConfigKey": "standin",
+                        "connectionId": "conn-unknown", "payload": {"entity": "OFFER", "action": "CREATE", "id": "909"}})
     res = client.post("/api/orders/webhooks/nango", content=other,
                       headers={"X-Nango-Hmac-Sha256": hmac.new(b"signing-key", other.encode(), hashlib.sha256).hexdigest()})
-    assert res.json()["matched"] == 0 and direct["connection"] == "upwork_oauth"
+    assert res.json()["matched"] == 0
 
 
 def test_capabilities_report_limits_honestly(client):
@@ -392,19 +396,20 @@ def test_fiverr_parser_statuses():
     assert fiverr.parse_email("You have a new message", "") is None
 
 
-def test_upwork_offer_mapping_handles_money_objects_and_lists():
+def test_upwork_adapter_is_email_only_with_no_api_surface():
     adapter = UpworkAdapter()
-    signal = adapter._from_offer({
-        "id": "11", "title": "Build", "client": {"id": "c1", "name": "Acme"},
-        "offerTerms": {"fixedPriceTerm": {"budget": {"rawValue": "1250.50", "currency": "USD"}}},
-        "milestones": [{"id": "m1", "description": "Phase 1", "state": "Active",
-                        "depositAmount": {"rawValue": "500", "currency": "USD"}}],
-    }, OrderStatus.ACTIVE)
-    assert (signal.amount, signal.currency, signal.client_name) == (1250.5, "USD", "Acme")
-    assert signal.milestones[0].amount == 500.0 and signal.authoritative
-    hourly = adapter._from_offer({"id": "12", "offerTerms": {"hourlyTerms": [{"rate": {"rawValue": 60, "currency": "USD"}}]}}, None)
-    assert hourly.amount == 60.0 and hourly.status is None
+    assert adapter.connection_kind == "email" and not adapter.has_api
+    assert not hasattr(adapter, "_graphql") and not hasattr(adapter, "_from_offer")
+    cap = adapter.capability(get_settings())
+    assert cap.detection == ("email",) and cap.verification == "none" and cap.api_enabled is False
+
+
+def test_upwork_contract_emails_are_recognised():
+    adapter = UpworkAdapter()
     assert adapter.parse_email("Your contract has started: Mobile app", "").title == "Mobile app"
+    assert adapter.parse_email("Offer cancelled: Mobile app", "").status == OrderStatus.CANCELLED
+    assert adapter.parse_email("You've been hired: Mobile app", "").status == OrderStatus.ACTIVE
+    assert adapter.parse_email("Weekly newsletter", "") is None
 
 
 def test_freelancer_status_mapping():

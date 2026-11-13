@@ -12,7 +12,7 @@
 2. **Run a restore drill** (below) once, and again after any schema change, and write down how long it took.
 3. **Uptime monitoring.** Point an external checker (UptimeRobot, Better Stack, etc.) at `https://<api>/health` every minute, and at the frontend home page. Alert on non-200 and on a response time above 10 s. Render's free plan sleeps after 15 idle minutes, so use at least the Starter plan before real customers.
 4. **Sentry:** set `SENTRY_DSN` (API) and `NEXT_PUBLIC_SENTRY_DSN` (frontend); create an alert rule for new issues and for error-rate spikes.
-5. **Secrets backup:** store `SECRET_KEY`, `TOKEN_ENCRYPTION_KEY` and the Stripe keys in the team password manager. Losing `TOKEN_ENCRYPTION_KEY` makes every stored OAuth token unreadable.
+5. **Secrets backup:** store `SECRET_KEY` and the Stripe keys in the team password manager. Rotating `SECRET_KEY` signs every user out.
 
 ## Taking and checking a backup
 ```bash

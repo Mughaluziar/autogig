@@ -4,6 +4,7 @@ Nothing here (or in the feature) calls Upwork. Email fixtures are synthetic."""
 import pytest
 
 from app import llm
+from app.main import app
 from app.config import get_settings
 from conftest import bearer, signup
 from test_upwork_alerts import DIGEST_HTML
@@ -144,7 +145,6 @@ def test_ai_proposal_is_personalised_editable_and_manual_submit_only(client, inb
         return "I read your brief about the analytics dashboard. Here is my plan. Which charts matter most?"
     monkeypatch.setattr(llm, "chat", fake_chat)
     alice, address = inbox("alice@example.com")
-    client.post("/api/auth/change-password", headers=alice, json={"currentPassword": "correct-horse", "newPassword": "correct-horse2"})
     client.post("/api/inbox/inbound", headers=HOOK, json=alert(address))
     lead = client.get("/api/upwork/leads", headers=alice).json()["leads"][0]
 
@@ -192,10 +192,29 @@ def test_automation_is_refused_for_upwork_but_not_other_platforms(client):
     assert ok.status_code == 200 and ok.json()["engine"] == "simulation"
 
 
-def test_no_upwork_api_or_nango_path_is_used(client):
-    # The old API submit stub still refuses, and Nango can never be used for Upwork.
+def test_upwork_api_oauth_graphql_and_submit_routes_no_longer_exist(client):
+    """Decision: Upwork is human-in-the-loop only. The OAuth/GraphQL integration was removed."""
     admin = bearer(signup(client, email="agency@example.com")["token"])
-    res = client.post("/api/upwork/proposal/submit", headers=admin, json={"jobId": "x", "proposal": "p" * 50, "approved": True})
-    assert res.status_code in (422, 501)
+    for method, path in (("get", "/api/upwork/connections"), ("post", "/api/upwork/oauth/start"),
+                         ("get", "/api/upwork/oauth/callback"), ("get", "/api/upwork/status"),
+                         ("get", "/api/upwork/jobs"), ("post", "/api/upwork/proposal/prepare"),
+                         ("post", "/api/upwork/proposal/submit")):
+        assert getattr(client, method)(path, headers=admin).status_code in (404, 405), path
+    paths = {route.path for route in app.routes}
+    assert not any("/upwork/oauth" in p or "/upwork/connections" in p or "proposal/submit" in p for p in paths)
+    # The assistant's own routes are still there.
+    assert "/api/upwork/leads" in paths and "/api/upwork/leads/import" in paths
+
+
+def test_nango_can_never_be_used_for_upwork(monkeypatch):
     from app.integrations import _nango_integrations_allowed
-    assert "upwork" not in _nango_integrations_allowed(get_settings())
+    settings = get_settings()
+    monkeypatch.setattr(settings, "nango_integrations", "upwork,microsoft-outlook")
+    monkeypatch.setattr(settings, "outlook_inbox_read_approved", True)
+    monkeypatch.setattr(settings, "inbound_email_platforms", "Upwork")
+    assert _nango_integrations_allowed(settings) == {"microsoft-outlook"}
+
+
+def test_no_upwork_api_settings_remain():
+    names = {n for n in type(get_settings()).model_fields if n.startswith("upwork")}
+    assert names == set()

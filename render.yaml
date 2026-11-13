@@ -104,22 +104,7 @@ services:
         sync: false
       - key: OUTLOOK_INBOX_READ_APPROVED
         value: "false"
-      # Upwork: per-user OAuth straight to Upwork (docs/upwork-oauth.md).
-      # UPWORK_REDIRECT_URI = https://<this service>/api/upwork/oauth/callback
-      - key: UPWORK_CLIENT_ID
-        sync: false
-      - key: UPWORK_CLIENT_SECRET
-        sync: false
-      - key: UPWORK_REDIRECT_URI
-        sync: false
-      - key: UPWORK_COMMERCIAL_APPROVED
-        value: "false"
-      - key: UPWORK_OFFERS_READ_APPROVED
-        value: "false"
-      # Encrypts stored OAuth tokens (Fernet key). Never change it without
-      # keeping the old key second, or every stored connection must reconnect.
-      - key: TOKEN_ENCRYPTION_KEY
-        sync: false
+      # Upwork has no settings: it is human-in-the-loop (docs/upwork-assistant.md).
       - key: NANGO_SECRET_KEY
         sync: false
       - key: NANGO_BASE_URL

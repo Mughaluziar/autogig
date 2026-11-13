@@ -127,7 +127,6 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
     applications: () => demoRef.current?.state.radar?.applications ?? [],
     track: (job, stage, proposal) => { demoRef.current?.radarTrackJob(job, stage, proposal ?? ""); },
     accounts: () => demoRef.current?.state.accounts ?? [],
-    upwork: () => apiGet<Row>("/api/upwork/connections"),
     inboxStatus: () => apiGet<Row>("/api/inbox/sync/status"),
     monetization: () => {
       const m = demoRef.current?.state.monetization;

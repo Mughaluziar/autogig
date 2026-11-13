@@ -4,7 +4,7 @@ GET    /api/orders                         filtered list + summary counts
 GET    /api/orders/capabilities            per-platform detection/verification support
 GET    /api/orders/events                  audit trail (detections, checks, sync failures)
 GET    /api/orders/accounts                connected marketplace accounts
-POST   /api/orders/accounts                connect an account (API via Upwork OAuth / owner token, or email-only)
+POST   /api/orders/accounts                connect an account (API via Nango / owner token, or email-only)
 PATCH  /api/orders/accounts/{id}           rename
 DELETE /api/orders/accounts/{id}           disconnect (orders are kept)
 POST   /api/orders/accounts/{id}/sync      poll the platform now
@@ -34,8 +34,6 @@ from ..orders import service, store
 from ..orders.adapters import UNSUPPORTED_PLATFORMS, all_adapters, get_adapter
 from ..orders.adapters.base import AdapterError
 from ..orders.models import OrderStatus, Verification
-from ..upwork import client as upwork_client
-from ..upwork import store as upwork_store
 
 log = logging.getLogger("autopilot.orders.api")
 router = APIRouter(tags=["orders"])
@@ -179,22 +177,9 @@ async def list_orders(
     }
 
 
-async def verify_upwork_connection(user_id: str, connection_id: str) -> dict:
-    """The browser reports the connection id after the OAuth redirect, so it
-    is untrusted until it's confirmed to be this user's live connection."""
-    conn = await upwork_store.get_connection(connection_id, user_id)
-    if not conn:
-        raise HTTPException(404, "That Upwork connection wasn't found. Connect the account again.")
-    if conn.get("status") != "active":
-        raise HTTPException(409, "That Upwork connection needs to be reconnected first.")
-    return conn
-
-
 def _api_connect_ready(adapter, settings, allowed: set[str], user: dict) -> bool:
     if not adapter.api_enabled(settings):
         return False
-    if adapter.connection_kind == "upwork_oauth":
-        return upwork_client.connect_enabled(settings)
     if adapter.connection_kind == "nango":
         return bool(settings.nango_secret_key and adapter.integration_id in allowed)
     # The platform token belongs to the owner's own marketplace account.
@@ -281,14 +266,7 @@ async def create_account(body: AccountCreateBody, background: BackgroundTasks, u
             if adapter.connection_kind == "platform_token" and adapter.api_enabled(settings):
                 raise HTTPException(403, f"Only the platform owner can connect the configured {adapter.platform} account.")
             raise HTTPException(503, f"{adapter.platform} API access is not enabled in this environment.")
-        if adapter.connection_kind == "upwork_oauth":
-            if not body.connection_id:
-                raise HTTPException(422, "Connect the Upwork account first; the connection id is missing.")
-            if any((a.get("connection") or {}).get("connectionId") == body.connection_id for a in existing):
-                raise HTTPException(409, "This connection is already added.")
-            await verify_upwork_connection(user["id"], body.connection_id)
-            connection = {"kind": "upwork_oauth", "connectionId": body.connection_id}
-        elif adapter.connection_kind == "nango":
+        if adapter.connection_kind == "nango":
             if not body.connection_id:
                 raise HTTPException(422, "Connect the account first; the connection id is missing.")
             if any((a.get("connection") or {}).get("connectionId") == body.connection_id for a in existing):

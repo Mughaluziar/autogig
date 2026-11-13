@@ -24,7 +24,6 @@ export type FleetDeps = {
   applications: () => Row[];
   track: (job: Row, stage: string, proposal?: string) => void;
   accounts: () => Row[];
-  upwork: () => Promise<Row | null>;
   inboxStatus: () => Promise<Row | null>;
   monetization: () => { plan: string; bidCredits: number };
 };
@@ -360,7 +359,7 @@ async function runCloser({ agent, fleet, deps, dryRun, step }: Ctx): Promise<Run
 }
 
 // ----------------------------------------------------------------------------
-// Account Keeper — connected accounts, Upwork OAuth, mailbox sync, credits
+// Account Keeper — connected accounts, mailbox sync, credits
 // ----------------------------------------------------------------------------
 
 async function runKeeper({ deps, step }: Ctx): Promise<RunOutcome> {
@@ -376,17 +375,7 @@ async function runKeeper({ deps, step }: Ctx): Promise<RunOutcome> {
     step(bad.length ? `${plural(bad.length, "account")} need attention: ${bad.map((a) => a.platform).join(", ")}` : `${plural(accounts.length, "linked account")}, all healthy`, bad.length ? "warn" : "ok");
   }
   if (deps.hasBackend) {
-    const up = await deps.upwork();
-    if (up) {
-      const conns: Row[] = up.connections ?? [];
-      const active = conns.filter((c) => c.status === "active").length;
-      if (conns.length) {
-        if (!active) issues++;
-        step(active ? `Upwork connected (${plural(active, "account")})` : "Upwork connection expired. Reconnect it in Accounts & Gigs.", active ? "ok" : "warn");
-      } else {
-        step(up.canConnect ? "Upwork isn't connected. Connecting it adds Upwork jobs to Scout's scans." : "Upwork connection isn't available on this server yet.", "info");
-      }
-    }
+    step("Upwork: forward your job-alert emails to Autopilot to get jobs in Gigs. You submit proposals yourself.", "info");
     const inbox = await deps.inboxStatus();
     if (inbox) step(inbox.ready ? "Mailbox sync is ready." : `Mailbox sync: ${inbox.reason}`, inbox.ready ? "ok" : "info");
   }

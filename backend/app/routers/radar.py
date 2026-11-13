@@ -3,7 +3,7 @@
 Pulls real openings only from sources that *allow* programmatic read access, so
 nothing here risks a user's marketplace account. The source list, approval
 gates and shared fetch cache live in app/job_sources.py; this router adds the
-per-user sources (the user's Upwork connection and watched company boards),
+per-user sources (the user's own Upwork alert-email leads and watched company boards),
 scores matches against the user's skills, and serves proposals.
 
 Endpoints
@@ -29,7 +29,7 @@ from .. import db, repo, seed
 from ..auth import current_user
 from ..config import get_settings
 from ..job_sources import UA as _UA, clean as _clean
-from . import upwork, upwork_leads
+from . import upwork_leads
 
 router = APIRouter(tags=["radar"])
 
@@ -117,38 +117,6 @@ def _scored(job: dict, skills: list[str]) -> dict:
     return {**job, "matchScore": _match_score(skills, hay)}
 
 
-async def _upwork(client: httpx.AsyncClient, skills: list[str], user: dict) -> list[dict]:
-    """Upwork GraphQL jobs — only contributes when the connector is live;
-    demo feed never leaks into the real radar results."""
-    try:
-        res = await upwork.jobs(q=", ".join(skills) or "developer", limit=25, user=user)
-    except Exception:
-        return []
-    if not res.get("live"):
-        return []
-    out = []
-    for j in res.get("jobs", []):
-        out.append({
-            "kind": "gig",
-            "id": j["id"],
-            "title": j["title"],
-            "company": "Upwork client" + (" ✓" if j.get("clientVerified") else ""),
-            "source": "Upwork",
-            "url": j.get("url") or "https://www.upwork.com",
-            "tags": (j.get("skills") or [])[:6],
-            "budget": j.get("budget") or j.get("hourlyMax") or None,
-            "currency": "USD",
-            "description": j.get("description", ""),
-            "postedAt": j.get("postedAt", ""),
-            # Real marketplace signals from the user's Upwork connection.
-            "rateType": j.get("type") if j.get("type") in ("fixed", "hourly") else None,
-            "budgetMin": j.get("hourlyMin") if j.get("type") == "hourly" else None,
-            "proposals": j.get("proposals") if isinstance(j.get("proposals"), int) else None,
-            "clientVerified": j.get("clientVerified"),
-        })
-    return out
-
-
 async def _with_alert_leads(user_id: str, jobs: list[dict], skills: list[str], kind: str) -> list[dict]:
     """Add the user's own Upwork alert-email leads to a result set. Done after
     caching so a new lead shows up immediately and never leaks across users."""
@@ -234,11 +202,10 @@ async def radar_jobs(q: str = "", limit: int = 30, kind: str = "all", user: dict
     sources = job_sources.enabled_sources(settings)
     boards = [b for b in boards if job_sources.BOARD_PROVIDERS[b["provider"]].enabled(settings)]
     capability_state = (
-        f"{','.join(s.id for s in sources)}:{settings.upwork_commercial_approved}:"
+        f"{','.join(s.id for s in sources)}:"
         f"{','.join(b['provider'] + '/' + b['slug'] for b in boards)}"
     )
-    # Upwork's marketplace search is scoped to the user's connected OAuth
-    # account; never share a cached aggregate across app users. Source fetches
+    # Per-user inputs (watched boards) mean an aggregate is never shared across app users. Source fetches
     # themselves are shared (job_sources caches them per source).
     cache_key = hashlib.sha256(
         f"{user['id']}:{','.join(sorted(s.lower() for s in skills))}:{kind}:{capability_state}".encode()
@@ -255,7 +222,6 @@ async def radar_jobs(q: str = "", limit: int = 30, kind: str = "all", user: dict
         results = await asyncio.gather(
             *(job_sources.fetch_source(source, client, skills) for source in sources),
             *(job_sources.fetch_board(client, b["provider"], b["slug"]) for b in boards),
-            _upwork(client, skills, user),
             return_exceptions=True,
         )
     jobs: list[dict] = []

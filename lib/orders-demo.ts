@@ -7,8 +7,8 @@ import type { CapabilityReport, Order, OrderAccount, OrderEvent, OrdersResponse,
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
 
 export const DEMO_ACCOUNTS: OrderAccount[] = [
-  { id: "acc-uw-1", platform: "Upwork", label: "Upwork · studio", handle: "studio", externalAccountId: "uw-1", connection: "upwork_oauth", status: "active", inboundAddress: null, lastSyncAt: hoursAgo(0.2), lastSyncStatus: "ok", lastSyncError: null, consecutiveFailures: 0, nextSyncAt: hoursAgo(-0.1), createdAt: hoursAgo(400) },
-  { id: "acc-uw-2", platform: "Upwork", label: "Upwork · personal", handle: "dev", externalAccountId: "uw-2", connection: "upwork_oauth", status: "active", inboundAddress: null, lastSyncAt: hoursAgo(3), lastSyncStatus: "error", lastSyncError: "Upwork API returned 503", consecutiveFailures: 2, nextSyncAt: hoursAgo(-0.5), createdAt: hoursAgo(200) },
+  { id: "acc-uw-1", platform: "Upwork", label: "Upwork · studio", handle: "studio", externalAccountId: "uw-1", connection: "email", status: "active", inboundAddress: null, lastSyncAt: hoursAgo(0.2), lastSyncStatus: "ok", lastSyncError: null, consecutiveFailures: 0, nextSyncAt: hoursAgo(-0.1), createdAt: hoursAgo(400) },
+  { id: "acc-uw-2", platform: "Upwork", label: "Upwork · personal", handle: "dev", externalAccountId: "uw-2", connection: "email", status: "active", inboundAddress: null, lastSyncAt: hoursAgo(3), lastSyncStatus: "error", lastSyncError: "Upwork API returned 503", consecutiveFailures: 2, nextSyncAt: hoursAgo(-0.5), createdAt: hoursAgo(200) },
   { id: "acc-fv-1", platform: "Fiverr", label: "Fiverr · design gigs", handle: "", externalAccountId: null, connection: "email", status: "active", inboundAddress: "o-sample@in.example.com", lastSyncAt: null, lastSyncStatus: null, lastSyncError: null, consecutiveFailures: 0, nextSyncAt: null, createdAt: hoursAgo(300) },
 ];
 
@@ -43,7 +43,7 @@ export const DEMO_EVENTS: OrderEvent[] = [
 
 export const DEMO_CAPABILITIES: CapabilityReport = {
   platforms: [
-    { platform: "Upwork", key: "upwork", detection: ["api_poll", "email"], verification: "api", statusSync: true, apiEnabled: false, canConnectApi: false, integrationId: null, connection: "upwork_oauth", emailReady: false, limitations: ["Sample data — connect the backend to see this environment's real limits."], emailDomains: ["upwork.com"], emailParserValidated: false, maxCacheHours: 24 },
+    { platform: "Upwork", key: "upwork", detection: ["email"], verification: "none", statusSync: false, apiEnabled: false, canConnectApi: false, integrationId: null, connection: "email", emailReady: false, limitations: ["Sample data — connect the backend to see this environment's real limits."], emailDomains: ["upwork.com"], emailParserValidated: false, maxCacheHours: null },
     { platform: "Freelancer.com", key: "freelancer", detection: ["api_poll", "email"], verification: "api", statusSync: true, apiEnabled: false, canConnectApi: false, integrationId: null, connection: "platform_token", emailReady: false, limitations: [], emailDomains: ["freelancer.com"], emailParserValidated: false, maxCacheHours: null },
     { platform: "Fiverr", key: "fiverr", detection: ["email"], verification: "none", statusSync: false, apiEnabled: false, canConnectApi: false, integrationId: null, connection: "email", emailReady: false, limitations: ["Fiverr has no seller order API; orders can only be detected from forwarded emails and can't be verified."], emailDomains: ["fiverr.com"], emailParserValidated: false, maxCacheHours: null },
   ],

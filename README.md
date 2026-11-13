@@ -587,16 +587,8 @@ The names below are the variables read by the current frontend, API, and worker.
 | `FREELANCER_OAUTH_TOKEN` | No; gated integration | Freelancer.com API token. Production API use also requires explicit approval; keep `FREELANCER_SANDBOX=true` until authorized. |
 | `FREELANCER_SANDBOX` | No (`true`) | Selects Freelancer.com sandbox versus live host. |
 | `FREELANCER_API_APPROVED` | No (`false`) | Explicit feature gate for approved Freelancer.com production API access. |
-| `UPWORK_COMMERCIAL_APPROVED` | No (`false`) | Must remain false until written commercial permission is granted. Upwork OAuth is per-user, straight to Upwork (see `docs/upwork-oauth.md`); the app does not use a shared environment access token. |
-| `UPWORK_CLIENT_ID`, `UPWORK_CLIENT_SECRET` | No; needed for Upwork connections | The OAuth client key and secret of the Upwork API app (upwork.com/developer/keys). Server-side only. |
-| `UPWORK_REDIRECT_URI` | No; needed for Upwork connections | `https://<api>/api/upwork/oauth/callback`. Must match the callback URL registered on the Upwork app exactly. |
-| `TOKEN_ENCRYPTION_KEY` | No; needed to store any OAuth token | One or more Fernet keys, comma-separated (the first encrypts). Encrypts Upwork tokens at rest. Production refuses to start with a malformed key. Keep the old key second when rotating, or every connection must reconnect. |
-| `UPWORK_PROPOSAL_SUBMIT_APPROVED` | No (`false`) | Separate operation gate; only enable after the approved Upwork scope and written product permission include proposal submission. Submission is not implemented yet. |
-| `UPWORK_MESSAGE_READ_APPROVED` | No (`false`) | Separate operation gate for Upwork's direct messaging API; only enable after the approved messaging read scope. Direct marketplace message API sync is not implemented; Outlook mailbox import is separate. |
 | `CAPITAL_INVESTOR_JURISDICTIONS` | No (empty) | ISO-2 country allowlist for capital-pool investors, such as `US,GB`. Empty means no allowlist, which is acceptable only while settlement is simulated. See `docs/capital-program.md` for the go-live checklist. |
 | `TOKEN_PROGRAM_ENABLED` and `TOKEN_*` | No (`false`) | The pool-share token (`docs/token-program.md`, `contracts/README.md`). Needs `TOKEN_RPC_URL`, `TOKEN_ADDRESS`, `TOKEN_IDENTITY_REGISTRY`, `TOKEN_ID_FACTORY`, `TOKEN_SAFE_ADDRESS`, `TOKEN_USDC_ADDRESS` and `TOKEN_START_BLOCK` from the deployment. Test networks only: mainnet also needs `TOKEN_MAINNET_ENABLED=true` and every launch-gate item recorded. The backend holds no keys. |
-| `UPWORK_OFFERS_READ_APPROVED` | No (`false`) | Separate operation gate for order tracking, which reads offers. Enable only after the approved app has Upwork's "Offer - Read-Only Access" permission. Requires `UPWORK_COMMERCIAL_APPROVED` too. |
-| `UPWORK_MESSAGE_SEND_APPROVED` | No (`false`) | Separate operation gate; only enable after the approved messaging write scope. Sending is not implemented yet and must retain user confirmation. |
 | `REDDIT_ACCESS_TOKEN` | No; gated integration | Reddit Data API OAuth token. |
 | `REDDIT_COMMERCIAL_APPROVED` | No (`false`) | Must remain false until Reddit approves commercial use. |
 | `HN_COMMERCIAL_REUSE_APPROVED` | No (`false`) | Enables Hacker News job feed ingestion only after commercial reuse review is complete. |

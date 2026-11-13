@@ -20,7 +20,6 @@ import { DataTable, type Column } from "@/components/dashboard/data-table";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { PaywallDialog } from "@/components/dashboard/paywall";
-import { UpworkConnections } from "@/components/dashboard/upwork-connections";
 import { useDemoStore } from "@/lib/demo-store";
 import { useEntity } from "@/lib/use-entity";
 import { API_URL, apiCall, apiGet } from "@/lib/api";
@@ -348,7 +347,6 @@ export default function AccountsPage() {
         <MiniStat label="Bid credits" value={isPro ? "Unlimited" : String(monetization.bidCredits)} icon={<Gavel className="size-4" />} href="/dashboard/money" />
       </div>
 
-      <UpworkConnections />
 
       {nangoIntegrations.length > 0 && <Card className="mt-6">
         <CardHeader>
@@ -369,8 +367,8 @@ export default function AccountsPage() {
 
       {/* Platform connectors */}
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {/* Upwork has its own real OAuth card above; this grid is profile details only. */}
-        {PLATFORMS_CONNECTABLE.filter((p: any) => demoMode || p.name !== "Upwork").map((p: any) => {
+        {/* Profile details only: Autopilot never signs in to a marketplace on your behalf. */}
+        {PLATFORMS_CONNECTABLE.map((p: any) => {
           const acc = connected(p.name);
           return (
             <Card key={p.id} className={acc ? "border-primary/40 bg-primary/[0.03]" : ""}>

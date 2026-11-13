@@ -101,7 +101,16 @@ export default function BiddingPage() {
           <LiveBidding platform="freelancer" />
         </TabsContent>
         <TabsContent value="upwork">
-          <LiveBidding platform="upwork" />
+          <Card>
+            <CardContent className="space-y-3 p-6 text-sm">
+              <p className="font-semibold">Upwork works from your job-alert emails</p>
+              <p className="text-muted-foreground">
+                Autopilot never connects to your Upwork account. Forward Upwork&apos;s job alerts to your Autopilot address (or paste one in),
+                and the jobs appear in Gigs with an AI-drafted proposal you review, edit and submit yourself on Upwork.
+              </p>
+              <Button asChild variant="gradient"><a href="/dashboard/gigs">Open Gigs</a></Button>
+            </CardContent>
+          </Card>
         </TabsContent>
         <TabsContent value="leads">
           <DataTable columns={leadColumns} data={freelanceLeads} searchKeys={["title", "platform"]} searchPlaceholder="Search leads..." />
@@ -171,7 +180,7 @@ export default function BiddingPage() {
 
 // --------------------------------------------------------------------------- //
 // Unified live bidding hub — one component, driven by a per-platform config.
-// Sanctioned APIs (Freelancer REST / Upwork GraphQL) with demo fallback.
+// Sanctioned API (Freelancer REST) with demo fallback. Upwork is handled in Gigs from alert emails.
 // Scan → AI-draft → human approves → submit. Nothing submits without approval.
 // --------------------------------------------------------------------------- //
 type LiveJob = {
@@ -191,14 +200,6 @@ const PLATFORM_CFG = {
     preparePath: "/api/freelancer/bid/prepare",
     submitPath: "/api/freelancer/bid/place",
     liveLabel: "LIVE", demoLabel: "SANDBOX",
-  },
-  upwork: {
-    name: "Upwork",
-    statusPath: "/api/upwork/status",
-    jobsPath: "/api/upwork/jobs",
-    preparePath: "/api/upwork/proposal/prepare",
-    submitPath: "/api/upwork/proposal/submit",
-    liveLabel: "LIVE", demoLabel: "DEMO",
   },
 } as const;
 
@@ -375,7 +376,7 @@ function LiveBidding({ platform }: { platform: keyof typeof PLATFORM_CFG }) {
 
         <div className={cn("lg:col-span-3", !selected && "hidden lg:block")}>
           {!selected ? (
-            <Card className="flex min-h-72 items-center justify-center"><CardContent className="text-center text-sm text-muted-foreground"><Gavel className="mx-auto mb-3 size-8 text-muted-foreground/50" />Select a job to draft a {platform === "upwork" ? "proposal" : "bid"}.</CardContent></Card>
+            <Card className="flex min-h-72 items-center justify-center"><CardContent className="text-center text-sm text-muted-foreground"><Gavel className="mx-auto mb-3 size-8 text-muted-foreground/50" />Select a job to draft a bid.</CardContent></Card>
           ) : (
             <Card>
               <CardHeader className="pb-3">
@@ -393,7 +394,7 @@ function LiveBidding({ platform }: { platform: keyof typeof PLATFORM_CFG }) {
                 </div>
                 <div className="rounded-xl border bg-muted/20 p-4">
                   <div className="mb-2 flex items-center justify-between">
-                    <p className="text-sm font-semibold">{platform === "upwork" ? "Proposal / cover letter" : "Bid proposal"}</p>
+                    <p className="text-sm font-semibold">Bid proposal</p>
                     <div className="flex items-center gap-1">
                     {API_URL && proposalId && <Button size="sm" variant="ghost" className="h-7 gap-1.5" onClick={() => void saveDraft()}><Save className="size-3.5" /> Save</Button>}
                     <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-primary" disabled={drafting} onClick={draft}>

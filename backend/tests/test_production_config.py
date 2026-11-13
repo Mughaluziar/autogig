@@ -49,8 +49,3 @@ def test_all_problems_are_reported_together():
         make(secret_key="dev-secret", mongodb_uri=None, cors_origins="*").validate_for_production()
     text = str(err.value)
     assert "SECRET_KEY" in text and "MONGODB_URI" in text and "CORS_ORIGINS" in text
-
-
-def test_bad_encryption_key_is_refused():
-    with pytest.raises(RuntimeError):
-        make(token_encryption_key="not-a-fernet-key").validate_for_production()

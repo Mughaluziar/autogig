@@ -24,8 +24,7 @@ username is turned into the profile URL where the platform has one; otherwise
 the link must point at that platform's site. The rules are in
 `normalize_linked_account` (backend) and `normalizeLinkedAccount` (frontend).
 When the linked account is Upwork and the account is an agency workspace, the
-page after email verification offers the real Upwork OAuth connection
-(`docs/upwork-oauth.md`).
+page after email verification goes straight to the dashboard.
 
 ## Email verification
 
