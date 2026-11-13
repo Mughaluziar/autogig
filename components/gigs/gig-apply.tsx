@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 import { BASE, gigBudget, hostOf, listingHref, money } from "@/components/radar/radar-data";
 import { useAutoApply, useCredits, useListing, usePipeline, useProposal, useSkills } from "@/components/radar/use-radar";
 import { AutoApplyPanel, Composer, StepHeading, copyText } from "@/components/radar/apply-parts";
+import { isUpwork } from "@/components/radar/radar-data";
+import { ManualSubmitNotice } from "./manual-submit-notice";
 import { DetailSkeleton, NotFound } from "@/components/radar/job-detail";
 import { MatchBar, platformDot } from "./gig-card";
 
@@ -70,6 +72,7 @@ export function GigApply({ id }: { id: string }) {
 
   if (!listing) return loading ? <DetailSkeleton /> : <NotFound kind="gig" />;
 
+  const manualOnly = isUpwork(listing);
   const cur = listing.currency || "USD";
   const bid = Number(amount) || 0;
   const { amount: budgetLabel, unit } = gigBudget(listing);
@@ -156,6 +159,7 @@ export function GigApply({ id }: { id: string }) {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_330px]">
         <div className="min-w-0 space-y-5">
+          {manualOnly && <ManualSubmitNotice url={listing.url} />}
           <section className="panel space-y-4 p-5">
             <StepHeading n={1} title="Proposal" sub="Lead with the client's problem, show you've done it before, end with a question." />
             <Composer listing={listing} label="Proposal" text={proposal.text} setText={proposal.setText}
@@ -259,7 +263,7 @@ export function GigApply({ id }: { id: string }) {
                   <ClipboardCopy /> Copy &amp; open {host}
                 </Button>
                 <Button variant={opened ? "default" : "outline"} className="w-full" onClick={markSent}>
-                  <Send /> I&apos;ve sent it — track my bid
+                  <Send /> {manualOnly ? "I've submitted it on Upwork — track it" : "I\u2019ve sent it — track my bid"}
                 </Button>
               </div>
               <button onClick={() => !isPro && setPaywall(true)} disabled={isPro}
@@ -268,12 +272,18 @@ export function GigApply({ id }: { id: string }) {
                 <span className="flex-1">{isPro ? "Pro — unlimited bids" : <><span className="font-semibold">{bidCredits}</span> bid credit{bidCredits === 1 ? "" : "s"} left</>}</span>
                 {!isPro && <span className="font-medium text-primary">Top up</span>}
               </button>
-              <p className="text-[11px] text-muted-foreground">Sending it yourself is always free. A credit is spent only when auto-apply actually submits the bid for you.</p>
+              <p className="text-[11px] text-muted-foreground">{manualOnly
+                ? "Sending it yourself is always free and uses no Autopilot credit. Upwork Connects are spent on Upwork."
+                : "Sending it yourself is always free. A credit is spent only when auto-apply actually submits the bid for you."}</p>
             </section>
 
-            <AutoApplyPanel job={auto.job} busy={auto.busy} onPrepare={prepareAuto} onApprove={() => void auto.approve()}
-              onCancel={() => void auto.cancel()} disabled={!proposal.text.trim()}
-              note="Autopilot fills the bid form for you and stops before submitting. Without a connected browser worker it runs as a labelled simulation and sends nothing." />
+            {manualOnly ? (
+              <ManualSubmitNotice url={listing.url} />
+            ) : (
+              <AutoApplyPanel job={auto.job} busy={auto.busy} onPrepare={prepareAuto} onApprove={() => void auto.approve()}
+                onCancel={() => void auto.cancel()} disabled={!proposal.text.trim()}
+                note="Autopilot fills the bid form for you and stops before submitting. Without a connected browser worker it runs as a labelled simulation and sends nothing." />
+            )}
           </div>
         </aside>
       </div>

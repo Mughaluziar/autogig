@@ -141,6 +141,10 @@ async def run(body: RunBody, x_worker_key: str = Header(default="")):
         raise HTTPException(503, "WORKER_KEY is not configured on the worker")
     if not hmac.compare_digest(x_worker_key, WORKER_KEY):
         raise HTTPException(401, "Invalid worker key")
+    # Policy: no browser automation is ever pointed at Upwork. Proposals there
+    # are drafted by the app and submitted by the user themselves.
+    if "upwork" in f"{body.platform} {body.url}".lower():
+        raise HTTPException(403, "Automation is disabled for Upwork (human-in-the-loop only).")
     if _ENGINE == "simulation" or Agent is None:
         return _simulate(body)
     try:

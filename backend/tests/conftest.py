@@ -84,6 +84,7 @@ def client():
     # Every TestClient request shares one client IP; without this the
     # per-IP rate limiter trips once the whole suite passes 240 requests/min.
     security._hits.clear()
+    security._auth_hits.clear()
     if TEST_MONGODB_URI:
         from pymongo import MongoClient
         MongoClient(TEST_MONGODB_URI).drop_database(TEST_DB)

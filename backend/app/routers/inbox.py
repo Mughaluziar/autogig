@@ -25,6 +25,7 @@ from ..config import get_settings
 from .. import llm
 from ..integrations import emit_activepieces_event
 from ..orders import service as order_service, store as order_store
+from . import upwork_leads
 
 log = logging.getLogger("autopilot.inbox")
 router = APIRouter(tags=["inbox"])
@@ -271,11 +272,25 @@ async def sync_outlook_inbox(user: dict = Depends(current_user)):
         })
         # Verification of anything detected here is left to the scheduler.
         await _detect_order(user["id"], platform, subject, content, provider_id, item["received_at"], None, None)
+        await _ingest_upwork_leads(user["id"], platform, subject, body_content if content_type == "text" else "",
+                                   body_content if content_type == "html" else "", item["received_at"])
 
     synced_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     await repo.update_settings_doc(user["id"], {"outlookInboxLastSyncAt": synced_at}, seed.SETTINGS)
     return {"added": added, "duplicates": duplicates, "ignored": ignored,
             "pages": pages, "syncedAt": synced_at}
+
+
+async def _ingest_upwork_leads(user_id: str, platform: str, subject: str, text_body: str, html_body: str,
+                               received_at: str) -> None:
+    """Upwork job-alert emails become Job Radar leads. Never lets a parsing
+    problem lose the inbox message, so errors are only logged."""
+    if platform != "Upwork":
+        return
+    try:
+        await upwork_leads.ingest_alert(user_id, subject, text_body, html_body, received_at)
+    except Exception:
+        log.exception("Upwork lead extraction failed for user %s", user_id)
 
 
 async def _detect_order(user_id: str, platform: str, subject: str, content: str, message_ref: str,
@@ -360,6 +375,8 @@ async def receive_inbound(body: InboundEmail, background: BackgroundTasks,
     })
     await _detect_order(user_id, platform, normalized_subject, content, saved["message_ref"],
                         saved["received_at"], order_account, background)
+    await _ingest_upwork_leads(user_id, platform, normalized_subject, body.text_body, body.html_body,
+                               saved["received_at"])
     return {"accepted": True, "duplicate": False, "messageId": saved["id"]}
 
 

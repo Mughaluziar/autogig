@@ -126,3 +126,18 @@ def verification_email(name: str, code: str, minutes: int) -> tuple[str, str]:
 no account is activated without the code.</p>""",
         ),
     )
+
+
+def reset_email(name: str, link: str, minutes: int) -> tuple[str, str]:
+    first = (name or "there").split()[0]
+    return (
+        "Reset your Autopilot password",
+        _wrap(
+            f"Reset your password, {first}",
+            f"""
+<p>We received a request to reset your password. Use the button below to choose a new one:</p>
+<p style="margin:20px 0"><a href="{link}" style="background:#6366f1;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Choose a new password</a></p>
+<p>The link works once and expires in {minutes} minutes. If you didn't ask for this, ignore this email:
+your password stays as it is.</p>""",
+        ),
+    )

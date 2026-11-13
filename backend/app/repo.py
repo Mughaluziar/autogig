@@ -32,8 +32,10 @@ from . import db
 
 log = logging.getLogger("autopilot.repo")
 
-LIST_COLLECTIONS = ("notifications", "activity", "automation_jobs", "campaigns", "bids", "messages", "proposals")
-_TTL = {"notifications": timedelta(days=90), "messages": timedelta(days=90), "activity": timedelta(days=180)}
+LIST_COLLECTIONS = ("notifications", "activity", "automation_jobs", "campaigns", "bids", "messages", "proposals",
+                    "upwork_leads")
+_TTL = {"notifications": timedelta(days=90), "messages": timedelta(days=90), "activity": timedelta(days=180),
+        "upwork_leads": timedelta(days=180)}
 # In-memory mode has no TTL index — cap each user's list instead.
 _MEM_CAP = 500
 
@@ -78,6 +80,10 @@ async def ensure_indexes() -> None:
     for coll in LIST_COLLECTIONS:
         await mdb[coll].create_index([("user_id", 1), ("created_at", DESCENDING)])
     await mdb.messages.create_index([("user_id", 1), ("dedupe_key", 1)], unique=True, sparse=True)
+    await mdb.upwork_leads.create_index([("user_id", 1), ("dedupe_key", 1)], unique=True, sparse=True)
+    await mdb.login_failures.create_index("at", expireAfterSeconds=15 * 60)
+    await mdb.login_failures.create_index("key")
+    await mdb.users.create_index("reset.hash", sparse=True)
     await mdb.bid_daily_limits.create_index("created_at", expireAfterSeconds=90 * 24 * 60 * 60)
     for coll, ttl in _TTL.items():
         await mdb[coll].create_index("created_at", expireAfterSeconds=int(ttl.total_seconds()))
@@ -266,6 +272,36 @@ async def add_message(user_id: str, fields: dict, dedupe_key: str) -> dict | Non
     except DuplicateKeyError:
         return None
     return _public(doc)
+
+
+async def add_unique(coll: str, user_id: str, fields: dict, dedupe_key: str) -> dict | None:
+    """Insert one per-user record unless the user already has one with this
+    `dedupe_key`; returns None for a duplicate. The database enforces it with a
+    unique (user_id, dedupe_key) index, so concurrent emails cannot double-insert."""
+    doc = {"id": uuid4().hex, **fields, "dedupe_key": dedupe_key, "user_id": user_id, "created_at": _now()}
+    doc["_id"] = doc["id"]
+    if not db.enabled():
+        if any(x.get("user_id") == user_id and x.get("dedupe_key") == dedupe_key for x in _mem_lists[coll]):
+            return None
+        items = _mem_lists[coll]
+        items.insert(0, doc)
+        mine = [item for item in items if item["user_id"] == user_id]
+        if len(mine) > _MEM_CAP:
+            items.remove(mine[-1])
+        return _public(doc)
+    try:
+        await db._get_db()[coll].insert_one(doc)
+    except DuplicateKeyError:
+        return None
+    return _public(doc)
+
+
+async def find_by_dedupe_key(coll: str, user_id: str, dedupe_key: str) -> dict | None:
+    if not db.enabled():
+        doc = next((d for d in _mem_lists[coll] if d["user_id"] == user_id and d.get("dedupe_key") == dedupe_key), None)
+    else:
+        doc = await db._get_db()[coll].find_one({"user_id": user_id, "dedupe_key": dedupe_key})
+    return _public(doc) if doc else None
 
 
 async def find_message_by_ref(user_id: str, message_ref: str) -> dict | None:

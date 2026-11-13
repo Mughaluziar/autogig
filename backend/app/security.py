@@ -27,6 +27,18 @@ from .routers.api_keys import KEY_PREFIX, hash_key, is_active
 _RATE_WINDOW = 60.0
 _RATE_MAX = 240
 _hits: dict[str, deque] = defaultdict(deque)
+# Credential endpoints get a much tighter per-IP budget (brute force, signup
+# and reset-email abuse) on top of the general limit.
+_AUTH_RATE_MAX = 20
+_AUTH_PATHS = ("/auth/login", "/auth/signup", "/auth/forgot-password", "/auth/reset-password",
+               "/auth/verify-email", "/auth/resend-verification", "/auth/change-password")
+_auth_hits: dict[str, deque] = defaultdict(deque)
+
+
+def _client_ip(request: Request) -> str:
+    # uvicorn --proxy-headers (see render.yaml) already rewrites client.host
+    # from X-Forwarded-For when the proxy is trusted.
+    return request.client.host if request.client else "unknown"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -44,8 +56,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        ip = request.client.host if request.client else "unknown"
+        ip = _client_ip(request)
         now = time.monotonic()
+        if request.method == "POST" and request.url.path.endswith(_AUTH_PATHS):
+            aq = _auth_hits[ip]
+            while aq and now - aq[0] > _RATE_WINDOW:
+                aq.popleft()
+            if len(aq) >= _AUTH_RATE_MAX:
+                return JSONResponse(
+                    {"detail": "Too many attempts. Wait a minute and try again."}, status_code=429,
+                    headers={"Retry-After": str(int(_RATE_WINDOW))},
+                )
+            aq.append(now)
         q = _hits[ip]
         while q and now - q[0] > _RATE_WINDOW:
             q.popleft()

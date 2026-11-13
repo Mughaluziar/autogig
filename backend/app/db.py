@@ -38,6 +38,13 @@ def _get_db():
     return _db
 
 
+async def find_user_by_reset_hash(token_hash: str) -> dict | None:
+    """The account holding this password-reset token hash, if any."""
+    if not enabled():
+        return next((d for d in _mem_users.values() if (d.get("reset") or {}).get("hash") == token_hash), None)
+    return await _get_db().users.find_one({"reset.hash": token_hash})
+
+
 # --------------------------------------------------------------------------- #
 # Real user accounts
 # --------------------------------------------------------------------------- #

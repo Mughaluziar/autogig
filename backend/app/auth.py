@@ -24,12 +24,14 @@ import hashlib
 import hmac
 import time
 from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import Depends, HTTPException, Request
 
+from . import db
 from .config import get_settings
 
 ROLES = ("admin", "freelancer", "client", "investor")
@@ -134,28 +136,46 @@ def require_owner(user: dict = Depends(current_user)) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Login throttling — per email, in-process (moves to Redis with the job queue)
+# Login throttling — per email. Persisted in MongoDB (collection
+# `login_failures`, TTL = the window) so it survives restarts and is shared by
+# every API instance; in-process memory only when no database is configured.
 # --------------------------------------------------------------------------- #
 _LOGIN_WINDOW = 15 * 60.0
 _LOGIN_MAX_FAILURES = 5
 _failures: dict[str, deque] = defaultdict(deque)
 
 
-def check_login_allowed(email: str) -> None:
+def _lockout() -> HTTPException:
+    return HTTPException(
+        429, "Too many failed sign-in attempts. Try again in 15 minutes.",
+        headers={"Retry-After": str(int(_LOGIN_WINDOW))},
+    )
+
+
+async def check_login_allowed(email: str) -> None:
+    if db.enabled():
+        since = datetime.now(timezone.utc) - timedelta(seconds=_LOGIN_WINDOW)
+        count = await db._get_db().login_failures.count_documents({"key": email, "at": {"$gt": since}})
+        if count >= _LOGIN_MAX_FAILURES:
+            raise _lockout()
+        return
     q = _failures[email]
     now = time.monotonic()
     while q and now - q[0] > _LOGIN_WINDOW:
         q.popleft()
     if len(q) >= _LOGIN_MAX_FAILURES:
-        raise HTTPException(
-            429, "Too many failed sign-in attempts. Try again in 15 minutes.",
-            headers={"Retry-After": str(int(_LOGIN_WINDOW))},
-        )
+        raise _lockout()
 
 
-def record_login_failure(email: str) -> None:
+async def record_login_failure(email: str) -> None:
+    if db.enabled():
+        await db._get_db().login_failures.insert_one({"key": email, "at": datetime.now(timezone.utc)})
+        return
     _failures[email].append(time.monotonic())
 
 
-def clear_login_failures(email: str) -> None:
+async def clear_login_failures(email: str) -> None:
+    if db.enabled():
+        await db._get_db().login_failures.delete_many({"key": email})
+        return
     _failures.pop(email, None)

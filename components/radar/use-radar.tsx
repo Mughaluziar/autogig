@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { useDemoStore } from "@/lib/demo-store";
 import { API_URL, apiCall, apiGet } from "@/lib/api";
 import {
-  appToListing, findInScans, kindOf, readScan, similarFrom, skillList, writeScan, type ScanSnapshot,
+  appToListing, findInScans, isUpwork, kindOf, readScan, similarFrom, skillList, writeScan, type ScanSnapshot,
 } from "./radar-data";
 import type { Application, ApplyJob, Kind, Listing, ProposalRecord, SavedSearch } from "./types";
 
@@ -402,6 +402,10 @@ export function useAutoApply(listing: Listing | null, payload: () => { instructi
 
   const prepare = async () => {
     if (!listing) return;
+    if (isUpwork(listing)) {
+      toast({ title: "Submit Upwork proposals yourself", description: "Copy the draft and send it on upwork.com. Autopilot never applies on Upwork for you." });
+      return;
+    }
     setBusy(true);
     const p = payload();
     const res = await apiCall<ApplyJob>("/api/automation/jobs", {

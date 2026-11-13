@@ -279,13 +279,13 @@ async def signup(body: SignupBody):
 @router.post("/login")
 async def login(body: LoginBody):
     email = body.email.strip().lower()
-    check_login_allowed(email)
+    await check_login_allowed(email)
     try:
         doc = await db.find_user(email)
     except Exception:
         raise _db_unavailable()
     if doc is None or not verify_password(doc, body.password):
-        record_login_failure(email)
+        await record_login_failure(email)
         raise HTTPException(401, "Invalid email or password.")
     if doc["role"] in RETIRED_ROLES:
         raise HTTPException(403, RETIRED_DETAIL)
@@ -294,7 +294,7 @@ async def login(body: LoginBody):
         raise HTTPException(
             403, f"This account is registered as '{doc['role']}' — select that role above to sign in.",
         )
-    clear_login_failures(email)
+    await clear_login_failures(email)
     if needs_rehash(doc):
         try:
             await db.update_password_hash(email, hash_password(body.password))
@@ -389,17 +389,86 @@ async def change_password(body: ChangePasswordBody, session: dict = Depends(curr
     email = doc["email"]
     # Accounts made with social sign-in have no password until they set one.
     if doc.get("password_hash"):
-        check_login_allowed(email)
+        await check_login_allowed(email)
         if not verify_password(doc, body.currentPassword):
-            record_login_failure(email)
+            await record_login_failure(email)
             raise HTTPException(400, "Your current password is incorrect.")
         if body.currentPassword == body.newPassword:
             raise HTTPException(422, "Choose a password different from your current one.")
     if len(body.newPassword) < MIN_PASSWORD_LENGTH:
         raise HTTPException(422, f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
     await db.update_password_hash(email, hash_password(body.newPassword))
-    clear_login_failures(email)
+    await clear_login_failures(email)
     await repo.log_activity(doc["id"], "Operator", "Password changed")
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Password reset — emailed single-use link. The token is random, only its
+# SHA-256 is stored, it expires in 30 minutes, and the response never says
+# whether an account exists.
+# --------------------------------------------------------------------------- #
+RESET_TTL_SECONDS = 30 * 60
+RESET_COOLDOWN_SECONDS = 60
+
+
+class ForgotBody(BaseModel):
+    email: str = Field(max_length=254)
+
+
+class ResetBody(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+    password: str = Field(max_length=200)
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotBody):
+    email = body.email.strip().lower()
+    generic = {"ok": True, "message": "If an account exists for that email, a reset link is on its way."}
+    if not _EMAIL_RE.match(email):
+        return generic
+    try:
+        doc = await db.find_user(email)
+    except Exception:
+        raise _db_unavailable()
+    if not doc or doc.get("role") in RETIRED_ROLES or not doc.get("password_hash"):
+        return generic  # unknown, retired, or social-only account: say nothing
+    last = (doc.get("reset") or {}).get("sent_at", 0)
+    if time.time() - last < RESET_COOLDOWN_SECONDS:
+        return generic
+    token = secrets.token_urlsafe(32)
+    await db.update_user(email, {"reset": {
+        "hash": hashlib.sha256(token.encode()).hexdigest(),
+        "expires_at": time.time() + RESET_TTL_SECONDS, "sent_at": time.time(),
+    }})
+    link = f"{get_settings().site_url}/reset-password?token={token}"
+    sent = False
+    if mail.enabled():
+        subject, html = mail.reset_email(doc.get("name", ""), link, RESET_TTL_SECONDS // 60)
+        sent = await mail.send_email(email, subject, html)
+    await repo.log_activity(doc["id"], "Operator", "Password reset requested")
+    # Without an email provider (local development only) hand the link back so the flow can be completed.
+    if not sent and get_settings().environment != "production":
+        return {**generic, "devResetLink": link}
+    return generic
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetBody):
+    if len(body.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(422, f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
+    try:
+        doc = await db.find_user_by_reset_hash(hashlib.sha256(body.token.encode()).hexdigest())
+    except Exception:
+        raise _db_unavailable()
+    reset = (doc or {}).get("reset") or {}
+    if not doc or reset.get("expires_at", 0) < time.time():
+        raise HTTPException(400, "This reset link is invalid or has expired. Request a new one.")
+    email = doc["email"]
+    await db.update_password_hash(email, hash_password(body.password))
+    await db.update_user(email, {}, unset=("reset",))  # single use
+    await clear_login_failures(email)
+    await repo.log_activity(doc["id"], "Operator", "Password reset completed")
     return {"ok": True}
 
 

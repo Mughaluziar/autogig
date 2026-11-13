@@ -23,6 +23,10 @@ export type Listing = {
   budgetMin?: number | null;
   proposals?: number | null;
   clientVerified?: boolean | null;
+  /** Upwork email-alert leads: the user must review and submit on the marketplace themselves. */
+  manualSubmitOnly?: boolean;
+  /** Id of the stored Upwork lead (email-alert source only). */
+  leadId?: string;
 };
 
 export type SavedSearch = {

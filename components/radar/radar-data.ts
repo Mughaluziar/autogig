@@ -208,3 +208,7 @@ export function similarFrom(l: Listing, pool: Listing[], n = 4): Listing[] {
     .slice(0, n)
     .map((x) => x.r);
 }
+
+/** Upwork listings are human-in-the-loop only: Autopilot drafts, the user submits on upwork.com. */
+export const isUpwork = (l: { source?: string; url?: string }): boolean =>
+  /^upwork/i.test(l.source ?? "") || /(^|\.)upwork\.com$/i.test(hostOf(l.url ?? ""));

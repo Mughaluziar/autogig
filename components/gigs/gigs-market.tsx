@@ -15,6 +15,7 @@ import { BASE, ageMs } from "@/components/radar/radar-data";
 import { useCredits, usePipeline, useRadarFeed, useSaved } from "@/components/radar/use-radar";
 import { SaveSearchDialog } from "@/components/radar/save-search-dialog";
 import { GigCard, GigGridSkeleton } from "./gig-card";
+import { UpworkImportDialog } from "./upwork-import-dialog";
 
 const CATEGORIES = [
   { label: "Web apps", q: "react, next.js, javascript" },
@@ -86,6 +87,7 @@ export function GigsMarket() {
   const [minBudget, setMinBudget] = React.useState(0);
   const [fresh, setFresh] = React.useState(false);
   const [saveOpen, setSaveOpen] = React.useState(false);
+  const [importOpen, setImportOpen] = React.useState(false);
 
   React.useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("q");
@@ -156,9 +158,15 @@ export function GigsMarket() {
               ))}
             </div>
           </div>
-          <BidScoreboard />
+          <div className="space-y-3">
+            <BidScoreboard />
+            <Button type="button" variant="outline" className="w-full bg-background/60" onClick={() => setImportOpen(true)}>
+              <Plus /> Add Upwork jobs from an alert email
+            </Button>
+          </div>
         </div>
       </section>
+      <UpworkImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={() => void feed.scan()} />
 
       <GigsNav />
 

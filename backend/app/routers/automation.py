@@ -21,6 +21,7 @@ A real auto_apply spends one bid credit on approval, refunded if it fails.
 """
 import logging
 import time
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -120,8 +121,18 @@ class JobBody(BaseModel):
     fields: dict = {}
 
 
+def _targets_upwork(body: "JobBody") -> bool:
+    host = (urlparse(body.url).hostname or "").lower() if body.url else ""
+    return "upwork" in body.platform.lower() or host == "upwork.com" or host.endswith(".upwork.com")
+
+
 @router.post("/automation/jobs")
 async def create_job(body: JobBody, user: dict = Depends(current_user)):
+    # Upwork is human-in-the-loop only: drafts are copied and submitted by the
+    # user themselves. No browser automation is ever pointed at Upwork.
+    if _targets_upwork(body):
+        raise HTTPException(422, "Automation is not available for Upwork. Copy the proposal and submit it "
+                                 "yourself on upwork.com.")
     url = _worker_for(user)
     title = body.title or body.kind
     job = await repo.add("automation_jobs", user["id"], {

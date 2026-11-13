@@ -14,6 +14,9 @@ import { useCredits, useListing, usePipeline, useSaved, useSkills } from "@/comp
 import { DetailSkeleton, NotFound, SourceNote } from "@/components/radar/job-detail";
 import { stageLabel } from "@/components/radar/pipeline-board";
 import { GigCard, MatchBar, platformDot } from "./gig-card";
+import { ManualSubmitNotice } from "./manual-submit-notice";
+import { isUpwork } from "@/components/radar/radar-data";
+import { apiCall } from "@/lib/api";
 
 export function GigDetail({ id }: { id: string }) {
   const router = useRouter();
@@ -84,6 +87,18 @@ export function GigDetail({ id }: { id: string }) {
             </div>
             <h1 className="mt-3 text-2xl font-extrabold leading-tight tracking-tight md:text-4xl">{listing.title}</h1>
           </header>
+
+          {isUpwork(listing) && (
+            <div className="space-y-2">
+              <ManualSubmitNotice url={listing.url} />
+              {listing.leadId && (
+                <Button variant="ghost" size="sm" className="text-muted-foreground"
+                  onClick={async () => { await apiCall(`/api/upwork/leads/${encodeURIComponent(listing.leadId!)}`, { status: "dismissed" }, "PATCH"); router.push(BASE.gig); }}>
+                  Remove this job from my list
+                </Button>
+              )}
+            </div>
+          )}
 
           {/* Budget on phones sits right under the title */}
           <div className="lg:hidden">{BudgetCard}</div>

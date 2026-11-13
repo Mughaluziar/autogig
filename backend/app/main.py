@@ -24,7 +24,7 @@ from .config import get_settings
 from .routers import (
     activity, admin, agents, auth, automation, billing, core, demo, freelancer, growth,
     capital, operations, orders, pipeline, portal, public, radar, revenue, studio, system, token, upwork, workspace,
-    inbox, payments, upwork_connect,
+    inbox, payments, upwork_connect, upwork_leads,
 )
 from .capital import ledger as capital_ledger, store as capital_store
 from .orders import store as order_store
@@ -187,6 +187,9 @@ app.include_router(payments.router, prefix=settings.api_prefix, dependencies=[De
 # single-use state names the user); connecting and listing need a session.
 app.include_router(upwork_connect.public_router, prefix=settings.api_prefix)
 app.include_router(upwork_connect.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
+# Upwork job leads from the user's own alert emails (human-in-the-loop: no
+# Upwork API, no login, no submission). Any signed-in role; rows are per-user.
+app.include_router(upwork_leads.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Agent Fleet Copilot: interprets free-form commands; the browser runs them.
 app.include_router(fleet_router.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Team & invites and personal API keys: the invite preview is public (the
