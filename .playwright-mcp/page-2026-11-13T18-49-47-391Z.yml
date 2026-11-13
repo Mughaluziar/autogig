@@ -1,0 +1,60 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e108]:
+    - banner [ref=f1e109]:
+      - button [ref=f1e110] [cursor=pointer]
+      - textbox "Search jobs, clients, freelancers..." [ref=f1e113]
+      - generic [ref=f1e114]:
+        - button "Compliance" [ref=f1e115] [cursor=pointer]
+        - button "Toggle theme" [ref=f1e119] [cursor=pointer]
+        - button "Notifications" [ref=f1e124] [cursor=pointer]
+        - button "TF Test Freelancer Freelancer" [ref=f1e130] [cursor=pointer]:
+          - generic [ref=f1e131]: TF
+          - generic [ref=f1e132]:
+            - paragraph [ref=f1e133]: Test Freelancer
+            - paragraph [ref=f1e134]: Freelancer
+    - main [ref=f1e137]:
+      - generic [ref=f1e138]:
+        - generic [ref=f1e141]:
+          - heading "Freelancer Dashboard" [level=1] [ref=f1e143]
+          - paragraph [ref=f1e144]: Your earnings, active contracts, and new specs available for bidding.
+        - generic [ref=f1e145]:
+          - link "Earnings (This Month) $0" [ref=f1e146] [cursor=pointer]:
+            - /url: /freelancer/earnings
+            - generic [ref=f1e147]:
+              - generic [ref=f1e148]: Earnings (This Month)
+              - generic [ref=f1e157]: $0
+          - link "Active Contracts 0" [ref=f1e159] [cursor=pointer]:
+            - /url: /freelancer/contracts
+            - generic [ref=f1e160]:
+              - generic [ref=f1e161]: Active Contracts
+              - generic [ref=f1e170]: "0"
+          - link "Open Specs 0" [ref=f1e172] [cursor=pointer]:
+            - /url: /freelancer/specs
+            - generic [ref=f1e173]:
+              - generic [ref=f1e174]: Open Specs
+              - generic [ref=f1e186]: "0"
+          - link "Quality Score —" [ref=f1e188] [cursor=pointer]:
+            - /url: /freelancer/qa
+            - generic [ref=f1e189]:
+              - generic [ref=f1e190]: Quality Score
+              - generic [ref=f1e199]: —
+        - generic [ref=f1e201]:
+          - generic [ref=f1e202]:
+            - generic [ref=f1e203]: Earnings
+            - paragraph [ref=f1e206]: No earnings yet — win your first spec bid to start earning.
+          - generic [ref=f1e208]:
+            - generic [ref=f1e209]: Open Specs to Bid On
+            - link "View all" [ref=f1e210] [cursor=pointer]:
+              - /url: /freelancer/specs
+        - generic [ref=f1e214]:
+          - generic [ref=f1e215]:
+            - generic [ref=f1e216]: My Bids
+            - link "View all" [ref=f1e217] [cursor=pointer]:
+              - /url: /freelancer/bids
+          - paragraph [ref=f1e221]: No bids yet — pick an open spec to place your first bid.
+  - generic [ref=f1e223]:
+    - generic [ref=f1e227]:
+      - paragraph [ref=f1e228]: Account created
+      - paragraph [ref=f1e229]: Your workspace is ready.
+    - button [ref=f1e230] [cursor=pointer]
+  - alert [ref=f1e103]

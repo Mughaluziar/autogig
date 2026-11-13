@@ -17,10 +17,20 @@ export default function TermsPage() {
         You are responsible for maintaining the confidentiality of your account credentials and for all activity
         under your account across Admin, Freelancer, and Client roles.
       </p>
-      <h2>3. Payments & Escrow</h2>
+      <h2>3. Payments</h2>
       <p>
-        Client funds are held in escrow via Stripe and released to freelancers upon milestone approval. Platform
-        margin is captured at the time of payout.
+        Invoice and milestone payments are processed by Stripe through Stripe Checkout, and only where the
+        operator has switched online payment on; otherwise no payment is taken. Autopilot is not a bank, a trustee
+        or an escrow agent and does not hold client funds on a client&apos;s behalf. Any marketplace, balance or
+        settlement figures shown in the app that are labelled as simulated are illustrations only and do not
+        represent real money. Fees, refunds and payment disputes are handled under the payment provider&apos;s
+        rules and any agreement between you and the other party.
+      </p>
+      <h2>3A. Third-party marketplaces</h2>
+      <p>
+        Autopilot helps you find jobs and draft proposals. It does not log in to, or submit anything on, your
+        Upwork, Fiverr or other marketplace accounts. You review, edit and submit every proposal yourself, and you
+        remain responsible for following each marketplace&apos;s terms.
       </p>
       <h2>4. Freelancer Obligations</h2>
       <p>
@@ -29,8 +39,7 @@ export default function TermsPage() {
       </p>
       <h2>5. Limitation of Liability</h2>
       <p>
-        The platform is provided "as is" without warranties of any kind. Placeholder legal text for demonstration
-        purposes.
+        The platform is provided "as is" without warranties of any kind.
       </p>
     </LegalPage>
   );

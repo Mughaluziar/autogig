@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { ShieldCheck, ShieldOff, Save, Bot, Cpu, Sliders, Bell, User, KeyRound, Mail, Globe } from "lucide-react";
+import { ShieldCheck, ShieldOff, Save, Bot, Cpu, Sliders, Bell, User, KeyRound, Mail } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -256,17 +256,13 @@ export default function SettingsPage() {
           <Card>
             <CardHeader><CardTitle>API access</CardTitle><CardDescription>Programmatic access to your workspace.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>Live API key</Label>
-                <div className="flex gap-2">
-                  <Input readOnly value="sk_live_••••••••••••••••4f2a" className="font-mono text-xs" />
-                  <Button variant="outline" onClick={() => { navigator.clipboard?.writeText("sk_live_…"); toast({ title: "Key copied" }); }}>Copy</Button>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => toast({ title: "New key generated — store it now", variant: "success" })}><KeyRound className="size-4" /> Generate new key</Button>
-                <Button variant="ghost" onClick={() => toast({ title: "Opening API docs" })}><Globe className="size-4" /> Docs</Button>
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Personal API keys are created, scoped (read-only or read-write) and revoked on the API keys page. A key is
+                shown once, when you create it, and is never displayed again.
+              </p>
+              <Button variant="outline" asChild>
+                <a href="/dashboard/security/api-keys"><KeyRound className="size-4" /> Manage API keys</a>
+              </Button>
               <p className="text-xs text-muted-foreground">Full credential vault — platform keys, rotation &amp; scopes — lives in <a href="/dashboard/security" className="text-primary underline">Security &amp; API</a>.</p>
             </CardContent>
           </Card>

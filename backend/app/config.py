@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     # fully in-memory.
     mongodb_uri: str | None = None
     mongodb_db: str = "autopilot"
+    # Production refuses to start without MONGODB_URI (data would vanish on
+    # every restart). Set true ONLY for a throwaway demo deployment.
+    allow_in_memory_db: bool = False
 
     # Freelancer.com connector — official API (OAuth). When unset, the connector
     # serves a realistic sandbox feed so the UI works in the demo.
@@ -210,19 +213,35 @@ class Settings(BaseSettings):
     def owner_email_set(self) -> set[str]:
         return {e.strip().lower() for e in self.owner_emails.split(",") if e.strip()}
 
-    def validate_for_production(self) -> None:
-        """Fail fast on settings that would make a production deploy insecure."""
-        if self.environment != "production":
-            return
+    def production_problems(self) -> list[str]:
+        """Everything that makes a production deploy unsafe or lossy."""
+        problems: list[str] = []
         if self.secret_key in ("dev-secret", "change-me-in-production") or len(self.secret_key) < 32:
-            raise RuntimeError(
-                "SECRET_KEY must be a random value of at least 32 characters in production."
+            problems.append("SECRET_KEY must be a random value of at least 32 characters in production.")
+        if not (self.mongodb_uri or "").strip() and not self.allow_in_memory_db:
+            problems.append(
+                "MONGODB_URI is not set: accounts and data would live in memory and be lost on every "
+                "restart. Set it (MongoDB Atlas), or set ALLOW_IN_MEMORY_DB=true for a throwaway demo."
             )
+        origins = self.cors_origin_list
+        if not origins or "*" in origins:
+            problems.append("CORS_ORIGINS must list the real frontend origin(s); '*' is not allowed with credentials.")
+        elif all(o.startswith("http://localhost") or o.startswith("http://127.0.0.1") for o in origins):
+            problems.append("CORS_ORIGINS only lists localhost; set the deployed frontend origin.")
         if (self.token_encryption_key or "").strip():
             from .crypto import key_problem  # cryptography is only needed once a key is set
             problem = key_problem(self.token_encryption_key)
             if problem:
-                raise RuntimeError(problem)
+                problems.append(problem)
+        return problems
+
+    def validate_for_production(self) -> None:
+        """Fail fast on settings that would make a production deploy insecure."""
+        if self.environment != "production":
+            return
+        problems = self.production_problems()
+        if problems:
+            raise RuntimeError("Refusing to start in production:\n - " + "\n - ".join(problems))
 
 
 @lru_cache

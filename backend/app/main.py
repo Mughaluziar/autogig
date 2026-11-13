@@ -112,6 +112,13 @@ async def startup() -> None:
     # Never persisted — real user data lives in repo.py's collections.
     init_store()
     if db.enabled():
+        try:
+            await db._get_db().command("ping")
+        except Exception:
+            # Production must not come up half-working against a dead database.
+            log.exception("MongoDB is not reachable at startup")
+            if settings.environment == "production":
+                raise RuntimeError("MongoDB is not reachable; refusing to start in production.")
         await repo.ensure_indexes()
         await order_store.ensure_indexes()
         await capital_store.ensure_indexes()
