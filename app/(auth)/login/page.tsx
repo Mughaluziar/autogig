@@ -75,7 +75,7 @@ export default function LoginPage() {
         email: email || undefined,
         name: name ? name.replace(/\b\w/g, (c) => c.toUpperCase()) : undefined,
         ...fields,
-      }, res?.data?.token);
+      });
       if (fields.verificationRequired) rememberNext(next);
       router.push(afterSignIn({ role: actualRole, verificationRequired: fields.verificationRequired }, next));
     } finally {

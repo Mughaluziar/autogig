@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { API_URL, fetchWithTimeout } from "@/lib/api";
+import { API_URL, apiUrl, fetchWithTimeout } from "@/lib/api";
 
 export default function BetaPage() {
   const [form, setForm] = useState({ name: "", email: "", role: "freelancer", area: "", feedback: "", rating: 0 });
@@ -21,7 +21,7 @@ export default function BetaPage() {
     setBusy(true);
     setError("");
     try {
-      const res = await fetchWithTimeout(`${API_URL}/api/beta-testers`, {
+      const res = await fetchWithTimeout(apiUrl("/api/beta-testers"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),

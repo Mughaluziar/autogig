@@ -36,12 +36,12 @@ export default function OAuthCallbackPage() {
         return;
       }
       const user = res.data.user;
-      if (res.status >= 400 || !res.data.token || !user || !isRole(user.role)) {
+      if (res.status >= 400 || !user || !isRole(user.role)) {
         setError(res.data.detail ?? "This sign-in link has expired. Sign in again.");
         return;
       }
       const fields = sessionFields(user);
-      login(user.role, fields, res.data.token);
+      login(user.role, fields);
       const next = safeNext(res.data.next);
       if (fields.verificationRequired) {
         rememberNext(next);

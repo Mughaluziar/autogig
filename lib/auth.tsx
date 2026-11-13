@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 
-import { API_URL, apiFetch, getAuthToken, setAuthToken } from "@/lib/api";
+import { API_URL, apiFetch, markSession } from "@/lib/api";
 import { safeNext, withNext } from "@/lib/safe-next";
 
 // Client accounts were retired: clients pay invoices through pay links
@@ -70,7 +70,7 @@ type AuthContextValue = {
   demoMode: boolean;
   /** True once the stored session has been checked — guards can trust `user`. */
   restored: boolean;
-  login: (role: Role, overrides?: Partial<SessionUser>, token?: string) => void;
+  login: (role: Role, overrides?: Partial<SessionUser>) => void;
   logout: () => void;
   setRole: (role: Role) => void;
 };
@@ -126,37 +126,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         else if (isRole(role)) setUser(DEFAULT_USERS[role]);
         return;
       }
-      // Real backend: a session is only as good as its token.
-      if (!getAuthToken()) {
-        storeSessionUser(null);
-        setUser(null);
-        return;
-      }
+      // Real backend: the HttpOnly session cookie is the only proof. Ask the server who we are.
       try {
         const res = await apiFetch("/api/auth/me");
         if (cancelled) return;
         if (res.ok) {
-          const { user: fresh, token: renewed } = (await res.json()) as { user: SessionUser; token?: string };
-          // Verified on another device since this token was issued: use the full session.
-          if (renewed) setAuthToken(renewed);
+          const { user: fresh } = (await res.json()) as { user: SessionUser };
           if (!isRole(fresh?.role)) {
-            // A retired account type (client) — end the session.
-            setAuthToken(null);
+            // A retired account type (client): end the session.
+            markSession(false);
             storeSessionUser(null);
             setUser(null);
+            void apiFetch("/api/auth/logout", { method: "POST", body: "{}" }).catch(() => {});
             return;
           }
+          markSession(true);
           storeSessionUser(fresh);
           setUser(fresh);
         } else if (res.status === 401) {
-          setAuthToken(null);
+          markSession(false);
           storeSessionUser(null);
           setUser(null);
         } else {
           setUser(readSessionUser());
         }
       } catch {
-        // Backend unreachable — keep the stored session; requests will retry.
+        // Backend unreachable: keep the cached profile; requests will retry.
         if (!cancelled) setUser(readSessionUser());
       }
     };
@@ -169,26 +164,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const login = (role: Role, overrides?: Partial<SessionUser>, token?: string) => {
+  // The server has already set the session cookie by the time the pages call this;
+  // nothing secret passes through here.
+  const login = (role: Role, overrides?: Partial<SessionUser>) => {
     const next = { ...DEFAULT_USERS[role], ...overrides, role };
-    if (token) setAuthToken(token);
+    if (!DEMO_MODE) markSession(true);
     setUser(next);
     storeSessionUser(next);
   };
   const setRole = (role: Role) => {
     if (DEMO_MODE) login(role);
   };
-  const logout = React.useCallback(() => {
-    setAuthToken(null);
+  const endSession = React.useCallback(() => {
+    markSession(false);
     storeSessionUser(null);
     setUser(DEV_BYPASS_AUTH ? DEFAULT_USERS.admin : null);
   }, []);
+  // Sign out: end the session on the server (revokes it, clears the cookies), then locally.
+  const logout = React.useCallback(() => {
+    if (!DEMO_MODE) void apiFetch("/api/auth/logout", { method: "POST", body: "{}" }).catch(() => {});
+    endSession();
+  }, [endSession]);
 
-  // Any request that comes back 401 with a token → the session is over.
+  // A request that comes back 401 while signed in: the session expired or was revoked.
   React.useEffect(() => {
-    window.addEventListener("auth:expired", logout);
-    return () => window.removeEventListener("auth:expired", logout);
-  }, [logout]);
+    window.addEventListener("auth:expired", endSession);
+    return () => window.removeEventListener("auth:expired", endSession);
+  }, [endSession]);
 
   return (
     <AuthContext.Provider

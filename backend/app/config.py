@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     # the dev default (see validate_for_production).
     secret_key: str = "dev-secret"
     access_token_expire_minutes: int = 60
+    # "true"/"false" forces the Secure flag on session cookies; blank = Secure in production or over https.
+    cookie_secure: str = ""
     # Comma-separated emails of platform owners (credential vault, all users,
     # audit log, demo reset).
     owner_emails: str = ""
@@ -78,25 +80,6 @@ class Settings(BaseSettings):
     # commercial, multi-user product (see docs/platform-matrix.md).
     freelancer_api_approved: bool = False
 
-    # Upwork — per-user OAuth 2.0 straight to Upwork (no Nango). Register an
-    # app at upwork.com/developer; its callback URL must be UPWORK_REDIRECT_URI,
-    # i.e. https://<this API>/api/upwork/oauth/callback. Tokens are stored
-    # encrypted with TOKEN_ENCRYPTION_KEY. Commercial use needs written approval.
-    upwork_client_id: str | None = None
-    upwork_client_secret: str | None = None
-    upwork_redirect_uri: str | None = None
-    upwork_commercial_approved: bool = False
-    # Master switch for the official-API connection. OFF: Upwork is used through
-    # email alerts only (docs/upwork-assistant.md) and nobody can connect an account.
-    upwork_api_enabled: bool = False
-    # Operation-specific approval switches. A general API key or commercial
-    # approval does not imply proposal or message permissions.
-    upwork_proposal_submit_approved: bool = False
-    upwork_message_read_approved: bool = False
-    upwork_message_send_approved: bool = False
-    # Order tracking reads offers, which needs Upwork's separate
-    # "Offer - Read-Only Access" permission on the approved app.
-    upwork_offers_read_approved: bool = False
 
     # Reddit's Data API requires OAuth, and commercial use requires approval.
     reddit_access_token: str | None = None
@@ -172,9 +155,6 @@ class Settings(BaseSettings):
     token_start_block: int = 0
     token_confirmations: int = 10
     token_lockup_days: int = 365
-    # Encrypts stored third-party credentials (OAuth tokens). One or more
-    # Fernet keys, comma-separated; the first encrypts. See app/crypto.py.
-    token_encryption_key: str | None = None
     # Invoice pay links (docs/payments.md). Clients pay an invoice or a
     # milestone through Stripe Checkout. Without STRIPE_SECRET_KEY the pay
     # page works but says online payment isn't switched on, and nothing is
@@ -204,6 +184,10 @@ class Settings(BaseSettings):
         return value
 
     @property
+    def cookie_secure_flag(self) -> bool | None:
+        return {"true": True, "1": True, "false": False, "0": False}.get(self.cookie_secure.strip().lower())
+
+    @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
@@ -231,11 +215,6 @@ class Settings(BaseSettings):
             problems.append("CORS_ORIGINS must list the real frontend origin(s); '*' is not allowed with credentials.")
         elif all(o.startswith("http://localhost") or o.startswith("http://127.0.0.1") for o in origins):
             problems.append("CORS_ORIGINS only lists localhost; set the deployed frontend origin.")
-        if (self.token_encryption_key or "").strip():
-            from .crypto import key_problem  # cryptography is only needed once a key is set
-            problem = key_problem(self.token_encryption_key)
-            if problem:
-                problems.append(problem)
         return problems
 
     def validate_for_production(self) -> None:

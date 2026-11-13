@@ -23,17 +23,17 @@ from .auth import current_user, require_roles
 from .config import get_settings
 from .routers import (
     activity, admin, agents, auth, automation, billing, core, demo, freelancer, growth,
-    capital, operations, orders, pipeline, portal, public, radar, revenue, studio, system, token, upwork, workspace,
-    inbox, payments, upwork_connect, upwork_leads,
+    capital, operations, orders, pipeline, portal, public, radar, revenue, studio, system, token, workspace,
+    inbox, payments, upwork_leads,
 )
 from .capital import ledger as capital_ledger, store as capital_store
 from .orders import store as order_store
 from .payments import store as payments_store, subscriptions as subscriptions_store
-from .upwork import store as upwork_store
 from .access import store as access_store
 from .routers import api_keys as api_keys_router, team as team_router
 from .routers import fleet as fleet_router
-from .security import ApiKeyMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
+from . import session as session_store
+from .security import ApiKeyMiddleware, OriginMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
 from .store import init_store
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
@@ -94,6 +94,7 @@ async def request_logging(request: Request, call_next):
 
 # Security middleware (applied outermost → innermost in reverse order)
 app.add_middleware(ApiKeyMiddleware)
+app.add_middleware(OriginMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
@@ -125,8 +126,8 @@ async def startup() -> None:
         await capital_ledger.ensure_indexes()
         await payments_store.ensure_indexes()
         await subscriptions_store.ensure_indexes()
-        await upwork_store.ensure_indexes()
         await oauth.ensure_indexes()
+        await session_store.ensure_indexes()
         await access_store.ensure_indexes()
         await repo.archive_legacy_state()
         log.info("MongoDB connected")
@@ -183,10 +184,6 @@ app.include_router(integrations.router, prefix=settings.api_prefix,
 # token and Stripe's signature authenticate them); managing links needs a session.
 app.include_router(payments.public_router, prefix=settings.api_prefix)
 app.include_router(payments.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
-# Upwork OAuth: Upwork redirects the browser to the public callback (the
-# single-use state names the user); connecting and listing need a session.
-app.include_router(upwork_connect.public_router, prefix=settings.api_prefix)
-app.include_router(upwork_connect.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Upwork job leads from the user's own alert emails (human-in-the-loop: no
 # Upwork API, no login, no submission). Any signed-in role; rows are per-user.
 app.include_router(upwork_leads.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
@@ -199,7 +196,7 @@ app.include_router(team_router.router, prefix=settings.api_prefix, dependencies=
 app.include_router(api_keys_router.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 
 # Agency dashboard — admin accounts only.
-for r in (studio.router, growth.router, freelancer.router, upwork.router,
+for r in (studio.router, growth.router, freelancer.router,
           automation.router):
     app.include_router(r, prefix=settings.api_prefix, dependencies=[Depends(require_roles("admin"))])
 

@@ -26,13 +26,6 @@ os.environ.update({
     "WORKER_KEY": "",
     "SEED_DEMO_DATA": "false",
     "FREELANCER_OAUTH_TOKEN": "",
-    "UPWORK_ACCESS_TOKEN": "",
-    "UPWORK_CLIENT_ID": "",
-    "UPWORK_CLIENT_SECRET": "",
-    "UPWORK_REDIRECT_URI": "",
-    "UPWORK_COMMERCIAL_APPROVED": "false",
-    # A fixed test-only key so stored tokens can be encrypted in tests.
-    "TOKEN_ENCRYPTION_KEY": "QJDEW1E_B8Va9nvrnjNsC4dPvK_qG0x6RPJmStbxHNo=",
     "NANGO_SECRET_KEY": "",
     "STRIPE_SECRET_KEY": "",
     "STRIPE_WEBHOOK_SECRET": "",
@@ -50,11 +43,10 @@ import pytest  # noqa: E402
 memory_only = pytest.mark.skipif(bool(TEST_MONGODB_URI), reason="inspects in-memory storage directly; covered in memory mode")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import auth, db, oauth, repo, security  # noqa: E402
+from app import auth, db, oauth, repo, security, session as sessions  # noqa: E402
 from app.orders import store as order_store  # noqa: E402
 from app.payments import store as payments_store  # noqa: E402
 from app.routers import payments as payments_router  # noqa: E402
-from app.upwork import store as upwork_store  # noqa: E402
 from app.capital import ledger as capital_ledger, store as capital_store  # noqa: E402
 from app.token import service as token_service, state as token_state  # noqa: E402
 from app.main import app  # noqa: E402
@@ -77,13 +69,13 @@ def client():
     repo.reset_memory()
     order_store.reset_memory()
     payments_store.reset_memory()
-    upwork_store.reset_memory()
     payments_router._checkout_hits.clear()
     capital_store.reset_memory()
     capital_ledger.reset_memory()
     token_state.reset_memory()
     token_service._transparency_cache.clear()
     auth._failures.clear()
+    sessions.reset_memory()
     # Every TestClient request shares one client IP; without this the
     # per-IP rate limiter trips once the whole suite passes 240 requests/min.
     security._hits.clear()

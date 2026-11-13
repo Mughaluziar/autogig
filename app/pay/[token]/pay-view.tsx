@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { API_URL, fetchWithTimeout } from "@/lib/api";
+import { API_URL, apiUrl, fetchWithTimeout } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Method = "debit" | "credit" | "crypto";
@@ -40,7 +40,7 @@ export function PayView({ token, returnStatus }: { token: string; returnStatus: 
   const load = React.useCallback(async () => {
     if (!API_URL) { setState("error"); return; }
     try {
-      const res = await fetchWithTimeout(`${API_URL}/api/pay/${encodeURIComponent(token)}`, { cache: "no-store" });
+      const res = await fetchWithTimeout(apiUrl(`/api/pay/${encodeURIComponent(token)}`), { cache: "no-store" });
       if (res.status === 404) { setState("notfound"); return; }
       if (!res.ok) throw new Error(String(res.status));
       setPage(await res.json());
@@ -96,7 +96,7 @@ export function PayView({ token, returnStatus }: { token: string; returnStatus: 
     setBusy(true);
     setError("");
     try {
-      const res = await fetchWithTimeout(`${API_URL}/api/pay/${encodeURIComponent(token)}/checkout`, {
+      const res = await fetchWithTimeout(apiUrl(`/api/pay/${encodeURIComponent(token)}/checkout`), {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ method: chosen, milestoneId: part.id }),
       }, 30_000);
       const data = await res.json().catch(() => ({}));

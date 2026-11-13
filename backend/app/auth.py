@@ -23,6 +23,7 @@ every role check.
 import hashlib
 import hmac
 import time
+import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
@@ -31,7 +32,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import Depends, HTTPException, Request
 
-from . import db
+from . import db, session as sessions
 from .config import get_settings
 
 ROLES = ("admin", "freelancer", "client", "investor")
@@ -72,13 +73,15 @@ def needs_rehash(user_doc: dict) -> bool:
 # --------------------------------------------------------------------------- #
 # Tokens
 # --------------------------------------------------------------------------- #
-def create_access_token(user: dict, *, email_verified: bool = True) -> str:
+def create_access_token(user: dict, *, email_verified: bool = True, session_version: int = 0) -> str:
     settings = get_settings()
     now = int(time.time())
     claims = {
         "sub": user["id"],
         "email": user["email"],
         "role": user["role"],
+        "jti": uuid.uuid4().hex,      # this session; revoked individually on logout
+        "sv": session_version,        # account-wide revocation (password change/reset)
         "iat": now,
         "exp": now + settings.access_token_expire_minutes * 60,
     }
@@ -95,9 +98,18 @@ def _unauthorized(detail: str) -> HTTPException:
     return HTTPException(401, detail, headers={"WWW-Authenticate": "Bearer"})
 
 
-def current_user(request: Request) -> dict:
+def _token_from(request: Request) -> tuple[str, str]:
+    """(token, source). A bearer header wins; otherwise the HttpOnly session cookie."""
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not token:
+    if scheme.lower() == "bearer" and token:
+        return token, "bearer"
+    cookie = request.cookies.get(sessions.SESSION_COOKIE, "")
+    return (cookie, "cookie") if cookie else ("", "")
+
+
+async def current_user(request: Request) -> dict:
+    token, source = _token_from(request)
+    if not token:
         raise _unauthorized("Not signed in.")
     try:
         claims = jwt.decode(token, get_settings().secret_key, algorithms=[_ALGORITHM])
@@ -105,12 +117,24 @@ def current_user(request: Request) -> dict:
         raise _unauthorized("Session expired — please sign in again.")
     except jwt.InvalidTokenError:
         raise _unauthorized("Invalid session token.")
+    if source == "cookie" and request.method in sessions.UNSAFE:
+        sessions.check_csrf(request, claims.get("jti", ""))
+    if await sessions.is_revoked(claims.get("jti", "")):
+        raise _unauthorized("Session ended — please sign in again.")
+    try:
+        account = await db.find_user(claims["email"])
+    except Exception:
+        raise HTTPException(503, "Account service is temporarily unavailable.")
+    if account is None or account.get("id") != claims["sub"] or account.get("session_version", 0) != claims.get("sv", 0):
+        raise _unauthorized("Session ended — please sign in again.")
     if claims.get("ev") is False:
         prefix = get_settings().api_prefix
         if request.url.path not in {f"{prefix}{p}" for p in _UNVERIFIED_PATHS}:
             raise HTTPException(403, "Verify your email address to continue.")
     user = {"id": claims["sub"], "email": claims["email"], "role": claims["role"]}
     request.state.user = user
+    request.state.claims = claims
+    request.state.auth_source = source
     # A pending-verification token (ev: false) can outlive the pending state:
     # the code may be confirmed from another device. /auth/me swaps it.
     request.state.token_pending = claims.get("ev") is False

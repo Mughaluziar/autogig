@@ -13,7 +13,7 @@ import { SIGNUP_EMAIL_KEY } from "@/lib/landing";
 import { nextFromLocation, rememberNext, withNext } from "@/lib/safe-next";
 import { SocialSignIn } from "./social-sign-in";
 import { normalizeLinkedAccount } from "./linked-account-field";
-import { VERIFICATION_KEY, UPWORK_PROMPT_KEY } from "./verification";
+import { VERIFICATION_KEY } from "./verification";
 
 type SignupResponse = {
   ok?: boolean;
@@ -134,10 +134,8 @@ export function SignupShell({
             }
             const user = res?.data?.user;
             const fields = sessionFields(user);
-            login(role, { name, email, company, ...fields }, res?.data?.token);
+            login(role, { name, email, company, ...fields });
             try {
-              if (linkPlatform === "upwork") sessionStorage.setItem(UPWORK_PROMPT_KEY, "1");
-              else sessionStorage.removeItem(UPWORK_PROMPT_KEY);
               sessionStorage.removeItem(SIGNUP_EMAIL_KEY);
             } catch { /* storage blocked */ }
             if (fields.verificationRequired) {

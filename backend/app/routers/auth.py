@@ -25,14 +25,15 @@ import secrets
 import time
 from urllib.parse import parse_qs, urlencode, urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+import jwt
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
-from .. import db, email as mail, oauth, repo
+from .. import db, email as mail, oauth, repo, session as sessions
 from ..auth import (
     MIN_PASSWORD_LENGTH, RETIRED_ROLES, SIGNUP_ROLES, check_login_allowed, clear_login_failures,
-    create_access_token, current_user, hash_password, is_owner, needs_rehash,
+    _token_from, create_access_token, current_user, hash_password, is_owner, needs_rehash,
     record_login_failure, verify_password,
 )
 from ..config import get_settings
@@ -110,7 +111,7 @@ def _session(doc: dict, **extra) -> dict:
     pending = _needs_verification(doc)
     return {
         "ok": True,
-        "token": create_access_token(user, email_verified=not pending),
+        "token": create_access_token(user, email_verified=not pending, session_version=doc.get("session_version", 0)),
         "user": {**user, "owner": is_owner(user), "verificationRequired": pending},
         **extra,
     }
@@ -228,7 +229,7 @@ def _profile_doc(profile: SignupProfile | None) -> dict:
 
 
 @router.post("/signup")
-async def signup(body: SignupBody):
+async def signup(body: SignupBody, request: Request, response: Response):
     email = body.email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(422, "Enter a valid email address.")
@@ -273,11 +274,11 @@ async def signup(body: SignupBody):
     else:
         verification = {"required": False}
         _send_welcome(doc)
-    return _session(doc, verification=verification)
+    return sessions.issue(request, response, _session(doc, verification=verification))
 
 
 @router.post("/login")
-async def login(body: LoginBody):
+async def login(body: LoginBody, request: Request, response: Response):
     email = body.email.strip().lower()
     await check_login_allowed(email)
     try:
@@ -301,7 +302,7 @@ async def login(body: LoginBody):
         except Exception:
             pass  # the old hash still works; the upgrade retries on the next login
     await repo.log_activity(doc["id"], "Operator", f"Signed in as {doc['role']}")
-    return _session(doc)
+    return sessions.issue(request, response, _session(doc))
 
 
 async def _session_doc(session: dict) -> dict:
@@ -319,7 +320,7 @@ async def _session_doc(session: dict) -> dict:
 
 
 @router.get("/me")
-async def me(request: Request, session: dict = Depends(current_user)):
+async def me(request: Request, response: Response, session: dict = Depends(current_user)):
     doc = await _session_doc(session)
     user = db._public_user(doc)
     pending = _needs_verification(doc)
@@ -327,8 +328,8 @@ async def me(request: Request, session: dict = Depends(current_user)):
     if getattr(request.state, "token_pending", False) and not pending:
         # Verified since this token was issued (e.g. the code was entered on
         # another device): without a fresh token every other route would 403.
-        out["token"] = create_access_token(user, email_verified=True)
-    return out
+        out["token"] = create_access_token(user, email_verified=True, session_version=doc.get("session_version", 0))
+    return sessions.issue(request, response, out)
 
 
 class VerifyBody(BaseModel):
@@ -336,10 +337,10 @@ class VerifyBody(BaseModel):
 
 
 @router.post("/verify-email")
-async def verify_email(body: VerifyBody, session: dict = Depends(current_user)):
+async def verify_email(body: VerifyBody, request: Request, response: Response, session: dict = Depends(current_user)):
     doc = await _session_doc(session)
     if db.is_email_verified(doc):
-        return _session(doc, alreadyVerified=True)
+        return sessions.issue(request, response, _session(doc, alreadyVerified=True))
     pending = doc.get("verify") or {}
     code = re.sub(r"\D", "", body.code)
     if not pending.get("code_hash"):
@@ -358,7 +359,7 @@ async def verify_email(body: VerifyBody, session: dict = Depends(current_user)):
     doc = await db.update_user(doc["email"], {"email_verified": True}, unset=("verify",)) or doc
     await repo.log_activity(doc["id"], "Operator", "Email address verified")
     _send_welcome(doc)
-    return _session(doc)
+    return sessions.issue(request, response, _session(doc))
 
 
 @router.post("/resend-verification")
@@ -384,7 +385,8 @@ class ChangePasswordBody(BaseModel):
 
 
 @router.post("/change-password")
-async def change_password(body: ChangePasswordBody, session: dict = Depends(current_user)):
+async def change_password(body: ChangePasswordBody, request: Request, response: Response,
+                          session: dict = Depends(current_user)):
     doc = await _session_doc(session)
     email = doc["email"]
     # Accounts made with social sign-in have no password until they set one.
@@ -399,7 +401,30 @@ async def change_password(body: ChangePasswordBody, session: dict = Depends(curr
         raise HTTPException(422, f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
     await db.update_password_hash(email, hash_password(body.newPassword))
     await clear_login_failures(email)
+    # Every other session of this account ends; this one continues on a fresh token.
+    doc = await db.update_user(email, {"session_version": doc.get("session_version", 0) + 1}) or doc
     await repo.log_activity(doc["id"], "Operator", "Password changed")
+    fresh = create_access_token(db._public_user(doc), email_verified=not _needs_verification(doc),
+                                session_version=doc.get("session_version", 0))
+    return sessions.issue(request, response, {"ok": True, "token": fresh})
+
+
+@router.post("/logout")
+async def logout(request: Request, response: Response):
+    """End this session: revoke its id server-side and clear the cookies. Safe to
+    call when already signed out. A cookie session needs its CSRF token."""
+    token, source = _token_from(request)
+    if token:
+        try:
+            claims = jwt.decode(token, get_settings().secret_key, algorithms=["HS256"], options={"verify_exp": False})
+        except jwt.InvalidTokenError:
+            claims = None
+        if claims:
+            if source == "cookie":
+                sessions.check_csrf(request, claims.get("jti", ""))
+            await sessions.revoke_jti(claims.get("jti", ""), int(claims.get("exp", time.time() + 3600)))
+            await repo.log_activity(claims["sub"], "Operator", "Signed out")
+    sessions.clear_session_cookies(request, response)
     return {"ok": True}
 
 
@@ -466,7 +491,8 @@ async def reset_password(body: ResetBody):
         raise HTTPException(400, "This reset link is invalid or has expired. Request a new one.")
     email = doc["email"]
     await db.update_password_hash(email, hash_password(body.password))
-    await db.update_user(email, {}, unset=("reset",))  # single use
+    # Single use; and every existing session of the account ends.
+    await db.update_user(email, {"session_version": doc.get("session_version", 0) + 1}, unset=("reset",))
     await clear_login_failures(email)
     await repo.log_activity(doc["id"], "Operator", "Password reset completed")
     return {"ok": True}
@@ -603,11 +629,11 @@ class ExchangeBody(BaseModel):
 
 
 @router.post("/oauth/exchange")
-async def oauth_exchange(body: ExchangeBody):
+async def oauth_exchange(body: ExchangeBody, request: Request, response: Response):
     handoff = await oauth.take_handoff(body.code)
     if not handoff:
         raise HTTPException(400, "This sign-in link has expired. Sign in again.")
     doc = await db.find_user(handoff["email"])
     if doc is None:
         raise HTTPException(400, "This sign-in link has expired. Sign in again.")
-    return _session(doc, newAccount=bool(handoff.get("created")), next=handoff.get("next") or "")
+    return sessions.issue(request, response, _session(doc, newAccount=bool(handoff.get("created")), next=handoff.get("next") or ""))

@@ -18,7 +18,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import auth, db
+from . import auth, db, session as sessions
 from .access import store as access_store
 from .config import get_settings
 from .routers.api_keys import KEY_PREFIX, hash_key, is_active
@@ -52,6 +52,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["X-XSS-Protection"] = "0"
         return response
+
+
+class OriginMiddleware(BaseHTTPMiddleware):
+    """Cookie sessions only: an unsafe browser request that carries our session
+    cookie (or asks for one, like a login) must come from one of our own origins.
+    Requests with neither (API keys, webhooks, scripts) are not affected."""
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method in sessions.UNSAFE and (
+                request.cookies.get(sessions.SESSION_COOKIE) or sessions.cookie_mode(request)):
+            origin = request.headers.get("origin")
+            if origin and origin.rstrip("/").lower() not in sessions.allowed_origins():
+                return JSONResponse({"detail": "Request blocked: unexpected origin."}, status_code=403)
+        return await call_next(request)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -116,7 +130,7 @@ async def _authenticate_personal_key(request: Request, raw: str) -> JSONResponse
                             status_code=403)
     if request.method not in _READ_METHODS and "write" not in key.get("scopes", []):
         return JSONResponse({"detail": "This API key is read-only."}, status_code=403)
-    token = auth.create_access_token(db._public_user(account))
+    token = auth.create_access_token(db._public_user(account), session_version=account.get("session_version", 0))
     headers = [(k, v) for k, v in request.scope["headers"] if k not in (b"authorization", b"x-api-key")]
     headers.append((b"authorization", f"Bearer {token}".encode()))
     request.scope["headers"] = headers

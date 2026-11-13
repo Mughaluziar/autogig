@@ -12,8 +12,6 @@
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-const TOKEN_KEY = "auth-token";
-
 // Long enough for a free-plan backend to wake from sleep (about a minute on
 // Render), short enough that a dead connection can't hang the UI forever.
 const TIMEOUT_MS = 75_000;
@@ -29,40 +27,45 @@ export async function fetchWithTimeout(input: string, init: RequestInit = {}, ms
   }
 }
 
-/** Session token issued by /api/auth/login or /api/auth/signup. */
-export function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+/**
+ * Sessions live in an HttpOnly cookie that JavaScript cannot read: nothing about
+ * the session is stored in localStorage. The browser only talks to this site's
+ * own origin; next.config.mjs proxies /api/* to the backend, so the cookie is
+ * first-party. Unsafe requests echo the readable CSRF cookie in X-CSRF-Token.
+ */
+let signedIn = false;
+/** AuthProvider tells us when a session exists, so a 401 can be told apart from "never signed in". */
+export function markSession(active: boolean) {
+  signedIn = active;
 }
 
-export function setAuthToken(token: string | null) {
-  if (typeof window === "undefined") return;
-  try {
-    if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    /* storage blocked — the session just won't survive a reload */
-  }
+function readCookie(name: string): string {
+  if (typeof document === "undefined") return "";
+  const hit = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`));
+  return hit ? decodeURIComponent(hit.slice(name.length + 1)) : "";
+}
+
+/** URL for a backend path: relative in the browser (same origin, via the proxy), absolute on the server. */
+export function apiUrl(path: string): string {
+  return typeof window === "undefined" ? `${API_URL}${path}` : path;
 }
 
 /**
- * fetch() against the backend with the session token attached. A 401 on a
- * request that carried a token means the session expired or was revoked —
- * AuthProvider listens for "auth:expired" and signs the user out.
+ * fetch() against the backend. A 401 while a session is active means it expired or
+ * was revoked: AuthProvider listens for "auth:expired" and signs the user out.
  */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const token = getAuthToken();
+  const method = (init?.method ?? "GET").toUpperCase();
+  const csrf = method === "GET" || method === "HEAD" ? "" : readCookie("autopilot_csrf");
   let res: Response;
   try {
-    res = await fetchWithTimeout(`${API_URL}${path}`, {
+    res = await fetchWithTimeout(apiUrl(path), {
+      credentials: "same-origin",
       ...init,
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "X-Session-Mode": "cookie",
+        ...(csrf ? { "X-CSRF-Token": csrf } : {}),
         ...init?.headers,
       },
     });
@@ -71,7 +74,7 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     throw err;
   }
   reportServer(res.status < 500);
-  if (res.status === 401 && token && typeof window !== "undefined") {
+  if (res.status === 401 && signedIn && typeof window !== "undefined") {
     window.dispatchEvent(new Event("auth:expired"));
   }
   return res;

@@ -1,4 +1,4 @@
-import { API_URL, fetchWithTimeout } from "@/lib/api";
+import { API_URL, apiUrl, fetchWithTimeout } from "@/lib/api";
 
 export type WaitlistProduct = "debit-card" | "credit-card" | "financing" | "investor";
 export type WaitlistResult = { ok: true; already: boolean; demo: boolean } | { ok: false; error: string };
@@ -14,7 +14,7 @@ export async function joinWaitlist(body: {
 }): Promise<WaitlistResult> {
   if (!API_URL) return { ok: true, already: false, demo: true };
   try {
-    const res = await fetchWithTimeout(`${API_URL}/api/waitlist`, {
+    const res = await fetchWithTimeout(apiUrl("/api/waitlist"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...body, email: body.email.trim(), consent: true }),

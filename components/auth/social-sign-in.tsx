@@ -75,7 +75,7 @@ export function SocialSignIn({
     if (role) params.set("role", role);
     if (next) params.set("next", next);
     const q = params.toString();
-    return `${API_URL}/api/auth/oauth/${id}/start${q ? `?${q}` : ""}`;
+    return `/api/auth/oauth/${id}/start${q ? `?${q}` : ""}`;
   };
 
   const divider = (text: string) => (

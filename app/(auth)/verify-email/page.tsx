@@ -6,10 +6,9 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { apiCall, apiGet } from "@/lib/api";
 import { useAuth, dashboardHomeFor, sessionFields, type Role } from "@/lib/auth";
-import { startUpworkConnect, type UpworkConnections } from "@/lib/upwork";
 import { cn } from "@/lib/utils";
 import { forgetNext, nextFromLocation, recalledNext, withNext } from "@/lib/safe-next";
-import { UPWORK_PROMPT_KEY, VERIFICATION_KEY, type VerificationInfo } from "@/components/auth/verification";
+import { VERIFICATION_KEY, type VerificationInfo } from "@/components/auth/verification";
 
 const LENGTH = 6;
 const CODE_TTL_MS = 15 * 60 * 1000;
@@ -42,13 +41,13 @@ export default function VerifyEmailPage() {
   const [busy, setBusy] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState("");
-  const [done, setDone] = React.useState<{ role: Role; upwork: UpworkConnections | null } | null>(null);
   const inputs = React.useRef<(HTMLInputElement | null)[]>([]);
   const lastTried = React.useRef("");
   const requested = React.useRef(false);
 
   const needsCode = !!user?.verificationRequired && !demoMode;
   // ?next= (or the one remembered at signup/sign-in): where to go once confirmed.
+  const [done, setDone] = React.useState(false);
   const nextRef = React.useRef("");
   React.useEffect(() => {
     nextRef.current = nextFromLocation() || recalledNext();
@@ -135,7 +134,7 @@ export default function VerifyEmailPage() {
         setError("Can't reach the server. Check your connection and try again.");
         return;
       }
-      if (res.status >= 400 || !res.data.token || !res.data.user) {
+      if (res.status >= 400 || !res.data.user) {
         setError(res.data.detail ?? "That code didn't work. Try again.");
         setDigits(Array(LENGTH).fill(""));
         inputs.current[0]?.focus();
@@ -144,22 +143,14 @@ export default function VerifyEmailPage() {
       const fields = sessionFields(res.data.user);
       const role = (res.data.user.role as Role) ?? user?.role ?? "admin";
       store(null);
-      let wantsUpwork = false;
-      try {
-        wantsUpwork = sessionStorage.getItem(UPWORK_PROMPT_KEY) === "1";
-        sessionStorage.removeItem(UPWORK_PROMPT_KEY);
-      } catch { /* storage blocked */ }
-      // Connecting Upwork's API lands on the agency workspace's Accounts page.
-      const offered = wantsUpwork && role === "admin" ? await apiGet<UpworkConnections>("/api/upwork/connections") : null;
-      const upwork = offered?.canConnect ? offered : null; // only when the API connection is switched on
-      setDone({ role, upwork });
-      login(role, fields, res.data.token);
+      setDone(true); // stops the redirect effect while the page reloads into the dashboard
+      login(role, fields);
       toast({ title: "Email confirmed", description: "Your account is ready.", variant: "success" });
       // A full load, not a client-side push: the workspace store couldn't load
       // with the pending session and only reloads when the user changes.
       const target = nextRef.current || (role === "admin" ? "/dashboard/command" : dashboardHomeFor(role));
       forgetNext();
-      if (!upwork) window.location.replace(target);
+      window.location.replace(target);
     } finally {
       setBusy(false);
     }
@@ -196,46 +187,6 @@ export default function VerifyEmailPage() {
       inputs.current[i + 1]?.focus();
     }
   };
-
-  if (done?.upwork) {
-    const up = done.upwork;
-    return (
-      <div className="text-center">
-        <span className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-success/15 text-success">
-          <CheckCircle2 className="size-7" />
-        </span>
-        <h1 className="text-2xl font-bold tracking-tight">Email confirmed</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Your account is ready. One more optional step:</p>
-        <div className="panel mt-6 p-5 text-left">
-          <h2 className="font-semibold">Connect your Upwork account</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            You linked an Upwork profile. Connecting through Upwork&apos;s own sign-in lets Autopilot sync your jobs and
-            orders. We never see your Upwork password.
-          </p>
-          {up.canConnect ? (
-            <Button
-              variant="gradient"
-              className="mt-4 w-full"
-              onClick={async () => {
-                const err = await startUpworkConnect("/dashboard/accounts");
-                if (err) toast({ title: "Couldn't start the Upwork sign-in", description: err });
-              }}
-            >
-              Connect Upwork <ArrowRight className="size-4" />
-            </Button>
-          ) : (
-            <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-muted-foreground">
-              {up.reason ?? "Upwork connections aren't switched on for this app yet."} Your profile link is saved, and you can
-              connect later from Accounts &amp; Gigs.
-            </p>
-          )}
-        </div>
-        <Button variant="ghost" className="mt-4 w-full" onClick={() => window.location.replace(nextRef.current || "/dashboard/command")}>
-          {up.canConnect ? "Skip for now" : "Continue to your dashboard"}
-        </Button>
-      </div>
-    );
-  }
 
   if (!needsCode) {
     return (
