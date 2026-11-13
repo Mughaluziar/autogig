@@ -4,14 +4,16 @@ Last updated: 2026-11-14. Git: `git log --oneline`; the untouched original is ta
 Status words: **DONE** = implemented and verified as stated · **PARTIAL** = implemented, part not verified · **PENDING** = not started or not finished · **BLOCKED** = needs a decision, credentials or approval from outside.
 "Verified" always says how. Nothing here claims a real third-party service works unless it says it was tested with real credentials; **none were**.
 
-## Test evidence so far
+## Test evidence
 | Check | Result |
 |---|---|
-| Backend suite, **Python 3.12.14** (production pin), in-memory | **407 passed, 4 skipped, 0 failed** (before the last parser fixes, see re-run below) |
-| Backend suite against a **real MongoDB 7** (throwaway Docker container on port 27018) | In progress; see "Mongo-mode results" |
-| Frontend `tsc --noEmit`, `next lint`, `next build` | Pass; 1 pre-existing lint warning |
-| Real browser (Playwright, Chromium) against the production build + API + MongoDB | Signup, login, Gigs feed with Upwork leads, import dialog, proposal draft/edit/save/reload, forgot/reset password: verified manually, 2026-11-14 |
-| Mobile 390 px: Gigs page, import dialog | No horizontal overflow (checked); other pages not yet audited |
+| Backend suite, **Python 3.12.14** (production pin), in-memory, final code | **408 passed, 4 skipped, 0 failed**. Skips: 2 Mongo-only tests (`test_mongo.py`), the on-chain token e2e (needs a local chain), 1 needing the frontend checkout |
+| Same suite against a **real MongoDB 7** (throwaway container) | Whole suite before the last changes: 389 passed, 5 failed, 1 skipped. The 5 were tests that read in-memory dictionaries or use their own event loop (test-harness limits, not product bugs); they are now marked memory-only. Re-run after the change of all new/changed test files (Upwork, reset, config, API keys, inbox, team, Upwork OAuth): **79 passed, 5 skipped (the memory-only ones), 0 failed**. The full suite was not re-run end to end against Mongo after the last edits |
+| Frontend `tsc --noEmit` / `next lint` / `next build` (final code) | Pass / 1 pre-existing warning / pass |
+| Static `npm run qa` | Payments/escrow check now passes (was the only failure) |
+| Browser crawl, all **137 routes**, desktop 1440 px and mobile 390 px (demo build) | **0** HTTP errors, 0 blank pages, 0 console/page errors, 0 failed requests, **0 horizontal overflow**. This is the mock-data demo build: it proves the pages render, not that they work with real data |
+| Real browser against production build + API + real MongoDB | Signup, login, Gigs with Upwork leads, import dialog (390 and 1280 px), draft/edit/save/reload, forgot and reset password: verified manually, 2026-11-14. Not exercised in the browser: the remove-lead button, the copy button, other roles' pages with real data |
+| Backup/restore scripts | Tested on the throwaway Mongo |
 
 ## 1. Git and baseline
 | Item | Status | Evidence |
@@ -54,14 +56,14 @@ See `docs/upwork-assistant.md` for the flow, setup and the verified/not-verified
 ## 4. Website completeness (in progress)
 | Item | Status | Note |
 |---|---|---|
-| Role label said "Administrator" for every user | **DONE** | Now shows the account's role (not yet re-checked in a browser) |
+| Role label said "Administrator" for every user | **DONE** (typecheck/build only) | Now shows the account's role; not re-checked in a browser |
 | Freelancer portal "Open specs/earnings/contracts" | **PENDING / needs decision** | They call demo-only endpoints (`SEED_DEMO_DATA`); real accounts see empty tables and 404s in the console. Finishing the blind-auction/spec marketplace is a product-sized feature |
-| Browser crawl of all routes (`npm run qa:crawl`), forms, buttons | **PENDING** | Playwright install in progress |
-| Responsive audit of the rest of the app | **PENDING** | |
-| Loading/error states review | **PENDING** | |
-| README is out of date (says "76 routes, in-memory, DB not connected") | **PENDING** | |
+| Browser crawl of all routes, desktop + mobile | **DONE** | See test evidence. Forms/buttons were exercised by hand only on the flows listed there, not exhaustively |
+| Responsive check | **PARTIAL** | No page overflows at 390 px (crawl). Visual quality on phones was reviewed only for the new Upwork dialog |
+| Loading/error states review | **PENDING** | Not reviewed page by page; new pages show busy, error and empty states |
+| README status table out of date | **DONE** | Corrected; the rest of the 56 KB README was not re-audited |
 | Stripe, social sign-in, email, Sentry, inbound email with real credentials | **BLOCKED** | Need your accounts/keys; none tested |
-| Upwork API path (OAuth) code | **UNTOUCHED** | Still present but off (`UPWORK_COMMERCIAL_APPROVED=false`). You said not to use it; say if you want it removed |
+| Upwork API path (OAuth/GraphQL) | **DONE (disabled)** | Code kept but a master switch `UPWORK_API_ENABLED` (default false) makes connecting and live search impossible; signup/verify screens no longer offer it; tested. Delete the code if you prefer |
 
 ## 5. Decisions and approvals needed from you
 1. Sessions: same-site `/api` proxy + HttpOnly cookie (recommended), or keep bearer tokens with the CSP mitigation.
