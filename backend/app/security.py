@@ -25,7 +25,6 @@ from .routers.api_keys import KEY_PREFIX, hash_key, is_active
 
 # Sliding window: max N requests per IP per 60s window
 _RATE_WINDOW = 60.0
-_RATE_MAX = 240
 _hits: dict[str, deque] = defaultdict(deque)
 # Credential endpoints get a much tighter per-IP budget (brute force, signup
 # and reset-email abuse) on top of the general limit.
@@ -85,7 +84,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         q = _hits[ip]
         while q and now - q[0] > _RATE_WINDOW:
             q.popleft()
-        if len(q) >= _RATE_MAX:
+        if len(q) >= max(get_settings().rate_limit_per_minute, 1):
             return JSONResponse(
                 {"detail": "Rate limit exceeded"}, status_code=429,
                 headers={"Retry-After": str(int(_RATE_WINDOW))},

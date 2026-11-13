@@ -92,3 +92,13 @@ def test_credential_endpoints_have_a_tight_per_ip_budget(client):
     assert set(codes[security._AUTH_RATE_MAX:]) == {429}
     # Ordinary API reads are not affected by the credential budget.
     assert client.get("/health").status_code == 200
+
+
+def test_general_rate_limit_is_configurable_and_per_ip(client, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "rate_limit_per_minute", 5)
+    codes = [client.get("/health").status_code for _ in range(8)]
+    assert codes[:5] == [200] * 5 and set(codes[5:]) == {429}
+    assert client.get("/health", headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429  # headers alone can't dodge it
+    # The shipped default leaves room for a chatty single-page app (about 25 calls per page load).
+    assert get_settings().__class__.model_fields["rate_limit_per_minute"].default >= 600

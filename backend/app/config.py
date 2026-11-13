@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     # "true"/"false" forces the Secure flag on session cookies; blank = Secure in production or over https.
     cookie_secure: str = ""
+    # Requests per minute per client IP. One dashboard page load makes ~25 API calls and offices share an IP.
+    rate_limit_per_minute: int = 900
     # Comma-separated emails of platform owners (credential vault, all users,
     # audit log, demo reset).
     owner_emails: str = ""

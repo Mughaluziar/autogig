@@ -9,15 +9,29 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SimpleLineChart } from "@/components/charts/charts";
 import { freelancerEarnings as freelancerEarningsSeed, freelancerOpenSpecs as freelancerOpenSpecsSeed, freelancerContracts as freelancerContractsSeed, freelancerMyBids as freelancerMyBidsSeed } from "@/lib/mock-data";
-import { useEntity } from "@/lib/use-entity";
+import { LoadState } from "@/components/shared/load-state";
+import { API_URL } from "@/lib/api";
+import { usePool, type PoolBid, type PoolContract, type PoolEarning, type PoolSpec } from "@/lib/pool";
 import { formatCurrency } from "@/lib/utils";
 
 export default function FreelancerDashboard() {
-  const freelancerEarnings = useEntity("freelancer/earnings", freelancerEarningsSeed);
-  const freelancerOpenSpecs = useEntity("freelancer/specs", freelancerOpenSpecsSeed);
-  const freelancerContracts = useEntity("freelancer/contracts", freelancerContractsSeed);
-  const freelancerMyBids = useEntity("freelancer/bids", freelancerMyBidsSeed);
-  const monthEarnings = freelancerEarnings[freelancerEarnings.length - 1]?.amount ?? 0;
+  // With a backend these are the signed-in freelancer's real records; the frontend-only demo keeps its samples.
+  const specsPool = usePool<PoolSpec[]>("/api/pool/specs", freelancerOpenSpecsSeed as unknown as PoolSpec[]);
+  const contractsPool = usePool<PoolContract[]>("/api/pool/my-contracts", freelancerContractsSeed as unknown as PoolContract[]);
+  const bidsPool = usePool<PoolBid[]>("/api/pool/my-bids", freelancerMyBidsSeed as unknown as PoolBid[]);
+  const earningsPool = usePool<{ summary: { thisMonth: number }; entries: PoolEarning[] } | null>("/api/pool/earnings", null);
+  const freelancerOpenSpecs: any[] = specsPool.data ?? [];
+  const freelancerContracts: any[] = (contractsPool.data ?? []).filter((c: any) => !API_URL || c.status === "active");
+  const freelancerMyBids: any[] = bidsPool.data ?? [];
+  const byMonth = Object.entries((earningsPool.data?.entries ?? []).reduce<Record<string, number>>((acc, e) => {
+    const key = (e.approvedAt ?? "").slice(0, 7);
+    if (key) acc[key] = (acc[key] ?? 0) + e.amount;
+    return acc;
+  }, {})).sort(([x], [y]) => x.localeCompare(y)).map(([month, amount]) => ({ month, amount }));
+  const freelancerEarnings: any[] = API_URL ? byMonth : freelancerEarningsSeed;
+  const monthEarnings = API_URL ? earningsPool.data?.summary.thisMonth ?? 0 : freelancerEarnings[freelancerEarnings.length - 1]?.amount ?? 0;
+  const failed = specsPool.error || contractsPool.error || bidsPool.error || earningsPool.error;
+  const loading = specsPool.loading || contractsPool.loading || bidsPool.loading || earningsPool.loading;
   return (
     <>
       <PageHeader
@@ -25,7 +39,8 @@ export default function FreelancerDashboard() {
         description="Your earnings, active contracts, and new specs available for bidding."
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <LoadState loading={false} error={failed} onRetry={() => { specsPool.reload(); contractsPool.reload(); bidsPool.reload(); earningsPool.reload(); }} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-busy={loading}>
         <StatCard label="Earnings (This Month)" value={formatCurrency(monthEarnings)} icon={<Wallet className="size-5" />} href="/freelancer/earnings" />
         <StatCard label="Active Contracts" value={String(freelancerContracts.length)} icon={<FileText className="size-5" />} href="/freelancer/contracts" />
         <StatCard label="Open Specs" value={String(freelancerOpenSpecs.length)} icon={<Gavel className="size-5" />} href="/freelancer/specs" />
@@ -54,19 +69,22 @@ export default function FreelancerDashboard() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-3">
-            {freelancerOpenSpecs.map((s: any) => (
+            {freelancerOpenSpecs.length === 0 && !loading && (
+              <p className="py-8 text-center text-sm text-muted-foreground">No open specs right now. New ones from agencies appear here.</p>
+            )}
+            {freelancerOpenSpecs.slice(0, 5).map((s: any) => (
               <div key={s.id} className="rounded-lg border p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium">{s.title}</p>
                   <StatusBadge status={s.status} />
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {s.stack.map((t: any) => (
+                  {(s.stack ?? []).map((t: any) => (
                     <Badge key={t} variant="secondary" className="text-[11px]">{t}</Badge>
                   ))}
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{s.estHours} · {s.deadline}</span>
+                  <span>{s.estHours} h · {s.deadline}</span>
                   <span>{s.bidsIn} bids in</span>
                 </div>
               </div>

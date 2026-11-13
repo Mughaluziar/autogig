@@ -174,7 +174,7 @@ export default function CommandCenter() {
   ];
 
   const pulse = [
-    { label: "Revenue (MTD)", value: `$${(kpis.revenueMonth / 1000).toFixed(1)}k`, trend: 8.1, icon: CircleDollarSign },
+    { label: "Revenue (MTD)", value: `$${(kpis.revenueMonth / 1000).toFixed(1)}k`, trend: 0, icon: CircleDollarSign },
     { label: "Live Margin", value: `$${(kpis.liveMargin / 1000).toFixed(1)}k`, trend: kpis.marginTrend, icon: Gauge },
     { label: "Clients", value: String(clients.length), trend: 0, icon: Users },
     { label: "Active Work", value: String(activeContracts.length), trend: 0, icon: Briefcase },

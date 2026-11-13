@@ -55,7 +55,7 @@ export default function MarginsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Live Margin (MTD)" value={formatCurrency(live)} trend={kpis.marginTrend} icon={<DollarSign className="size-5" />} href="/dashboard/analytics" />
-        <StatCard label="Revenue (MTD)" value={formatCurrency(kpis.revenueMonth)} trend={8.1} icon={<TrendingUp className="size-5" />} href="/dashboard/monetization" />
+        <StatCard label="Revenue (MTD)" value={formatCurrency(kpis.revenueMonth)} icon={<TrendingUp className="size-5" />} href="/dashboard/monetization" />
         <StatCard label="Avg Margin %" value="48%" trend={2.4} icon={<Percent className="size-5" />} href="/dashboard/market-arbitrage" />
         <StatCard label="API Overhead" value={formatCurrency(kpis.apiOverheadMonth)} trend={-4.2} icon={<Server className="size-5" />} hint="lower is better" href="/dashboard/security" />
       </div>

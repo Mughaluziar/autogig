@@ -60,12 +60,12 @@ export function GigDetail({ id }: { id: string }) {
           <a href={listing.url} target="_blank" rel="noopener noreferrer"><ExternalLink /> {listing.source.split(" ")[0]}</a>
         </Button>
       </div>
-      <button onClick={() => !isPro && setPaywall(true)} disabled={isPro}
+      {!isUpwork(listing) && <button onClick={() => !isPro && setPaywall(true)} disabled={isPro}
         className="mt-4 flex w-full items-center gap-2 rounded-xl bg-background/60 p-2.5 text-left text-xs">
         {isPro ? <Crown className="size-4 text-warning" /> : <Zap className="size-4 text-primary" />}
         <span className="flex-1">{isPro ? "Pro — unlimited bids" : <><span className="font-semibold">{bidCredits}</span> bid credit{bidCredits === 1 ? "" : "s"} left · spent only when an auto-apply is actually sent</>}</span>
         {!isPro && <span className="font-medium text-primary">Top up</span>}
-      </button>
+      </button>}
     </section>
   );
 
