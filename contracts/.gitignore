@@ -1,0 +1,11 @@
+node_modules/
+artifacts/
+cache/
+.env
+.env.*
+!.env.example
+coverage/
+coverage.json
+# Local in-process deployments are throwaway; testnet deployment records are kept.
+deployments/hardhat.json
+deployments/localhost.json
