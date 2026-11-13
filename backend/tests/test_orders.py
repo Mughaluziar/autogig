@@ -374,7 +374,7 @@ def test_capabilities_report_limits_honestly(client):
     assert by_name["Freelancer.com"]["connection"] == "platform_token"
     assert any(u["platform"] == "Toptal" for u in report["unsupported"])
     blocked = client.post("/api/orders/accounts", headers=alice, json={"platform": "Upwork", "mode": "api", "connectionId": "x"})
-    assert blocked.status_code == 503
+    assert blocked.status_code == 422   # Upwork has no API connection any more: email-only
     assert client.post("/api/orders/accounts", headers=alice, json={"platform": "Fiverr", "mode": "api"}).status_code == 422
 
 

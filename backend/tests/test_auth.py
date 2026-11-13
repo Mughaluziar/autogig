@@ -138,7 +138,7 @@ def test_public_routes_work_without_a_token(client):
 def test_admin_routes_reject_other_roles(client):
     token = signup(client, email="free@example.com", role="freelancer")["token"]
     assert client.get("/api/automation/jobs", headers=bearer(token)).status_code == 403
-    assert client.get("/api/automation/status", headers=bearer(token)).status_code == 403
+    assert client.get("/api/upwork/status", headers=bearer(token)).status_code == 403
 
 
 def test_job_radar_is_per_user_for_every_role_but_never_anonymous(client):

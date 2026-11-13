@@ -210,6 +210,19 @@ def test_real_bid_needs_a_bid_credit(client, monkeypatch):
     assert res.status_code == 402
 
 
+def test_upwork_submit_never_claims_a_send_it_did_not_make(client, two_users):
+    alice, _, _ = two_users
+    body = {"jobId": "uw-1", "proposal": "x" * 40, "rate": 50, "approved": True}
+    # Live submission isn't implemented: the API says so instead of reporting a send.
+    res = client.post("/api/upwork/proposal/submit", headers=alice, json=body)
+    assert res.status_code == 501
+    assert "submit it on Upwork" in res.json()["detail"]
+    assert "ok" not in res.json()
+    # Human approval is still checked first.
+    unapproved = client.post("/api/upwork/proposal/submit", headers=alice, json={**body, "approved": False})
+    assert unapproved.status_code == 422
+
+
 # --- Beta testers ------------------------------------------------------------
 def test_beta_signups_are_stored_for_owners(client):
     assert client.post("/api/beta-testers", json={"name": "Bea", "email": "bea@example.com"}).status_code == 200

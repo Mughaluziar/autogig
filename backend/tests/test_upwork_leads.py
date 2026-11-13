@@ -196,14 +196,25 @@ def test_upwork_api_oauth_graphql_and_submit_routes_no_longer_exist(client):
     """Decision: Upwork is human-in-the-loop only. The OAuth/GraphQL integration was removed."""
     admin = bearer(signup(client, email="agency@example.com")["token"])
     for method, path in (("get", "/api/upwork/connections"), ("post", "/api/upwork/oauth/start"),
-                         ("get", "/api/upwork/oauth/callback"), ("get", "/api/upwork/status"),
-                         ("get", "/api/upwork/jobs"), ("post", "/api/upwork/proposal/prepare"),
-                         ("post", "/api/upwork/proposal/submit")):
+                         ("get", "/api/upwork/oauth/callback"), ("get", "/api/upwork/jobs")):
         assert getattr(client, method)(path, headers=admin).status_code in (404, 405), path
     paths = {route.path for route in app.routes}
-    assert not any("/upwork/oauth" in p or "/upwork/connections" in p or "proposal/submit" in p for p in paths)
+    assert not any("/upwork/oauth" in p or "/upwork/connections" in p or p.endswith("/upwork/jobs") for p in paths)
     # The assistant's own routes are still there.
     assert "/api/upwork/leads" in paths and "/api/upwork/leads/import" in paths
+
+
+def test_upwork_proposal_drafting_is_preserved_and_never_submits(client, monkeypatch):
+    """The AI draft endpoint and the submit refusal came through the API retirement unchanged."""
+    monkeypatch.setattr(llm, "chat", lambda *a, **k: "A long enough AI-written proposal body for the Upwork job in question, with a plan.")
+    admin = bearer(signup(client, email="agency@example.com")["token"])
+    res = client.post("/api/upwork/proposal/prepare", headers=admin, json={"jobId": "j1", "title": "Build API", "skills": ["Python"], "type": "hourly", "hourlyMax": 70})
+    assert res.status_code == 200 and res.json()["aiGenerated"] is True and res.json()["suggestedRate"] == 70
+    assert any(p["id"] == res.json()["proposalId"] for p in client.get("/api/radar/proposals", headers=admin).json())
+    submit = client.post("/api/upwork/proposal/submit", headers=admin, json={"jobId": "j1", "proposal": "x" * 40, "rate": 50, "approved": True})
+    assert submit.status_code == 501 and "submit it on Upwork" in submit.json()["detail"]
+    status = client.get("/api/upwork/status", headers=admin).json()
+    assert status["connected"] is False and status["mode"] == "human-in-the-loop"
 
 
 def test_nango_can_never_be_used_for_upwork(monkeypatch):

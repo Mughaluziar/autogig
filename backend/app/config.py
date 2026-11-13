@@ -155,6 +155,9 @@ class Settings(BaseSettings):
     token_start_block: int = 0
     token_confirmations: int = 10
     token_lockup_days: int = 365
+    # Encrypts stored third-party credentials (OAuth tokens). One or more Fernet keys,
+    # comma-separated; the first encrypts. See app/crypto.py. Kept for future connectors.
+    token_encryption_key: str | None = None
     # Invoice pay links (docs/payments.md). Clients pay an invoice or a
     # milestone through Stripe Checkout. Without STRIPE_SECRET_KEY the pay
     # page works but says online payment isn't switched on, and nothing is
@@ -215,6 +218,11 @@ class Settings(BaseSettings):
             problems.append("CORS_ORIGINS must list the real frontend origin(s); '*' is not allowed with credentials.")
         elif all(o.startswith("http://localhost") or o.startswith("http://127.0.0.1") for o in origins):
             problems.append("CORS_ORIGINS only lists localhost; set the deployed frontend origin.")
+        if (self.token_encryption_key or "").strip():
+            from .crypto import key_problem  # cryptography is only needed once a key is set
+            problem = key_problem(self.token_encryption_key)
+            if problem:
+                problems.append(problem)
         return problems
 
     def validate_for_production(self) -> None:

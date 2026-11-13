@@ -24,12 +24,13 @@ from .config import get_settings
 from .routers import (
     activity, admin, agents, auth, automation, billing, core, demo, freelancer, growth,
     capital, operations, orders, pipeline, portal, public, radar, revenue, studio, system, token, workspace,
-    inbox, payments, upwork_leads,
+    inbox, payments, pool, upwork, upwork_leads,
 )
 from .capital import ledger as capital_ledger, store as capital_store
 from .orders import store as order_store
 from .payments import store as payments_store, subscriptions as subscriptions_store
 from .access import store as access_store
+from .pool import store as pool_store
 from .routers import api_keys as api_keys_router, team as team_router
 from .routers import fleet as fleet_router
 from . import session as session_store
@@ -128,6 +129,7 @@ async def startup() -> None:
         await subscriptions_store.ensure_indexes()
         await oauth.ensure_indexes()
         await session_store.ensure_indexes()
+        await pool_store.ensure_indexes()
         await access_store.ensure_indexes()
         await repo.archive_legacy_state()
         log.info("MongoDB connected")
@@ -187,6 +189,8 @@ app.include_router(payments.router, prefix=settings.api_prefix, dependencies=[De
 # Upwork job leads from the user's own alert emails (human-in-the-loop: no
 # Upwork API, no login, no submission). Any signed-in role; rows are per-user.
 app.include_router(upwork_leads.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
+# Freelancer pool: specs, blind bids, contracts, earnings. Role checks are per route (agency vs freelancer).
+app.include_router(pool.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Agent Fleet Copilot: interprets free-form commands; the browser runs them.
 app.include_router(fleet_router.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Team & invites and personal API keys: the invite preview is public (the
@@ -196,7 +200,7 @@ app.include_router(team_router.router, prefix=settings.api_prefix, dependencies=
 app.include_router(api_keys_router.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 
 # Agency dashboard — admin accounts only.
-for r in (studio.router, growth.router, freelancer.router,
+for r in (studio.router, growth.router, freelancer.router, upwork.router,
           automation.router):
     app.include_router(r, prefix=settings.api_prefix, dependencies=[Depends(require_roles("admin"))])
 
