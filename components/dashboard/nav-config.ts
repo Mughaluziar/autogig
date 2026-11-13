@@ -75,6 +75,7 @@ export const adminNav: NavSection[] = [
       { href: "/dashboard/gigs", label: "Gigs", icon: Briefcase },
       { href: "/dashboard/agents", label: "Agent Fleet", icon: Bot },
       { href: "/dashboard/orders", label: "Orders", icon: PackageCheck },
+      { href: "/dashboard/pool", label: "Freelancer Pool", icon: Users },
       { href: "/dashboard/automation", label: "Automation", icon: Zap },
       { href: "/dashboard/calendar", label: "Calendar", icon: CalendarDays },
       { href: "/dashboard/accounts", label: "Accounts & Gigs", icon: Plug },
