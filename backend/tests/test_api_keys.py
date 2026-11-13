@@ -3,7 +3,7 @@ respect read/write scope, expiry and revocation, and can't manage keys,
 sign-in or the team."""
 import pytest
 
-from conftest import bearer, signup
+from conftest import memory_only, bearer, signup
 from app import auth
 from app.access import store as access_store
 from app.config import get_settings
@@ -28,6 +28,7 @@ def create(client, headers, name="CI", scopes=("read",), days=90):
     return res.json()
 
 
+@memory_only
 def test_create_shows_the_secret_once_and_stores_a_hash(client):
     headers, user = session(client)
     made = create(client, headers, "Zapier", ("read", "write"))
@@ -85,6 +86,7 @@ def test_keys_cannot_manage_keys_sign_in_or_team(client):
         assert res.status_code == 403, (method, path, res.text)
 
 
+@memory_only
 def test_revoked_expired_and_unknown_keys_fail(client):
     headers, _ = session(client)
     made = create(client, headers)

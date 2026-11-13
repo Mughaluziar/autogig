@@ -45,6 +45,9 @@ os.environ.update({
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402
+
+# For the few tests that read the in-memory store directly, or run their own event loop.
+memory_only = pytest.mark.skipif(bool(TEST_MONGODB_URI), reason="inspects in-memory storage directly; covered in memory mode")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app import auth, db, oauth, repo, security  # noqa: E402

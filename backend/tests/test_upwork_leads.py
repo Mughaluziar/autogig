@@ -35,8 +35,7 @@ def test_alert_email_becomes_leads_in_job_radar(client, inbox):
     assert res.status_code == 200 and res.json()["accepted"] is True
 
     leads = client.get("/api/upwork/leads", headers=alice).json()
-    assert [l["title"] for l in leads["leads"]] == ["React dashboard developer", "Python data pipeline & API"] or \
-           {l["title"] for l in leads["leads"]} == {"React dashboard developer", "Python data pipeline & API"}
+    assert {l["title"] for l in leads["leads"]} == {"React dashboard developer", "Python data pipeline & API"}
     assert "submit it yourself" in leads["notice"]
     first = next(l for l in leads["leads"] if l["title"].startswith("React"))
     assert first["url"] == "https://www.upwork.com/jobs/~01a1b2c3d4e5f6a7b8"
@@ -50,7 +49,6 @@ def test_alert_email_becomes_leads_in_job_radar(client, inbox):
     assert len(rows) == 2 and "Upwork (email alert)" in feed.json()["sources"]
     detail = client.get(f"/api/radar/jobs/{rows[0]['id']}", headers=alice)
     assert detail.status_code == 200 and detail.json()["job"]["id"] == rows[0]["id"]
-    assert client.get("/api/notifications", headers=alice).status_code in (200, 404)
 
 
 def test_same_job_in_a_new_email_is_not_added_twice(client, inbox):

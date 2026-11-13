@@ -166,13 +166,13 @@ def _label(block: str, pattern: str) -> str:
 
 def _description(block: str, title: str) -> str:
     keep = []
-    for line in block.split("\n"):
-        line = line.strip()
-        if not line or _MARKER.fullmatch(line) or line.lower() == title.lower():
+    for raw in block.split("\n"):
+        line = _MARKER.sub("", raw).strip()
+        if not line or line.lower() == title.lower():
             continue
-        if _LABEL_LINE.match(line) or _GENERIC_ANCHOR.match(_MARKER.sub("", line).strip() or "x"):
+        if _LABEL_LINE.match(line) or _GENERIC_ANCHOR.match(line):
             continue
-        keep.append(_MARKER.sub("", line).strip())
+        keep.append(line)
     text = " ".join(keep)
     text = re.sub(r"\s+", " ", text).strip()
     # An email "…" teaser ends with "…" or "More"; drop the dangling UI words.
@@ -210,21 +210,45 @@ def parse_alert(subject: str, text_body: str = "", html_body: str = "") -> list[
             order.append(job_id)
         found[job_id].append((start, end, url, anchor, line_start))
 
-    jobs: list[ParsedJob] = []
     single = len(order) == 1
-    for index, job_id in enumerate(order):
-        links = found[job_id]
-        first = links[0]
+    subject_title = _title_from_subject(subject)
+    generic_subject = bool(re.search(r"\b(matching|matches|digest|recommended|jobs? for you|new jobs)\b", subject or "", re.I))
+
+    # Pass 1: a title for every job, and where its block of text begins.
+    titles: dict[str, str] = {}
+    starts: dict[str, int] = {}
+    for position, job_id in enumerate(order):
+        first = found[job_id][0]
         title = ""
-        for _, _, _, anchor, _ in links:
+        for _, _, _, anchor, _ in found[job_id]:
             if anchor and len(anchor) >= 4 and not _GENERIC_ANCHOR.match(anchor):
                 title = anchor
                 break
-        if not title and single:
-            title = _title_from_subject(subject)
-        title = title or "Upwork job"
-        block_start = first[4]
-        next_starts = [found[o][0][4] for o in order[index + 1:]]
+        start = first[4]
+        if not title:
+            if single and subject_title and not generic_subject:
+                title = subject_title
+            else:
+                # Plain-text mail: the title is usually the line just above the bare link.
+                above = [ln for ln in annotated[:start].split("\n") if ln.strip()]
+                previous_job_end = found[order[position - 1]][-1][1] if position else 0
+                candidate = _SUBJECT_PREFIX.sub("", _MARKER.sub("", above[-1])).strip() if above else ""
+                line_start = annotated.rfind("\n", 0, max(start - 1, 0)) + 1 if start else 0
+                if (candidate and 4 <= len(candidate) <= 200 and line_start >= previous_job_end
+                        and not _LABEL_LINE.match(candidate) and not _FOOTER.search(candidate)
+                        and not _GENERIC_ANCHOR.match(candidate) and (position > 0 or not single or not subject_title or generic_subject)):
+                    title = candidate
+                    start = line_start
+            if not title and single:
+                title = subject_title
+        titles[job_id] = title or "Upwork job"
+        starts[job_id] = start
+
+    jobs: list[ParsedJob] = []
+    for index, job_id in enumerate(order):
+        title = titles[job_id]
+        block_start = found[job_id][0][4]
+        next_starts = [starts[o] for o in order[index + 1:]]
         block_end = min(next_starts) if next_starts else len(annotated)
         block = annotated[block_start:block_end]
         foot = _FOOTER.search(block)

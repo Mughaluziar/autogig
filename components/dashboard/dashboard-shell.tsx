@@ -34,6 +34,8 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { CoverOfferPrompt } from "@/components/capital/cover-offer-prompt";
 import { isDemoOnlyRoute, type NavSection } from "./nav-config";
 
+const ROLE_NAMES: Record<string, string> = { admin: "Administrator", freelancer: "Freelancer", investor: "Investor" };
+
 export function DashboardShell({
   nav: navItems,
   roleLabel,
@@ -261,7 +263,7 @@ export function DashboardShell({
                   <Avatar name={user?.name ?? "User"} size={32} />
                   <div className="hidden text-left sm:block">
                     <p className="text-sm font-medium leading-tight">{user?.name}</p>
-                    <p className="text-xs text-muted-foreground">{roleLabel}</p>
+                    <p className="text-xs text-muted-foreground">{user ? ROLE_NAMES[user.role] ?? roleLabel : roleLabel}</p>
                   </div>
                   <ChevronDown className="size-4 text-muted-foreground" />
                 </button>

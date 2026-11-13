@@ -2,7 +2,7 @@
 resend/revoke, and leaving."""
 import pytest
 
-from conftest import bearer, signup
+from conftest import memory_only, bearer, signup
 from app import auth
 from app.access import store as access_store
 from app.routers import team as team_router
@@ -117,6 +117,7 @@ def test_resend_replaces_the_link_and_revoke_kills_it(client):
     invite(client, owner, "dev@example.test")
 
 
+@memory_only
 def test_expired_invite_cannot_be_accepted(client):
     owner = account(client, "owner@agency.test")
     sent = invite(client, owner, "dev@example.test")

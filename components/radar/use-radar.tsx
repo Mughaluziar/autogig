@@ -389,7 +389,7 @@ export function useAutoApply(listing: Listing | null, payload: () => { instructi
 
   // Restore a job already prepared for this listing.
   React.useEffect(() => {
-    if (!listing || !API_URL) return;
+    if (!listing || !API_URL || isUpwork(listing)) return;
     let alive = true;
     apiGet<(ApplyJob & { url?: string; kind?: string; createdAt?: string })[]>("/api/automation/jobs").then((jobs) => {
       const mine = jobs?.find((j) => j.kind === "auto_apply" && j.url === listing.url && j.status !== "cancelled");

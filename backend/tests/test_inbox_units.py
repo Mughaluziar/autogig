@@ -1,6 +1,8 @@
 """Pure unit coverage for inbound email normalization and deduplication."""
 import asyncio
 
+from conftest import memory_only
+
 from app import repo
 from app.routers.inbox import InboundEmail, _platform, _plain
 
@@ -20,6 +22,7 @@ def test_postmark_payload_aliases_and_html_normalization():
     assert _platform("notice@notfiverr.com") is None
 
 
+@memory_only
 def test_per_user_message_deduplication():
     repo.reset_memory()
     fields = {"platform": "Upwork", "thread_ref": "thread-1", "sender": "Client",
@@ -37,6 +40,7 @@ def test_per_user_message_deduplication():
     assert len(asyncio.run(repo.list_for("messages", "user-b"))) == 1
 
 
+@memory_only
 def test_daily_bid_slots_are_atomic_and_user_scoped():
     repo.reset_memory()
 

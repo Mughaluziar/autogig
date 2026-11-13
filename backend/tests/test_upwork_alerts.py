@@ -98,3 +98,31 @@ def test_listing_fields_have_radar_shape_and_cap_sizes():
     f = j.listing_fields("2026-01-01T00:00:00Z")
     assert len(f["title"]) == 300 and len(f["description"]) == 4000 and len(f["tags"]) == 12
     assert f["source"] == ua.SOURCE and f["kind"] == "gig"
+
+
+def test_pasted_plain_text_takes_the_title_from_the_line_above_the_link():
+    text = ("New job: Next.js storefront speed audit\nhttps://www.upwork.com/jobs/~01feedfacefeedface\n"
+            "Fixed-price: $800\nSkills: Next.js, Performance\nOur storefront scores 40 on Lighthouse.")
+    j = ua.parse_alert("", text_body=text)[0]
+    assert j.title == "Next.js storefront speed audit"
+    assert (j.rate_type, j.budget) == ("fixed", 800.0)
+    assert j.description == "Our storefront scores 40 on Lighthouse."
+
+
+def test_description_does_not_repeat_the_title():
+    first = ua.parse_alert("x", html_body=DIGEST_HTML)[0]
+    assert not first.description.startswith("React dashboard developer")
+    assert first.description.startswith("We need an experienced React engineer")
+
+
+def test_plain_text_digest_with_several_bare_links_keeps_each_jobs_text_apart():
+    text = ("Jobs matching your search\n\n"
+            "Build a Stripe billing portal\nhttps://www.upwork.com/jobs/~01aaaaaaaaaaaaaa01\nHourly: $50 - $80\nSkills: Stripe, Node.js\n"
+            "Need subscriptions and invoices.\n\n"
+            "Design a mobile onboarding flow\nhttps://www.upwork.com/jobs/~01bbbbbbbbbbbbbb02\nFixed-price: $600\nSkills: Figma\n"
+            "Three screens plus prototype.\n\nUnsubscribe here\n")
+    one, two = ua.parse_alert("Jobs matching: stripe", text_body=text)
+    assert (one.title, one.budget, one.skills) == ("Build a Stripe billing portal", 80.0, ["Stripe", "Node.js"])
+    assert one.description == "Need subscriptions and invoices."
+    assert (two.title, two.budget, two.skills) == ("Design a mobile onboarding flow", 600.0, ["Figma"])
+    assert two.description == "Three screens plus prototype."
