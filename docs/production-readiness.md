@@ -65,7 +65,7 @@ Legend: **L** = I can complete it locally (done unless noted) · **X** = needs e
 * **R5: parsers and AI quality unverified on real data** (Upwork alert parser, Groq output); prompt-injection handling tested on synthetic text only.
 * **R6 (reduced): simulated money features** are hidden from ordinary users in production by default and labelled where shown; payouts are only recorded.
 * **R7: legal exposure** until the lawyer items are done. The product no longer promises features it lacks, but the texts are drafts.
-* **R8: no automated browser test in CI;** the browser suite (now 260+ checks) runs locally.
+* **R8: no automated browser test in CI;** the browser suite (259 checks) runs locally.
 * **R9: backup restore time on production-sized data is unknown;** the Mongo CI job is slow (about 45 min).
 * **R10 (new): deletion edge cases.** Free text a user wrote inside a record shared with another person (contract titles, bid notes,
   messages to a counterparty) stays as written; third-party processors are not asked to delete; Atlas backups keep deleted data

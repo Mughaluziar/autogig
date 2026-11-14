@@ -281,3 +281,46 @@ Nothing was deployed, pushed or run against production data; the baseline tag is
 ## Not verified in this pass (needs accounts or approval; see the register)
 Atlas backups and restore time, Vercel/Render header and timeout behaviour, real email/AI/inbound email/Stripe/social/Sentry/
 Nango, real Upwork alert emails, a first GitHub run, behaviour against a pre-existing production database, and all legal items.
+
+# Second production-readiness pass (2026-11-14/15): security architecture and data rights
+
+Decisions implemented from the owner's review: stealth mode removed; export and deletion; server-side Terms acceptance; restricted
+simulated modules; R1 signed edge proof; R2 shared rate limits; R3 staging procedure; R4 advisory investigation; legal pack.
+Plan: `docs/superpowers/plans/2026-11-14-security-and-data-rights.md`. Nothing pushed, deployed or run on production data.
+**Production readiness is not declared.**
+
+## What was built
+1. **Stealth mode removed** (toggle, provider, setting, AI Disclosure wording; demo agent renamed). QA rule `no-concealment` blocks its return.
+2. **Terms acceptance** recorded server-side (`terms_acceptances`: user id, versions, UTC time, method; append-only), signup requires it,
+   re-accept gate when versions change.
+3. **Data export** (`POST /api/me/export`, password or fresh sign-in, 3/hour, secrets and other users' data excluded, audited by counts).
+4. **Account deletion**: preview, typed confirmation, 14-day lock/grace with cancel, refusal reasons (owner, team members, active
+   contracts, open simulated positions), execution that deletes personal data, replaces the deleted person's name in kept shared
+   records (contracts, payouts) with a pseudonym, keeps them for a placeholder 7 years, writes a tombstone, and is repeatable after a
+   crash. Hourly in-process job plus `POST /api/admin/deletions/run`. Completeness guard: a test fails if any collection the app writes
+   is missing from the classified map (`docs/data-lifecycle.md`).
+5. **Simulated modules** (Banking, Marketplace, Capital, Token) limited by `SIMULATED_MODULES` (production default `invited`).
+6. **R1 edge proof** (`middleware.ts`, `app/edge.py`, `lib/edge-sign.mjs`): HMAC-signed visitor address on proxied requests; direct calls
+   refused with `REQUIRE_EDGE_PROOF=true` (webhooks, health, OAuth callbacks, API keys excepted); rotation supported; production build guard.
+7. **R2 shared counters** (`app/ratelimit.py`) in MongoDB with in-memory degradation.
+8. **R3** `docs/staging-verification.md` + `staging-check.mjs` additions + owner diagnostics endpoints.
+9. **R4** axios (never loaded) and Next's nested PostCSS fixed by same-major overrides; `docs/npm-advisories.md`.
+10. Policy pages rewritten to match the product; `docs/legal-review-questions.md` extended (questions 16-22).
+
+## Tests (final tree, 2026-11-15)
+| Check | Result |
+|---|---|
+| Backend, in-memory, pinned dependencies | **557 passed, 8 skipped, 0 failed** |
+| Backend, real MongoDB 7 | MONGO_RESULT |
+| Chromium end-to-end, real MongoDB, real API, website proxy with the **edge proof enforced** | **259 / 259 passed** (239 earlier + 20 new: terms record, export download, deletion schedule/lock/cancel, Terms gate, restricted modules) |
+| Frontend typecheck / lint / `npm run qa` / deploy-guard + edge-sign tests | pass / 1 pre-existing warning / 24 pass, 3 warn, 0 fail / 10 pass |
+| `npm audit --omit=dev` | 0 critical, 0 high, 5 moderate (Sentry build-plugin chain) |
+| Two real API processes sharing one login budget | 24 wrong logins across both: exactly 20 allowed, 4 blocked |
+| Local proxy test (`next start` + API) | direct 403; via site works; visitor-sent `X-Edge-*` replaced; JS and Python signatures identical |
+
+Test-harness lessons: a stale `next start` on the port makes every later run fail with 500s (use `kill -9`, check the port); the e2e
+must reach the API only through the website when the edge proof is enforced (webhook, health, OAuth callbacks and keys excepted).
+
+## Not verified (needs accounts or approval)
+Vercel passing middleware headers to the external rewrite and overwriting visitor forwarded headers; Render hop count; proxy timeout for
+AI drafts; Sentry 11 behaviour; everything in the first report's list; a lawyer's view of every text and of retention.
