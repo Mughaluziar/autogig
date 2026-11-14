@@ -3,7 +3,21 @@
 import { useEffect, useState } from "react";
 
 import { API_URL, apiFetch } from "@/lib/api";
+import { DEMO_MODE } from "@/lib/auth";
 import { useDemoStore } from "@/lib/demo-store";
+
+// Collections the backend only serves in demo mode (SEED_DEMO_DATA=true, see
+// backend/app/main.py). A real account would just get a 404 for each, so they
+// are never requested: the caller keeps its empty-state value and the browser
+// console stays clean. Anything not listed here is fetched as before.
+export const DEMO_ONLY_KEYS = new Set([
+  "kpis", "agents", "revenue-streams", "hitl", "contracts", "leads", "clients", "milestones",
+  "conversations", "invoices", "proposals", "jobs", "sales-leads", "sequences", "integrations",
+  "voice-calls", "qa-runs", "addons", "personas", "portfolio", "bids", "freelancers", "payouts",
+  "affiliates", "market-rates", "competitors", "monetization", "users", "funnel", "channel-mix",
+  "analytics", "overview", "specs", "margins", "margins/timeseries", "margins/by-project",
+]);
+const unserved = (key: string) => !DEMO_MODE && DEMO_ONLY_KEYS.has(key);
 
 // Owned by the store, which loads them from the signed-in user's server
 // workspace and keeps them current after every action — a one-off fetch
@@ -32,7 +46,7 @@ export function useEntity<T>(key: string, fallback: T, pollMs?: number): T {
   const fromStore = Boolean(demo) && STORE_OWNED_KEYS.has(key);
 
   useEffect(() => {
-    if (!API_URL || fromStore) return;
+    if (!API_URL || fromStore || unserved(key)) return;
     let cancelled = false;
 
     const load = () =>
@@ -73,7 +87,7 @@ export function useEntityQuery<T>(
   const fromStore = Boolean(demo) && STORE_OWNED_KEYS.has(key);
 
   useEffect(() => {
-    if (!API_URL || fromStore) return;
+    if (!API_URL || fromStore || unserved(key)) return;
     let cancelled = false;
 
     const load = () =>

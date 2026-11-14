@@ -304,8 +304,8 @@ export function DashboardShell({
             {comingSoon ? (
               <EmptyState
                 title="Coming soon"
-                description="This area runs on demo data today. It'll open up once it works with your own accounts and data."
-                action={<Button variant="outline" onClick={() => router.push("/dashboard/command")}>Back to dashboard</Button>}
+                description="This section isn't built for live accounts yet, so it's switched off rather than showing made-up data. The freelancer pool, Upwork leads, orders and automation are live."
+                action={<Button variant="outline" onClick={() => router.push(pathname.startsWith("/freelancer") ? "/freelancer" : "/dashboard/command")}>Back to dashboard</Button>}
               />
             ) : (
               children

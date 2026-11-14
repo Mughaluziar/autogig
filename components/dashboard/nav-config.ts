@@ -61,6 +61,9 @@ export const DEMO_ONLY_ROUTES = [
   "/dashboard/arbitrage", "/dashboard/margins", "/dashboard/hitl",
   "/dashboard/personas", "/dashboard/portfolio",
   "/dashboard/job-hunter", "/dashboard/marketing",
+  "/dashboard/agents", "/dashboard/calendar", "/dashboard/bidding",
+  "/freelancer/qa", "/freelancer/messages", "/freelancer/billing",
+  "/dashboard/clients", "/dashboard/contracts", "/dashboard/milestones", "/dashboard/freelancers",
 ];
 
 export const isDemoOnlyRoute = (path: string) =>
@@ -73,11 +76,9 @@ export const adminNav: NavSection[] = [
       { href: "/dashboard/command", label: "Dashboard", icon: Command },
       { href: "/dashboard/job-radar", label: "Job Radar", icon: Radar },
       { href: "/dashboard/gigs", label: "Gigs", icon: Briefcase },
-      { href: "/dashboard/agents", label: "Agent Fleet", icon: Bot },
       { href: "/dashboard/orders", label: "Orders", icon: PackageCheck },
       { href: "/dashboard/pool", label: "Freelancer Pool", icon: Users },
       { href: "/dashboard/automation", label: "Automation", icon: Zap },
-      { href: "/dashboard/calendar", label: "Calendar", icon: CalendarDays },
       { href: "/dashboard/accounts", label: "Accounts & Gigs", icon: Plug },
     ],
   },
@@ -111,6 +112,14 @@ export const adminNav: NavSection[] = [
       { href: "/dashboard/audit-log", label: "Audit Log", icon: ScrollText },
     ],
   },
+  {
+    title: "Roadmap",
+    collapsible: true,
+    items: [
+      { href: "/dashboard/agents", label: "Agent Fleet", icon: Bot },
+      { href: "/dashboard/calendar", label: "Calendar", icon: CalendarDays },
+    ],
+  },
 ];
 
 export const freelancerNav: NavSection[] = [
@@ -121,16 +130,22 @@ export const freelancerNav: NavSection[] = [
       { href: "/freelancer/specs", label: "Open Specs", icon: Gavel },
       { href: "/freelancer/bids", label: "My Bids", icon: FileText },
       { href: "/freelancer/contracts", label: "My Contracts", icon: FolderKanban },
-      { href: "/freelancer/qa", label: "QA & Submissions", icon: FileCheck2 },
     ],
   },
   {
     title: "Account",
     items: [
-      { href: "/freelancer/messages", label: "Messages", icon: MessagesSquare },
       { href: "/freelancer/earnings", label: "Earnings", icon: Wallet },
-      { href: "/freelancer/billing", label: "Billing & Plan", icon: CreditCard },
       { href: "/freelancer/profile", label: "My Profile", icon: User },
+    ],
+  },
+  {
+    title: "Roadmap",
+    collapsible: true,
+    items: [
+      { href: "/freelancer/qa", label: "QA & Submissions", icon: FileCheck2 },
+      { href: "/freelancer/messages", label: "Messages", icon: MessagesSquare },
+      { href: "/freelancer/billing", label: "Billing & Plan", icon: CreditCard },
     ],
   },
 ];

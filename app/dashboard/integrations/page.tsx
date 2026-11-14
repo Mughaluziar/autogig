@@ -14,6 +14,7 @@ import { PlatformMatrix } from "@/components/dashboard/platform-matrix";
 import { useEntity } from "@/lib/use-entity";
 import { useDemoStore } from "@/lib/demo-store";
 import { useToast } from "@/components/ui/toast";
+import { useAuth } from "@/lib/auth";
 import {
   integrations as integrationsSeed, voiceCalls as voiceSeed,
   qaRuns as qaSeed, auditLog as auditSeed,
@@ -30,6 +31,8 @@ function timeAgo(iso: string) {
 export default function IntegrationsPage() {
   const { toast } = useToast();
   const demo = useDemoStore();
+  // Connections, Voice and QA & Delivery only have demo data behind them: hidden for real accounts.
+  const { demoMode } = useAuth();
   const integrations = useEntity("integrations", integrationsSeed);
   const voiceCalls = useEntity("voice-calls", voiceSeed);
   const qaRuns = useEntity("qa-runs", qaSeed);
@@ -71,7 +74,7 @@ export default function IntegrationsPage() {
     <>
       <PageHeader
         title="Integrations"
-        description={`${connected}/${integrations.length} connected — plus voice, QA and activity in one hub.`}
+        description={demoMode ? `${connected}/${integrations.length} connected — plus voice, QA and activity in one hub.` : "What this server can do today, how to migrate your setup, and your recent activity."}
       />
 
       <Card className="mb-6">
@@ -130,10 +133,10 @@ export default function IntegrationsPage() {
       <Tabs defaultValue="capabilities">
         <TabsList>
           <TabsTrigger value="capabilities"><LayoutGrid className="mr-1.5 size-3.5" /> Capability Map</TabsTrigger>
-          <TabsTrigger value="connections"><Plug className="mr-1.5 size-3.5" /> Connections</TabsTrigger>
+          {demoMode && <TabsTrigger value="connections"><Plug className="mr-1.5 size-3.5" /> Connections</TabsTrigger>}
           <TabsTrigger value="migrate"><Import className="mr-1.5 size-3.5" /> Migrate</TabsTrigger>
-          <TabsTrigger value="voice"><Mic className="mr-1.5 size-3.5" /> Voice</TabsTrigger>
-          <TabsTrigger value="qa"><FileCheck2 className="mr-1.5 size-3.5" /> QA &amp; Delivery</TabsTrigger>
+          {demoMode && <TabsTrigger value="voice"><Mic className="mr-1.5 size-3.5" /> Voice</TabsTrigger>}
+          {demoMode && <TabsTrigger value="qa"><FileCheck2 className="mr-1.5 size-3.5" /> QA &amp; Delivery</TabsTrigger>}
           <TabsTrigger value="activity"><ScrollText className="mr-1.5 size-3.5" /> Activity</TabsTrigger>
         </TabsList>
 

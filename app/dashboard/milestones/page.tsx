@@ -1,6 +1,16 @@
-import { redirect } from "next/navigation";
+"use client";
+import { PageHeader } from "@/components/shared/page-header";
+import { EmptyState } from "@/components/shared/empty-state";
 
-// Merged into the unified Clients & Work workspace.
-export default function Redirect() {
-  redirect("/dashboard/clients");
+/** Not built yet. Pool contracts and milestones live under Freelancer Pool. */
+export default function MilestonesPage() {
+  return (
+    <>
+      <PageHeader title="Milestones" description="This area isn't available yet." />
+      <EmptyState
+        title="Coming soon"
+        description="A dedicated milestones view hasn't been built. Contracts and milestones with freelancers are managed in Freelancer Pool."
+      />
+    </>
+  );
 }

@@ -44,7 +44,7 @@ export default function FreelancerDashboard() {
         <StatCard label="Earnings (This Month)" value={formatCurrency(monthEarnings)} icon={<Wallet className="size-5" />} href="/freelancer/earnings" />
         <StatCard label="Active Contracts" value={String(freelancerContracts.length)} icon={<FileText className="size-5" />} href="/freelancer/contracts" />
         <StatCard label="Open Specs" value={String(freelancerOpenSpecs.length)} icon={<Gavel className="size-5" />} href="/freelancer/specs" />
-        <StatCard label="Quality Score" value="—" icon={<CheckCircle2 className="size-5" />} href="/freelancer/qa" />
+        <StatCard label="Bids Placed" value={String(freelancerMyBids.filter((b: any) => b.status === "submitted").length)} icon={<CheckCircle2 className="size-5" />} href="/freelancer/bids" />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
