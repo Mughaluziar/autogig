@@ -175,6 +175,8 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
     Coll("data_requests", _uid(), "keep", "Audit trail of export/deletion requests (counts, no content).", True,
          lambda: rights_store._mem["data_requests"]),
     # --- system / transient state: no personal data ----------------------------------------------------------
+    Coll("rate_limits", (), "none", "Request counters keyed by network address, not by user; each expires about two minutes "
+         "after its window. Not linkable to an account."),
     Coll("revoked_sessions", (), "none", "Revoked session ids; expire on their own."),
     Coll("oauth_states", (), "none", "Single-use sign-in state; expires on its own."),
     Coll("oauth_handoffs", (), "none", "Single-use sign-in handoff; expires on its own."),

@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import db, repo, rights_store
+from . import db, ratelimit, repo, rights_store
 from . import integrations
 from . import oauth
 from .auth import current_user, require_roles
@@ -35,6 +35,7 @@ from .pool import store as pool_store
 from .routers import api_keys as api_keys_router, team as team_router
 from .routers import fleet as fleet_router
 from . import session as session_store
+from .edge import EdgeProofMiddleware
 from .security import ApiKeyMiddleware, OriginMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
 from .store import init_store
 
@@ -101,6 +102,7 @@ async def request_logging(request: Request, call_next):
 app.add_middleware(ApiKeyMiddleware)
 app.add_middleware(OriginMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(EdgeProofMiddleware)   # outside the rate limiter so client_ip() sees the verified edge address
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
@@ -136,6 +138,7 @@ async def startup() -> None:
         await pool_store.ensure_indexes()
         await access_store.ensure_indexes()
         await rights_store.ensure_indexes()
+        await ratelimit.ensure_indexes()
         await repo.archive_legacy_state()
         log.info("MongoDB connected")
     else:

@@ -11,27 +11,26 @@ Cybersecurity posture for the in-memory phase:
 """
 import time
 import uuid
-from collections import defaultdict, deque
 from datetime import timedelta
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import auth, db, session as sessions
+from . import auth, db, ratelimit, session as sessions
 from .access import store as access_store
 from .config import get_settings
 from .routers.api_keys import KEY_PREFIX, hash_key, is_active
 
-# Sliding window: max N requests per IP per 60s window
-_RATE_WINDOW = 60.0
-_hits: dict[str, deque] = defaultdict(deque)
+# Per-IP budgets live in ratelimit.py (MongoDB when configured, so every API instance shares them).
+_RATE_WINDOW = ratelimit.WINDOW
+_hits = ratelimit._hits
 # Credential endpoints get a much tighter per-IP budget (brute force, signup
 # and reset-email abuse) on top of the general limit.
 _AUTH_RATE_MAX = 20
 _AUTH_PATHS = ("/auth/login", "/auth/signup", "/auth/forgot-password", "/auth/reset-password",
                "/auth/verify-email", "/auth/resend-verification", "/auth/change-password")
-_auth_hits: dict[str, deque] = defaultdict(deque)
+_auth_hits = ratelimit._auth_hits
 
 
 def client_ip(request: Request) -> str:
@@ -43,6 +42,9 @@ def client_ip(request: Request) -> str:
     (--forwarded-allow-ips='*' trusts the LEFTMOST entry) must not be used for this. With 0 hops, or no
     header, the socket peer is used.
     """
+    edge_ip = getattr(request.state, "edge_ip", None)
+    if edge_ip:
+        return edge_ip           # the website's proxy signed this address (edge.py): no hop counting needed
     peer = request.client.host if request.client else "unknown"
     hops = get_settings().trusted_proxy_hops
     if hops <= 0:
@@ -86,26 +88,19 @@ class OriginMiddleware(BaseHTTPMiddleware):
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         ip = _client_ip(request)
-        now = time.monotonic()
         if request.method == "POST" and request.url.path.endswith(_AUTH_PATHS):
-            aq = _auth_hits[ip]
-            while aq and now - aq[0] > _RATE_WINDOW:
-                aq.popleft()
-            if len(aq) >= _AUTH_RATE_MAX:
+            ok, wait = await ratelimit.allow("auth", ip, _AUTH_RATE_MAX)
+            if not ok:
                 return JSONResponse(
                     {"detail": "Too many attempts. Wait a minute and try again."}, status_code=429,
-                    headers={"Retry-After": str(int(_RATE_WINDOW))},
+                    headers={"Retry-After": str(wait or int(_RATE_WINDOW))},
                 )
-            aq.append(now)
-        q = _hits[ip]
-        while q and now - q[0] > _RATE_WINDOW:
-            q.popleft()
-        if len(q) >= max(get_settings().rate_limit_per_minute, 1):
+        ok, wait = await ratelimit.allow("general", ip, get_settings().rate_limit_per_minute)
+        if not ok:
             return JSONResponse(
                 {"detail": "Rate limit exceeded"}, status_code=429,
-                headers={"Retry-After": str(int(_RATE_WINDOW))},
+                headers={"Retry-After": str(wait or int(_RATE_WINDOW))},
             )
-        q.append(now)
         return await call_next(request)
 
 

@@ -30,11 +30,27 @@ services:
       # https only: production refuses to start with any http:// origin (and localhost is not needed).
       - key: CORS_ORIGINS
         value: https://autopilotv2.vercel.app
-      # How many proxies append to X-Forwarded-For before a request reaches the app: Render's load balancer = 1,
-      # Vercel rewriting /api to Render = 2. CONFIRM on staging with GET /api/diag/request as the platform owner
-      # (docs/deployment-runbook.md): the reported clientIp must be your own public address.
+      # Edge proof (docs/staging-verification.md): the website signs every /api request it proxies with this secret, so
+      # the API knows the visitor address it reports and can refuse requests that skip the website. Generate a random
+      # 48+ character value ONCE and set the SAME value as EDGE_SHARED_SECRET in Vercel (server-side variable, never
+      # NEXT_PUBLIC_). Never commit it.
+      - key: EDGE_SHARED_SECRET
+        sync: false
+      # Turn on ("true") only after staging shows the proof verifies (staging-check.mjs --expect-edge-proof). While
+      # false, direct requests to this API address are still accepted (their limits use the address Render appends).
+      - key: REQUIRE_EDGE_PROOF
+        value: "false"
+      # Proxies that append to X-Forwarded-For for a request that does NOT carry a valid edge proof (a direct request):
+      # Render's load balancer = 1. Confirm on staging with GET /api/diag/request as the platform owner; do not guess.
       - key: TRUSTED_PROXY_HOPS
-        value: "2"
+        value: "1"
+      # Per-IP request counters are shared through MongoDB, so more than one API instance is safe.
+      - key: RATE_LIMIT_BACKEND
+        value: auto
+      # Banking, Marketplace, Capital and Token are simulated demonstrations: only the owner and accounts the owner
+      # invites can open them. "all" is refused in production unless ALLOW_PUBLIC_SIMULATED_MODULES=true.
+      - key: SIMULATED_MODULES
+        value: invited
       - key: EMAIL_VERIFICATION
         value: "true"
       # Comma-separated emails that may open the platform-owner pages.

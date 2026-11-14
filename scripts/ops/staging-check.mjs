@@ -4,6 +4,10 @@
 //   node scripts/ops/staging-check.mjs --web https://staging.example.com [--api https://api.example.com] \
 //        [--rate-limit-test] [--origin https://staging.example.com]
 //   STAGING_EMAIL / STAGING_PASSWORD (env, never argv) enable the sign-in cookie checks with a TEST account.
+//   STAGING_OWNER_EMAIL / STAGING_OWNER_PASSWORD (env) enable the proxy-chain diagnostics (owner account on STAGING only):
+//     what the API sees of a request (client address, edge proof, forwarded headers), a forged-header test through the
+//     website, and with --timeout-probe <seconds> how long the proxy keeps a slow request open (needs ENABLE_DIAG_SLEEP=true).
+//   --expect-edge-proof asserts the API refuses requests that did not come through the website (REQUIRE_EDGE_PROOF=true).
 //
 // What it checks: security headers, the /api proxy, health, CORS and Origin rejection, anonymous 401s,
 // session cookie flags (HttpOnly, Secure, SameSite), no token in the sign-in body, CSRF enforcement, logout
@@ -70,6 +74,44 @@ if (EMAIL && PASSWORD) {
   const replay = await get(`${apiBase}/api/auth/me`, { headers: { Cookie: jar } });
   check("the logged-out session cookie is rejected when replayed (401)", replay.status === 401, replay.status);
 } else skip("sign-in cookie checks", "set STAGING_EMAIL and STAGING_PASSWORD (a TEST account) to enable");
+
+// ---- direct access to the API must not get around the website (needs --api and --expect-edge-proof)
+if (API && flag("--expect-edge-proof")) {
+  const direct = await get(`${API}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "nobody@example.test", password: "x" }) });
+  check("edge proof: a direct request to the API address is refused (403)", direct.status === 403, direct.status);
+  const forged = await get(`${API}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", "X-Edge-Ts": String(Math.floor(Date.now() / 1000)), "X-Edge-Ip": "203.0.113.9", "X-Edge-Sig": "0".repeat(64) }, body: JSON.stringify({ email: "nobody@example.test", password: "x" }) });
+  check("edge proof: a forged signature is refused (403)", forged.status === 403, forged.status);
+  const viaWeb = await get(`${WEB}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "X-Session-Mode": "cookie" }, body: JSON.stringify({ email: `nobody-${Math.random().toString(36).slice(2, 8)}@example.test`, password: "x" }) });
+  check("edge proof: the same request through the website reaches the API (401, not 403)", viaWeb.status === 401, viaWeb.status);
+  const withBogus = await get(`${WEB}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "X-Session-Mode": "cookie", "X-Edge-Ts": "1", "X-Edge-Ip": "203.0.113.9", "X-Edge-Sig": "0".repeat(64) }, body: JSON.stringify({ email: `nobody-${Math.random().toString(36).slice(2, 8)}@example.test`, password: "x" }) });
+  check("edge proof: headers a visitor sends to the website are replaced, not forwarded (401, not 403)", withBogus.status === 401, withBogus.status);
+}
+
+// ---- proxy-chain diagnostics (owner account on staging)
+const OWNER_EMAIL = process.env.STAGING_OWNER_EMAIL || "", OWNER_PASSWORD = process.env.STAGING_OWNER_PASSWORD || "";
+if (OWNER_EMAIL && OWNER_PASSWORD) {
+  const login = await get(`${WEB}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "X-Session-Mode": "cookie" }, body: JSON.stringify({ email: OWNER_EMAIL, password: OWNER_PASSWORD }) });
+  const cookies = (login.headers.getSetCookie?.() ?? []);
+  const jar = cookies.map((c) => c.split(";")[0]).join("; ");
+  check("diagnostics: the owner account signs in through the website", login.status === 200, login.status);
+  const diag = async (extra = {}) => { const r = await get(`${WEB}/api/diag/request`, { headers: { Cookie: jar, ...extra } }); return r.status === 200 ? r.json() : { status: r.status }; };
+  const plain = await diag();
+  console.log("      diag (no extra headers):", JSON.stringify({ clientIp: plain.clientIp, edgeProof: plain.edgeProof, edgeIp: plain.edgeIp, xForwardedFor: plain.xForwardedFor, trustedProxyHops: plain.trustedProxyHops, secureCookies: plain.secureCookies }));
+  console.log("      -> compare clientIp with your own public address (https://api.ipify.org). They must be equal.");
+  const spoof = await diag({ "X-Forwarded-For": "198.51.100.77", "X-Real-IP": "198.51.100.78", "X-Vercel-Forwarded-For": "198.51.100.79" });
+  check("diagnostics: a visitor-supplied X-Forwarded-For / X-Real-IP / X-Vercel-Forwarded-For does not become the client address", !!spoof.clientIp && !String(spoof.clientIp).startsWith("198.51.100."), spoof.clientIp);
+  check("diagnostics: the client address is stable and not a private/proxy address", !!plain.clientIp && !/^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(plain.clientIp), plain.clientIp);
+  if (API && flag("--expect-edge-proof")) check("diagnostics: the API reports the edge proof as verified", plain.edgeProof === "verified" && plain.edgeIp === plain.clientIp, `${plain.edgeProof} / ${plain.edgeIp}`);
+  const probe = Number(opt("--timeout-probe", "0"));
+  if (probe > 0) {
+    const t0 = Date.now();
+    const r = await get(`${WEB}/api/diag/sleep?seconds=${probe}`, { headers: { Cookie: jar } });
+    const took = ((Date.now() - t0) / 1000).toFixed(1);
+    console.log(`      timeout probe: asked for ${probe}s, answered ${r.status} after ${took}s`);
+    check(`timeout probe: a ${probe}s request completes through the proxy`, r.status === 200, `status ${r.status} after ${took}s: the proxy limit is shorter than ${probe}s`);
+  }
+  await get(`${WEB}/api/auth/logout`, { method: "POST", headers: { Cookie: jar, Origin: ORIGIN, "X-CSRF-Token": decodeURIComponent((cookies.find((c) => c.startsWith("autopilot_csrf=")) || "=").split("=")[1].split(";")[0]), "X-Session-Mode": "cookie", "Content-Type": "application/json" }, body: "{}" });
+} else skip("proxy-chain diagnostics", "set STAGING_OWNER_EMAIL and STAGING_OWNER_PASSWORD (an owner account on STAGING)");
 
 // ---- forged X-Forwarded-For must not dodge the per-IP credential limit (runs LAST: it uses up this client's own credential budget for a minute)
 // Sends 24 failed sign-ins for made-up addresses, each with a different forged X-Forwarded-For. The per-IP

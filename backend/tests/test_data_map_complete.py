@@ -63,3 +63,9 @@ def test_collections_a_real_workflow_creates_are_classified(client):
     live = set(client.portal.call(names))
     unclassified = sorted(n for n in live if n not in datarights.DATA_MAP and not n.startswith("system."))
     assert not unclassified, unclassified
+
+
+def test_the_lifecycle_document_lists_every_collection():
+    doc = (Path(__file__).resolve().parents[2] / "docs" / "data-lifecycle.md").read_text()
+    missing = [n for n in datarights.DATA_MAP if f"`{n}`" not in doc]
+    assert not missing, f"docs/data-lifecycle.md is out of date; missing: {missing}"

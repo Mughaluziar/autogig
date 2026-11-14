@@ -97,12 +97,22 @@ def test_warnings_name_every_missing_integration_but_do_not_block_startup():
     cfg = make(owner_emails="", email_verification=True)           # (the test env sets both)
     cfg.validate_for_production()                                   # starts fine...
     text = " | ".join(cfg.production_warnings())                   # ...but says what is off
-    for needle in ("email provider", "GROQ_API_KEY", "Inbound email", "SENTRY_DSN", "Stripe", "OWNER_EMAILS"):
+    for needle in ("email provider", "GROQ_API_KEY", "Inbound email", "SENTRY_DSN", "Stripe", "OWNER_EMAILS", "EDGE_SHARED_SECRET"):
         assert needle in text, needle
 
 
 def test_warnings_disappear_when_the_integrations_are_configured():
     cfg = make(resend_api_key="k", groq_api_key="k", inbound_email_domain="in.example.com",
                inbound_email_webhook_secret="s", sentry_dsn="https://x@y.ingest.sentry.io/1",
-               stripe_secret_key="k", stripe_webhook_secret="w", owner_emails="me@example.com", email_verification=True)
+               stripe_secret_key="k", stripe_webhook_secret="w", owner_emails="me@example.com", email_verification=True,
+               edge_shared_secret="e" * 40, require_edge_proof=True)
     assert cfg.production_warnings() == []
+
+
+def test_memory_rate_limit_backend_needs_a_single_instance_declaration():
+    with pytest.raises(RuntimeError, match="second API instance"):
+        make(rate_limit_backend="memory").validate_for_production()
+    make(rate_limit_backend="memory", single_instance=True).validate_for_production()
+    make(rate_limit_backend="auto").validate_for_production()
+    with pytest.raises(RuntimeError, match="RATE_LIMIT_BACKEND must be"):
+        make(rate_limit_backend="redis").validate_for_production()

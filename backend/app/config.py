@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     cookie_secure: str = ""
     # Requests per minute per client IP. One dashboard page load makes ~25 API calls and offices share an IP.
     rate_limit_per_minute: int = 900
+    # Where per-IP request counters live (ratelimit.py): "auto" = MongoDB when configured (shared by every API instance),
+    # otherwise process memory. "memory" is for one instance only and needs SINGLE_INSTANCE=true in production.
+    rate_limit_backend: str = "auto"
+    single_instance: bool = False
     # How many reverse proxies sit in front of the API and each append the address they saw to
     # X-Forwarded-For. The client is the entry that many places from the END of the header; anything
     # to its left is client-controlled and ignored (so a spoofed header can't dodge the per-IP
@@ -43,6 +47,17 @@ class Settings(BaseSettings):
     # refuses "all" unless ALLOW_PUBLIC_SIMULATED_MODULES=true.
     simulated_modules: str = ""      # blank: "invited" in production, "all" elsewhere
     allow_public_simulated_modules: bool = False
+    # Edge proof (edge.py): the shared secret the Vercel middleware signs proxied requests with. Both servers need
+    # the same value (never a NEXT_PUBLIC_ variable, never committed). The PREVIOUS value is accepted too, for rotation.
+    edge_shared_secret: str | None = None
+    edge_shared_secret_previous: str | None = None
+    edge_max_skew_seconds: int = 60
+    # Refuse requests that did not come through the signed website proxy (webhooks, health and API keys excepted).
+    # Turn on only after staging shows the proof verifies (docs/staging-verification.md).
+    require_edge_proof: bool = False
+    # Staging only: lets the platform owner call GET /api/diag/sleep to measure how long the proxy chain keeps a request
+    # open (AI draft calls can take 30+ s). Leave off in production.
+    enable_diag_sleep: bool = False
     # Comma-separated emails of platform owners (credential vault, all users,
     # audit log, demo reset).
     owner_emails: str = ""
@@ -260,11 +275,23 @@ class Settings(BaseSettings):
             problems.append("COOKIE_SECURE=false would send session cookies over plain http; remove it in production.")
         if not 0 <= self.trusted_proxy_hops <= 5:
             problems.append("TRUSTED_PROXY_HOPS must be between 0 and 5.")
+        if self.require_edge_proof and len((self.edge_shared_secret or "").strip()) < 32:
+            problems.append("REQUIRE_EDGE_PROOF=true needs EDGE_SHARED_SECRET (at least 32 random characters), the same value "
+                            "as on the website host.")
+        if (self.edge_shared_secret or "").strip() and len(self.edge_shared_secret.strip()) < 32:
+            problems.append("EDGE_SHARED_SECRET must be at least 32 characters.")
+        if self.enable_diag_sleep:
+            problems.append("ENABLE_DIAG_SLEEP=true is for staging measurements only; remove it from production.")
         if self.simulated_modules_mode not in ("off", "invited", "all"):
             problems.append("SIMULATED_MODULES must be off, invited or all.")
         elif self.simulated_modules_mode == "all" and not self.allow_public_simulated_modules:
             problems.append("SIMULATED_MODULES=all would show demo-only money features to every user; use 'invited', or set "
                             "ALLOW_PUBLIC_SIMULATED_MODULES=true after the owner has decided.")
+        if self.rate_limit_backend.strip().lower() not in ("auto", "mongo", "memory", ""):
+            problems.append("RATE_LIMIT_BACKEND must be auto, mongo or memory.")
+        elif self.rate_limit_backend.strip().lower() == "memory" and not self.single_instance:
+            problems.append("RATE_LIMIT_BACKEND=memory keeps request counters inside one process, so a second API instance would "
+                            "double every limit. Use MongoDB (auto), or set SINGLE_INSTANCE=true if exactly one instance runs.")
         if self.rate_limit_per_minute < 60:
             problems.append("RATE_LIMIT_PER_MINUTE below 60 would lock out normal dashboard use.")
         if (self.token_encryption_key or "").strip():
@@ -291,6 +318,11 @@ class Settings(BaseSettings):
             warnings.append("No SENTRY_DSN: errors are only in the platform logs.")
         if not (self.stripe_secret_key and self.stripe_webhook_secret):
             warnings.append("Stripe is not configured: invoice pay links and card checkout return 503 (nothing is charged).")
+        if not (self.edge_shared_secret or "").strip():
+            warnings.append("No EDGE_SHARED_SECRET: per-IP limits fall back to X-Forwarded-For hop counting and the public API "
+                            "address can be used to bypass the website's proxy.")
+        elif not self.require_edge_proof:
+            warnings.append("REQUIRE_EDGE_PROOF is off: direct requests to the API address are still accepted.")
         if not self.owner_email_set:
             warnings.append("OWNER_EMAILS is empty: no account can reach the platform-owner pages.")
         return warnings

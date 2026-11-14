@@ -12,8 +12,15 @@ export function deployProblems(env) {
     if ((env.ALLOW_FRONTEND_ONLY_DEMO || "").trim().toLowerCase() !== "true") {
       problems.push("BACKEND_API_URL is not set, so this build would be the frontend-only demo (mock data, no real sign-in, no server). Set it to the API's https URL, or set ALLOW_FRONTEND_ONLY_DEMO=true for a deliberate demo site.");
     }
-  } else if (!/^https:\/\/[^/\s]+/i.test(backend)) {
-    problems.push(`BACKEND_API_URL must be an https:// URL in production (got ${backend.replace(/\/\/[^@/]*@/, "//")}).`);
+  } else {
+    if (!/^https:\/\/[^/\s]+/i.test(backend)) {
+      problems.push(`BACKEND_API_URL must be an https:// URL in production (got ${backend.replace(/\/\/[^@/]*@/, "//")}).`);
+    }
+    // The API accepts only requests this site signed (middleware.ts / backend/app/edge.py); without the secret the
+    // site would proxy unsigned requests and an API running with REQUIRE_EDGE_PROOF=true would refuse every one.
+    if ((env.EDGE_SHARED_SECRET || "").trim().length < 32 && (env.ALLOW_NO_EDGE_PROOF || "").trim().toLowerCase() !== "true") {
+      problems.push("EDGE_SHARED_SECRET (at least 32 random characters, the same value as on the API) is not set, so proxied API requests would be unsigned. Set it, or set ALLOW_NO_EDGE_PROOF=true to knowingly skip the proof.");
+    }
   }
   return problems;
 }

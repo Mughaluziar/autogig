@@ -165,11 +165,24 @@ async def diag_request(request: Request):
         "xForwardedFor": request.headers.get("x-forwarded-for"),
         "xForwardedProto": request.headers.get("x-forwarded-proto"),
         "trustedProxyHops": s.trusted_proxy_hops,
+        "edgeProof": getattr(request.state, "edge_reason", "n/a"),          # verified | absent | expired | invalid signature | not configured
+        "edgeIp": getattr(request.state, "edge_ip", None),
+        "requireEdgeProof": s.require_edge_proof,
         "secureCookies": sessions._secure(request),
         "origin": request.headers.get("origin"),
         "originAllowed": (request.headers.get("origin") or "").rstrip("/").lower() in sessions.allowed_origins() if request.headers.get("origin") else None,
         "allowedOrigins": sorted(sessions.allowed_origins()),
     }
+
+
+@router.get("/diag/sleep", dependencies=[Depends(require_owner)])
+async def diag_sleep(seconds: int = 5):
+    """Staging only (ENABLE_DIAG_SLEEP=true): hold the request open for `seconds` (max 60) to find the proxy timeout."""
+    if not app_settings().enable_diag_sleep:
+        raise HTTPException(404, "Not found.")
+    seconds = max(0, min(int(seconds), 60))
+    await asyncio.sleep(seconds)
+    return {"slept": seconds}
 
 
 @router.get("/beta-testers", dependencies=[Depends(require_owner)])
