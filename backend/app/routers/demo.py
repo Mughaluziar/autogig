@@ -285,10 +285,10 @@ def acquire(body: AcquireBody | None = None):
         }
         DB["clients"].insert(0, client)
         found["clients"].append(client)
-        _log("Stealth Client Manager",
-             f"Opened human-persona conversation with {client['name']} @ {company}",
+        _log("Client Comms Manager",
+             f"Opened AI-assisted conversation with {client['name']} @ {company}",
              "success", events)
-        _bump_agent("Stealth Client Manager")
+        _bump_agent("Client Comms Manager")
 
         conversation = {
             "id": _next_id("cv"),

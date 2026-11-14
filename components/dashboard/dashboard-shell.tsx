@@ -28,7 +28,6 @@ import { Avatar } from "@/components/ui/avatar";
 import { Dropdown, DropdownItem, DropdownLabel, DropdownSeparator } from "@/components/ui/dropdown";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth, dashboardHomeFor, SIGNUP_WALL, type Role } from "@/lib/auth";
-import { useAppMode } from "@/lib/app-mode";
 import { notifications as notificationsSeed } from "@/lib/mock-data";
 import { useEntity } from "@/lib/use-entity";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -66,7 +65,6 @@ export function DashboardShell({
     window.addEventListener("api:status", onStatus);
     return () => window.removeEventListener("api:status", onStatus);
   }, []);
-  const { mode, toggle } = useAppMode();
   const demo = useDemoStore();
   const [open, setOpen] = React.useState(false);
 
@@ -215,18 +213,6 @@ export function DashboardShell({
                 </Button>
               </Link>
             )}
-
-            {/* Mode switch */}
-            <Button
-              variant={mode === "stealth" ? "destructive" : "outline"}
-              size="sm"
-              onClick={toggle}
-              className="hidden sm:inline-flex"
-              title="Toggle Stealth / Compliance mode"
-            >
-              {mode === "stealth" ? <ShieldOff className="size-4" /> : <ShieldCheck className="size-4" />}
-              {mode === "stealth" ? "Stealth" : "Compliance"}
-            </Button>
 
             <ThemeToggle />
 

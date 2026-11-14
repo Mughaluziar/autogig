@@ -11,13 +11,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAppMode } from "@/lib/app-mode";
 import { useAuth } from "@/lib/auth";
 import { apiCall, apiPost } from "@/lib/api";
 import { useToast } from "@/components/ui/toast";
 
 export default function SettingsPage() {
-  const { mode, setMode } = useAppMode();
   const { user, demoMode } = useAuth();
   const { toast } = useToast();
 
@@ -45,7 +43,6 @@ export default function SettingsPage() {
 
   async function saveAll() {
     const ok = await patchSettings({
-      mode,
       matchThreshold: Number(matchThreshold),
       budgetFloor: Number(budgetFloor),
       appsPerDay: Number(appsPerDay),
@@ -95,26 +92,6 @@ export default function SettingsPage() {
 
         {/* Agents */}
         <TabsContent value="agents" className="mt-6 grid gap-6 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                {mode === "stealth" ? <ShieldOff className="size-5 text-destructive" /> : <ShieldCheck className="size-5 text-success" />}
-                Operating Mode
-              </CardTitle>
-              <CardDescription>Stealth enables human-impersonation behaviors. Compliance mode discloses AI assistance.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-lg border p-4">
-                <div><p className="font-medium">Stealth mode</p><p className="text-xs text-muted-foreground">Impersonation, typos, no AI disclosure</p></div>
-                <Switch checked={mode === "stealth"} onCheckedChange={(v) => setMode(v ? "stealth" : "compliance")} />
-              </div>
-              <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-                Stealth mode carries legal and platform-ToS risk. Use only where permitted. Current mode:{" "}
-                <Badge variant={mode === "stealth" ? "destructive" : "success"}>{mode}</Badge>
-              </div>
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Sliders className="size-5" /> Agent Thresholds</CardTitle>

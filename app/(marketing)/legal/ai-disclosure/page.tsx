@@ -13,12 +13,11 @@ export default function AiDisclosurePage() {
         AI agents assist with lead discovery, proposal drafting, client communication, freelancer coordination,
         quality assurance, and delivery. A human-in-the-loop reviews escalations and approves payouts.
       </p>
-      <h2>Stealth vs. Compliance mode</h2>
+      <h2>No concealment of AI</h2>
       <p>
-        The platform offers two operating modes. <strong>Compliance mode</strong> (default) discloses AI
-        assistance and disables human-impersonation behaviors. <strong>Stealth mode</strong> is an operator-
-        selected configuration; operators are responsible for ensuring its use complies with applicable law and
-        third-party terms in their jurisdiction.
+        The platform has no mode or setting that hides AI assistance or impersonates a human. Drafts are always
+        reviewed and sent by the user, and users are responsible for disclosing AI assistance where the law or
+        a marketplace's rules require it.
       </p>
       <h2>Anti-hallucination safeguards</h2>
       <p>

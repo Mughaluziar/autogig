@@ -177,7 +177,7 @@ Autonomously finds, evaluates, and bids on **Upwork, Fiverr, Reddit (r/forhire)*
 - **Proposal Generation:** LangGraph + ChromaDB (RAG) pulls past successful proposals + relevant portfolio; writes a specific, **non-templated ~150-word** pitch.
 - **Submission:** Playwright submits proposal via the Upwork UI.
 
-### Agent 4 — Stealth Client Manager (Comms & Upsell)
+### Agent 4 — Client Comms Manager (Comms & Upsell)
 Manages client comms post-win; maximizes LTV.
 - **Comms:** Integrated via Rocket.Chat; uses **Claude Sonnet** with strict "Human Persona" system prompts.
 - **Human-like behavior:** 15–45s natural typing delays, casual phrasing ("Gotcha," "Makes sense"), and (in Stealth mode) minor auto-corrected typos to reduce AI-detection signal. *(See [Compliance mode](#12-risk-management-security--compliance).)*

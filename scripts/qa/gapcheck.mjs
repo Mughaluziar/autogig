@@ -70,6 +70,15 @@ const bypass = read("lib/auth.tsx");
 add("Security", "auth bypass is off by default in production", /NODE_ENV\s*!==\s*["']production["']|DEV_BYPASS_AUTH\s*===\s*["']true["']/.test(bypass), "DEV_BYPASS_AUTH must not default to true in prod");
 add("Security", "backend has server-side auth on data routes", /Depends\((current_user|require_roles)/.test(read("backend/app/main.py")), "Client-side auth only: API GETs are open. Needs JWT/session + per-user tenancy before real customers.");
 
+// 4b. No concealment features: the product must never offer to hide AI use or impersonate a human.
+{
+  const concealRe = /stealth\s+(mode|toggle)|human[- ]impersonation|impersonation,? typos|no AI disclosure/i;
+  const hits = [...walk(path.join(root, "app")), ...walk(path.join(root, "components")), ...walk(path.join(root, "lib")),
+    ...walk(path.join(root, "backend/app"))].filter((f) => /\.(tsx?|py)$/.test(f))
+    .filter((f) => concealRe.test(fs.readFileSync(f, "utf8"))).map(rel);
+  add("Truthfulness", "no stealth / concealment mode anywhere in the product", hits.length === 0, hits.join("\n    "));
+}
+
 // 5. SEO / legal / ops files
 for (const [p, label, lvl] of [
   ["app/robots.ts", "robots.txt", "FAIL"], ["app/sitemap.ts", "sitemap.xml", "FAIL"], ["app/icon.svg", "favicon/icon", "WARN"],

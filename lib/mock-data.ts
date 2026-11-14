@@ -64,9 +64,9 @@ export const agents = [
   },
   {
     id: "agent-4",
-    name: "Stealth Client Manager",
+    name: "Client Comms Manager",
     subtitle: "Comms & Upsell",
-    description: "Human-persona client comms via Rocket.Chat + Claude, upsell engine, voice fallback.",
+    description: "AI-assisted client comms (human-reviewed, AI use disclosed) via Rocket.Chat + Claude, upsell engine, voice fallback.",
     status: "paused",
     lastRun: "2026-09-16T07:30:00Z",
     schedule: "Realtime",

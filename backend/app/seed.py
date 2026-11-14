@@ -56,7 +56,7 @@ AGENTS = [
     {"id": "agent-1", "name": "Job Hunter", "subtitle": "Direct Employment", "description": "Finds & applies to LA/Remote Software/AI roles on autopilot via JobSpy + Playwright.", "status": "running", "lastRun": "2026-09-16T08:12:00Z", "schedule": "Daily @ 06:00", "runsToday": 8, "successRate": 92, "icon": "briefcase"},
     {"id": "agent-2", "name": "Marketing & Sales", "subtitle": "B2B Direct", "description": "Scrapes Clutch.co/LinkedIn for funded startups, runs cold email via n8n, builds micro-sites.", "status": "running", "lastRun": "2026-09-16T09:00:00Z", "schedule": "Every 6h", "runsToday": 4, "successRate": 71, "icon": "megaphone"},
     {"id": "agent-3", "name": "Bidding & Acquisition", "subtitle": "Freelance Job Finder", "description": "Scrapes Upwork/Fiverr/Reddit every 2h, analyses margin, writes RAG proposals, submits bids.", "status": "running", "lastRun": "2026-09-16T10:00:00Z", "schedule": "Every 2h", "runsToday": 5, "successRate": 34, "icon": "gavel"},
-    {"id": "agent-4", "name": "Stealth Client Manager", "subtitle": "Comms & Upsell", "description": "Human-persona client comms via Rocket.Chat + Claude, upsell engine, voice fallback.", "status": "paused", "lastRun": "2026-09-16T07:30:00Z", "schedule": "Realtime", "runsToday": 23, "successRate": 88, "icon": "messages-square"},
+    {"id": "agent-4", "name": "Client Comms Manager", "subtitle": "Comms & Upsell", "description": "AI-assisted client comms (human-reviewed, AI use disclosed) via Rocket.Chat + Claude, upsell engine, voice fallback.", "status": "paused", "lastRun": "2026-09-16T07:30:00Z", "schedule": "Realtime", "runsToday": 23, "successRate": 88, "icon": "messages-square"},
     {"id": "agent-5", "name": "Arbitrage Dispatcher", "subtitle": "Freelancer Finder", "description": "Broadcasts specs to 10-20 vetted freelancers, runs blind auction, auto-awards by ROI score.", "status": "running", "lastRun": "2026-09-16T09:45:00Z", "schedule": "On contract win", "runsToday": 3, "successRate": 79, "icon": "network"},
     {"id": "agent-6", "name": "QA & Delivery", "subtitle": "Quality Gate", "description": "Runs ESLint/Black/Pytest/Jest + SonarQube on freelancer PRs, delivers on pass.", "status": "error", "lastRun": "2026-09-16T06:50:00Z", "schedule": "On PR push", "runsToday": 11, "successRate": 95, "icon": "shield-check"},
 ]
@@ -248,7 +248,7 @@ AUDIT_LOG = [
     {"id": "a1", "agent": "Bidding & Acquisition", "action": "Submitted proposal to Upwork lead #4821", "status": "success", "time": "2026-09-16T10:00:00Z"},
     {"id": "a2", "agent": "QA & Delivery", "action": "PR #98 failed test suite — auto-commented", "status": "warning", "time": "2026-09-16T05:20:00Z"},
     {"id": "a3", "agent": "Arbitrage Dispatcher", "action": "Awarded contract to FL-3821 (ROI 91)", "status": "success", "time": "2026-09-16T09:45:00Z"},
-    {"id": "a4", "agent": "Stealth Client Manager", "action": "Escalated Sofia Klein to HITL (sentiment)", "status": "warning", "time": "2026-09-16T08:41:00Z"},
+    {"id": "a4", "agent": "Client Comms Manager", "action": "Escalated Sofia Klein to HITL (sentiment)", "status": "warning", "time": "2026-09-16T08:41:00Z"},
     {"id": "a5", "agent": "Job Hunter", "action": "Applied to 8 roles (randomized intervals)", "status": "success", "time": "2026-09-16T08:12:00Z"},
     {"id": "a6", "agent": "Self-Healing Scraper", "action": "Detected Upwork DOM drift — patched selectors", "status": "success", "time": "2026-09-16T04:02:00Z"},
 ]
@@ -351,7 +351,6 @@ CLIENT_INVOICES = [
 ]
 
 SETTINGS = {
-    "mode": "compliance",
     "matchThreshold": 80,
     "budgetFloor": 500,
     "appsPerDay": 10,

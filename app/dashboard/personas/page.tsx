@@ -12,11 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
 import { useEntity } from "@/lib/use-entity";
-import { useAppMode } from "@/lib/app-mode";
 import * as React from "react";
 
 export default function PersonasPage() {
-  const { mode } = useAppMode();
   const personasBase = useEntity("personas", personasSeed);
   const { toast } = useToast();
   const [extra, setExtra] = React.useState<any[]>([]);
@@ -53,9 +51,9 @@ export default function PersonasPage() {
       <div className="mb-6 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
         <p className="font-medium text-warning-foreground">Disclosure note</p>
         <p className="mt-1 text-muted-foreground">
-          Presenting fictional personas as a "team" can raise consumer-protection and ethical concerns. This
-          capability is fully implemented but gated — it operates per the current{" "}
-          <Badge variant={mode === "stealth" ? "destructive" : "success"}>{mode}</Badge> mode setting.
+          Personas are working names for AI-assisted agents. Autopilot has no setting that hides AI assistance:
+          anything sent to a client or marketplace must be reviewed by you and must not claim to be a human
+          team member when it is not.
         </p>
       </div>
 

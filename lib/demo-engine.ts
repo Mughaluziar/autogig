@@ -474,7 +474,7 @@ function stepB2B(ctx: Ctx) {
 
 function stepOnboard(ctx: Ctx) {
   const { s, log, notify } = ctx;
-  bumpAgent(s, "Stealth Client Manager");
+  bumpAgent(s, "Client Comms Manager");
   const name = `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`;
   const sl = s.salesLeads[0];
   const company = sl ? sl.company : pick(B2B_COMPANIES)[0];
@@ -491,7 +491,7 @@ function stepOnboard(ctx: Ctx) {
   };
   s.clients.unshift(client);
   ctx.found.clients.push(client);
-  log("Stealth Client Manager", `Opened human-persona conversation with ${name} @ ${company}`);
+  log("Client Comms Manager", `Opened AI-assisted conversation with ${name} @ ${company}`);
 
   const persona = pick(["Sarah (PM)", "Mike (Senior Dev)", "Elena (AE)"]);
   const conversation: Row = {
@@ -507,7 +507,7 @@ function stepOnboard(ctx: Ctx) {
   };
   s.conversations.unshift(conversation);
   ctx.found.conversations.push(conversation);
-  log("Stealth Client Manager", `Sent outreach + handled reply via ${conversation.channel} (${persona})`);
+  log("Client Comms Manager", `Sent outreach + handled reply via ${conversation.channel} (${persona})`);
   notify("New client acquired", `${company} — via ${source}`);
 }
 
@@ -640,7 +640,7 @@ function stepQA(ctx: Ctx) {
 const AGENT_STEPS: Record<string, (ctx: Ctx, opts?: { niche?: string }) => { revenue: number; cost: number; margin: number } | void> = {
   "Bidding & Acquisition": (ctx, opts) => stepScrape(ctx, opts),
   "Marketing & Sales": (ctx) => stepB2B(ctx),
-  "Stealth Client Manager": (ctx) => stepOnboard(ctx),
+  "Client Comms Manager": (ctx) => stepOnboard(ctx),
   "Arbitrage Dispatcher": (ctx) => stepAuction(ctx),
   "Job Hunter": (ctx) => stepJobHunter(ctx),
   "QA & Delivery": (ctx) => stepQA(ctx),
