@@ -4,8 +4,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy Policy" updated="September 16, 2026">
       <p>
-        This Privacy Policy describes how Autopilot collects, uses, and protects your information. This is
-        placeholder content for the frontend phase.
+        This Privacy Policy describes how Autopilot collects, uses, and protects your information.
       </p>
       <h2>1. Information We Collect</h2>
       <p>
@@ -25,7 +24,7 @@ export default function PrivacyPage() {
       <h2>4. Data Security</h2>
       <p>
         We follow security best practices, never log secrets, and store credentials in a dedicated secrets
-        manager. Placeholder text for demonstration.
+        manager.
       </p>
       <h2>5. Your Rights</h2>
       <p>You may request access to, correction of, or deletion of your personal data at any time.</p>

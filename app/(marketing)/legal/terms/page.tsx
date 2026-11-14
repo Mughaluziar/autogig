@@ -5,7 +5,7 @@ export default function TermsPage() {
     <LegalPage title="Terms of Service" updated="September 16, 2026">
       <p>
         These Terms of Service govern your use of the Autopilot platform. By accessing or using the platform, you
-        agree to be bound by these terms. This is placeholder content for the frontend phase.
+        agree to be bound by these terms once they are finalised.
       </p>
       <h2>1. Use of Service</h2>
       <p>
