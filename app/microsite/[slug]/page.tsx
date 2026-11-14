@@ -13,7 +13,8 @@ function titleCase(slug: string) {
     .join(" ");
 }
 
-export default function MicrositePage({ params }: { params: { slug: string } }) {
+export default async function MicrositePage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const company = titleCase(params.slug);
   const relevant = portfolioItems.slice(0, 3);
 

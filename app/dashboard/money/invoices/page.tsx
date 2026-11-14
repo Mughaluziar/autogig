@@ -13,7 +13,8 @@ import { cn } from "@/lib/utils";
 
 const FILTERS = ["All", "Draft", "Sent", "Overdue", "Paid"] as const;
 
-export default function InvoicesPage({ searchParams }: { searchParams: { status?: string } }) {
+export default function InvoicesPage(props: { searchParams: Promise<{ status?: string }> }) {
+  const searchParams = React.use(props.searchParams);
   const { L, canLink, payStatus, share, linkBusy } = useMoney();
   const initial = FILTERS.find((s) => s === searchParams.status) ?? "All";
   const [filter, setFilter] = React.useState<(typeof FILTERS)[number]>(initial);

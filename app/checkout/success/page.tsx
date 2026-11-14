@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function CheckoutSuccessPage({ searchParams }: { searchParams: { plan?: string; pack?: string } }) {
+export default async function CheckoutSuccessPage(props: { searchParams: Promise<{ plan?: string; pack?: string }> }) {
+  const searchParams = await props.searchParams;
   return <CheckoutSuccess plan={searchParams.plan} pack={searchParams.pack} />;
 }

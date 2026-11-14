@@ -20,7 +20,8 @@ function move<T>(list: T[], i: number, by: number): T[] {
   return next;
 }
 
-export default function TemplateEditorPage({ params }: { params: { id: string } }) {
+export default function TemplateEditorPage(props: { params: Promise<{ id: string }> }) {
+  const params = React.use(props.params);
   const { toast } = useToast();
   const { user } = useAuth();
   const { state, ready, saveTemplate } = useOnboarding();

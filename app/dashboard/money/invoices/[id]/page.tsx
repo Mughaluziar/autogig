@@ -16,7 +16,8 @@ import { ClientMark, fmtDate, fmtDateTime, isOnline, methodsOf, money, StatusPil
 import { amountDue, effectiveStatus, PAID_VIA_LABEL, payableParts, todayStr } from "@/lib/ledger";
 import { cn } from "@/lib/utils";
 
-export default function InvoiceDetailPage({ params }: { params: { id: string } }) {
+export default function InvoiceDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = React.use(props.params);
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();

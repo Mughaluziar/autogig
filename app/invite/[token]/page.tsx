@@ -12,7 +12,8 @@ import { ROLE_HINT, ROLE_LABEL, clearPendingInvite, fmtDay, savePendingInvite, t
 
 type Preview = { teamName: string; invitedBy: string; role: "admin" | "member" | "viewer"; email: string; status: InviteStatus; expiresAt: string };
 
-export default function AcceptInvitePage({ params }: { params: { token: string } }) {
+export default function AcceptInvitePage(props: { params: Promise<{ token: string }> }) {
+  const params = React.use(props.params);
   const token = decodeURIComponent(params.token);
   const router = useRouter();
   const { user, restored, logout } = useAuth();

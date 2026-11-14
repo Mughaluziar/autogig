@@ -7,6 +7,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function CheckoutPage({ searchParams }: { searchParams: { plan?: string; pack?: string; cancelled?: string } }) {
+export default async function CheckoutPage(
+  props: { searchParams: Promise<{ plan?: string; pack?: string; cancelled?: string }> }
+) {
+  const searchParams = await props.searchParams;
   return <CheckoutView plan={searchParams.plan} pack={searchParams.pack} cancelled={searchParams.cancelled === "1"} />;
 }

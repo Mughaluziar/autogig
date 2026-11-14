@@ -1,6 +1,8 @@
-"use client";
+"use client";;
+import { use } from "react";
 import { AgreementDetail } from "@/components/marketplace/agreements";
 
-export default function AgreementPage({ params }: { params: { id: string } }) {
+export default function AgreementPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   return <AgreementDetail id={decodeURIComponent(params.id)} base="/investor/marketplace" canRaise={false} />;
 }

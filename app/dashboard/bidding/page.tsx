@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import Link from "next/link";
 import { Gavel, DollarSign, FileEdit, Trophy, Send, Star, Radar, Loader2, Sparkles, ExternalLink, CheckCircle2, Search, Save } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -108,7 +109,7 @@ export default function BiddingPage() {
                 Autopilot never connects to your Upwork account. Forward Upwork&apos;s job alerts to your Autopilot address (or paste one in),
                 and the jobs appear in Gigs with an AI-drafted proposal you review, edit and submit yourself on Upwork.
               </p>
-              <Button asChild variant="gradient"><a href="/dashboard/gigs">Open Gigs</a></Button>
+              <Button asChild variant="gradient"><Link href="/dashboard/gigs">Open Gigs</Link></Button>
             </CardContent>
           </Card>
         </TabsContent>

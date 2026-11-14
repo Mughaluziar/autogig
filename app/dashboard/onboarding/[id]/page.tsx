@@ -27,7 +27,8 @@ const ICON: Record<StepId, typeof Mail> = { welcome: Mail, intake: ClipboardList
 const fmtDay = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" }) : "");
 const mailto = (to: string, subject: string, body: string) => `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
-export default function OnboardingDetailPage({ params }: { params: { id: string } }) {
+export default function OnboardingDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = React.use(props.params);
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();

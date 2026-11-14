@@ -25,7 +25,8 @@ const roles = [
   },
 ];
 
-export default function SignupPage({ searchParams }: { searchParams?: { next?: string | string[] } }) {
+export default async function SignupPage(props: { searchParams?: Promise<{ next?: string | string[] }> }) {
+  const searchParams = await props.searchParams;
   const next = safeNext(typeof searchParams?.next === "string" ? searchParams.next : "");
   return (
     <div>

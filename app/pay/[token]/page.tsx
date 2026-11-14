@@ -10,7 +10,11 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-export default function PayPage({ params, searchParams }: { params: { token: string }; searchParams: { status?: string } }) {
+export default async function PayPage(
+  props: { params: Promise<{ token: string }>; searchParams: Promise<{ status?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const status = searchParams.status === "success" || searchParams.status === "cancelled" ? searchParams.status : null;
   return <PayView token={params.token} returnStatus={status} />;
 }
