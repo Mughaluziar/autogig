@@ -731,6 +731,90 @@ await guard("hardening", "legal draft notices, disabled image optimizer, securit
   await anon.close();
 });
 
+// ====================================================================== TEST 8 — DATA RIGHTS, TERMS, RESTRICTED MODULES
+const dana = { first: "Dana", last: `Data${RUN}`, email: unique("dana") };
+let danaCtx;
+await guard("datarights", "terms recorded at signup; export download; deletion scheduled, locked, cancelled", async () => {
+  danaCtx = await newCtx();
+  const page = await signupUI(danaCtx, "freelancer", dana);
+  await page.waitForTimeout(1000);
+  const terms = await api(danaCtx, "GET", "/api/me/terms");
+  check("datarights", "signing up through the UI recorded the Terms/Privacy acceptance on the server (version, time, method)",
+    terms.status === 200 && terms.body.history.length === 1 && terms.body.history[0].method === "signup" && /^draft-/.test(terms.body.history[0].terms) && !terms.body.needsAcceptance, JSON.stringify(terms.body).slice(0, 200));
+
+  // Export: needs the password, downloads a JSON file with only this account's data, no secrets.
+  await page.goto("/freelancer/your-data", { waitUntil: "networkidle" });
+  check("datarights", "the Your data page shows the export and delete sections", (await page.getByTestId("export-button").count()) === 1 && (await page.getByTestId("deletion-preview").count()) === 1, (await text(page)).slice(0, 100));
+  check("datarights", "export is disabled until the password is typed", await page.getByTestId("export-button").isDisabled());
+  await page.fill("#export-pw", PW);
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 20000 }), page.getByTestId("export-button").click()]);
+  const filePath = await download.path();
+  const exported = fs.readFileSync(filePath, "utf8");
+  const data = JSON.parse(exported);
+  check("datarights", "the export is a JSON file for this account, with no password hash or token", data.format === "autopilot-export-1" && data.account.email === dana.email.toLowerCase() && !/password_hash|\$argon2|key_hash|token_hash/.test(exported), Object.keys(data.records).join(","));
+  check("datarights", "the export contains none of another test user's email", !exported.includes(ann.email) && !exported.includes(agency?.email ?? "@@none@@"));
+  const wrong = await api(danaCtx, "POST", "/api/me/export", { password: "not-the-password" });
+  check("datarights", "export with a wrong password is refused (403)", wrong.status === 403, wrong.status);
+
+  // Deletion: preview, typed confirmation, scheduled, locked, cancel.
+  await page.getByTestId("deletion-preview").click();
+  await page.getByTestId("deletion-plan").waitFor({ timeout: 15000 });
+  const plan = await text(page);
+  check("datarights", "the deletion preview lists what is deleted", /Deleted/.test(plan) && /Your account: 1/.test(plan), plan.slice(0, 300));
+  check("datarights", "the delete button stays disabled until the exact phrase and password are entered", await page.getByTestId("deletion-submit").isDisabled());
+  await page.fill("#del-pw", PW); await page.fill("#del-confirm", "delete my account");
+  check("datarights", "a wrong-case confirmation phrase does not enable it", await page.getByTestId("deletion-submit").isDisabled());
+  await page.fill("#del-confirm", "DELETE MY ACCOUNT");
+  await page.getByTestId("deletion-submit").click();
+  await page.getByTestId("deletion-scheduled").waitFor({ timeout: 15000 });
+  check("datarights", "scheduling shows the date and that the user is signed out", /scheduled/i.test(await text(page)) && /signed out/.test(await text(page)));
+  const afterSession = await api(danaCtx, "GET", "/api/auth/me");
+  check("datarights", "the old session no longer works (401)", afterSession.status === 401, afterSession.status);
+
+  // Sign in during the grace period: only the cancel screen is available.
+  const again = await newCtx(); const p2 = await loginUI(again, "Freelancer", dana.email);
+  await p2.getByTestId("deletion-pending").waitFor({ timeout: 20000 });
+  check("datarights", "signing in during the grace period shows the 'scheduled for deletion' screen instead of the app", (await p2.getByTestId("deletion-pending").count()) === 1 && !(await text(p2)).includes("Open Specs"), (await text(p2)).slice(0, 150));
+  const locked = await api(again, "GET", "/api/settings");
+  check("datarights", "the locked account is refused by the API (403)", locked.status === 403, locked.status);
+  await p2.getByRole("button", { name: "Cancel deletion" }).click();
+  await p2.waitForTimeout(1500);
+  const restored = await api(again, "GET", "/api/me/deletion");
+  check("datarights", "cancelling restores the account", restored.status === 200 && restored.body.status === "none", JSON.stringify(restored.body));
+  await p2.reload({ waitUntil: "networkidle" });
+  check("datarights", "after cancelling the normal app is back", !(await p2.getByTestId("deletion-pending").count()), (await text(p2)).slice(0, 100));
+  await again.close();
+});
+
+await guard("datarights", "Terms gate and restricted simulated modules (server flags simulated through /auth/me)", async () => {
+  const ctx = await newCtx(); const pg = await loginUI(ctx, "Freelancer", dana.email);
+  await pg.waitForTimeout(800);
+  // Pretend the server says the Terms changed and that this account has no simulated-module access.
+  let termsChanged = true;
+  await ctx.route("**/api/auth/me", async (route) => {
+    const res = await route.fetch(); const body = await res.json();
+    body.user = { ...body.user, needsTermsAcceptance: termsChanged, modules: { simulated: false } };
+    await route.fulfill({ response: res, json: body });
+  });
+  await pg.goto("/freelancer", { waitUntil: "networkidle" });
+  await pg.getByTestId("terms-gate").waitFor({ timeout: 15000 });
+  check("datarights", "when the Terms changed the app is replaced by the accept screen", (await pg.getByTestId("terms-gate").count()) === 1 && /draft-/.test(await text(pg)), (await text(pg)).slice(0, 150));
+  check("datarights", "the accept button is disabled until the box is ticked", await pg.getByRole("button", { name: "Accept and continue" }).isDisabled());
+  await pg.getByRole("checkbox").check();
+  await pg.getByRole("button", { name: "Accept and continue" }).click();
+  await pg.waitForTimeout(1500);
+  const hist = await api(ctx, "GET", "/api/me/terms");
+  termsChanged = false;                                 // the server would now report the Terms as accepted
+  check("datarights", "accepting adds a second server-side record (reaccept) and keeps the first", hist.body.history.length === 2 && hist.body.history[0].method === "reaccept" && hist.body.history[1].method === "signup", JSON.stringify(hist.body.history));
+  check("datarights", "after accepting the app is shown", !(await pg.getByTestId("terms-gate").count()));
+  await pg.goto("/investor/marketplace", { waitUntil: "networkidle" }).catch(() => {});
+  await pg.waitForTimeout(800);
+  const restricted = (await pg.getByTestId("simulated-restricted").count()) === 1 || (await pg.getByTestId("access-denied").count()) === 1;
+  check("datarights", "a simulated module URL shows an explanation, not the module, when the account has no access", restricted, (await text(pg)).slice(0, 150));
+  await ctx.close();
+});
+await danaCtx?.close();
+
 // ---------------------------------------------------------------- console / network summary
 const summary = {};
 for (const [k, c] of Object.entries({ ann: ctxs.ann, agency: ctxs.agency, bob: ctxs.bob, uma: uwCtx, owner: ctxs.owner, investor: ctxs.investor, agency2: ctxs.agency2 })) {
