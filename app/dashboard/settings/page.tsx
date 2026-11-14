@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import Link from "next/link";
 import { ShieldCheck, ShieldOff, Save, Bot, Cpu, Sliders, Bell, User, KeyRound, Mail } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -129,25 +130,10 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Cpu className="size-5" /> LLM Routing</CardTitle>
-              <CardDescription>Route client-facing vs internal tasks to the right model.</CardDescription>
+              <CardDescription>Which model drafts your proposals and gig copy.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>Client-facing model</Label>
-                <Select defaultValue="groq">
-                  <option value="groq">Groq — gpt-oss-120b (connected)</option>
-                  <option value="claude">Claude Sonnet</option>
-                  <option value="gpt">GPT (OpenAI)</option>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Internal / low-stakes model</Label>
-                <Select defaultValue="groq-internal">
-                  <option value="groq-internal">Groq — llama (fast)</option>
-                  <option value="ollama">Ollama llama3 (local)</option>
-                </Select>
-              </div>
-              <p className="text-xs text-muted-foreground">Groq AI is wired up — proposals and gig content already run on it.</p>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>Drafting uses the AI provider configured on the server (Groq). Choosing a different model per task isn&apos;t available yet.</p>
             </CardContent>
           </Card>
 
@@ -226,29 +212,13 @@ export default function SettingsPage() {
           <Card>
             <CardHeader><CardTitle>Account</CardTitle><CardDescription>Login details for your account.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-1.5"><Label>Full name</Label><Input defaultValue={user?.name} /></div>
-              <div className="space-y-1.5"><Label>Email</Label><Input type="email" defaultValue={user?.email} /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5"><Label>New password</Label><Input type="password" placeholder="••••••••" /></div>
-                <div className="space-y-1.5"><Label>Confirm password</Label><Input type="password" placeholder="••••••••" /></div>
-              </div>
-              <Button variant="outline" onClick={() => toast({ title: "Password reset link sent", variant: "success" })}><Mail className="size-4" /> Send reset link</Button>
+              <div className="space-y-1.5"><Label>Full name</Label><Input value={user?.name ?? ""} readOnly /></div>
+              <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={user?.email ?? ""} readOnly /></div>
+              <p className="text-sm text-muted-foreground">Name and email can't be changed here yet. To change your password, use Security.</p>
+              <Button asChild variant="outline"><Link href="/dashboard/security/password"><KeyRound className="size-4" /> Change password</Link></Button>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle>Timezone & region</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Timezone</Label>
-                <Select defaultValue="utc"><option value="utc">UTC</option><option value="est">Eastern (ET)</option><option value="pst">Pacific (PT)</option><option value="gst">Gulf (GST)</option><option value="pkt">Pakistan (PKT)</option></Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Currency</Label>
-                <Select defaultValue="usd"><option value="usd">USD ($)</option><option value="eur">EUR (€)</option><option value="gbp">GBP (£)</option></Select>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         {/* API */}
