@@ -295,6 +295,16 @@ export function DashboardShell({
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          {demo?.conflict && !demoMode && (
+            <div role="alert" className="mx-auto mb-4 flex max-w-7xl flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm">
+              <AlertTriangle className="size-4 shrink-0 text-destructive" />
+              <span className="min-w-0 flex-1">
+                This workspace was changed in another tab or device, so your latest change here was <strong>not saved</strong> and
+                nothing more will be saved from this page. Reload to get the latest version, then redo that change.
+              </span>
+              <Button size="sm" onClick={() => window.location.reload()}>Reload now</Button>
+            </div>
+          )}
           {serverDown && !demoMode && (
             <div role="alert" className="mx-auto mb-4 flex max-w-7xl items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
               <AlertTriangle className="size-4 shrink-0 text-warning" />

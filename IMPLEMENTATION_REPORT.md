@@ -157,7 +157,7 @@ Cause: `AuthProvider` asked `/api/auth/me` on every load, and dashboard pages mo
 | Browser e2e `scripts/qa/e2e.mjs` | **181 / 181 passed** (153 earlier + 28 new demo-honesty checks) |
 | Nav audit, 88 visits (agency + freelancer, desktop + mobile) | **0 failed requests** except `403 /api/beta-testers` on the owner-only page that is not in the nav, and one `409 PUT /api/state` (see below); 0 page errors; 0 horizontal overflow |
 | Backend suite, memory mode, Python 3.12.14 | **428 passed, 3 skipped, 0 failed** |
-| Backend suite, real MongoDB | **428 passed, 3 skipped, 0 failed** (after fixing the flaky test below) |
+| Backend suite, "real MongoDB" | **CORRECTION: this row was wrong.** That run passed `MONGODB_URI=...`, which `tests/conftest.py` overrides (it only honours `TEST_MONGODB_URI`), so it ran in memory mode. The genuine MongoDB result is in the reliability pass below |
 | Frontend typecheck / production build | pass / pass |
 | Lint | 1 warning, unchanged and pre-existing (`app/dashboard/conversations/page.tsx:46`) |
 
@@ -171,6 +171,62 @@ Bug found in my own earlier test: `test_open_specs_show_bid_counts_but_never_oth
 - **Settings LLM routing:** no per-task model choice; text now says drafting uses the server's configured provider.
 - **Analytics** pages link to Agent Fleet and Calendar (Coming soon) in their empty states.
 - **`409 PUT /api/state`:** observed once by the audit when two pages of the same brand-new account were open at once (workspace save version conflict). Not investigated further; single-tab use did not show it.
-- A freelancer who types an admin URL such as `/dashboard/integrations` sees an agency page shell whose admin API calls return 403 (seen in QA); role-based redirect for that case was not changed.
+- Wrong-role URLs: fixed in the reliability pass below.
 - Payouts are still only recorded as paid by the agency; no money moves, no escrow.
 - The Upwork browser-assist extension was not started. The email-based Upwork assistant and all non-API Upwork code are unchanged by this pass (the Upwork e2e group passes).
+
+
+---
+
+# Reliability pass 2026-11-14: multi-tab workspace saves and wrong-role URLs
+
+Scope: exactly two defects, no new features. Upwork assistant, payments/escrow, baseline and deployment untouched.
+
+## 1. Multi-tab workspace save (the 409)
+**Reproduced** with two real tabs on one account (Chromium, real MongoDB), logging every `PUT /api/state` with the version sent and returned:
+- A single tab was fine: 4 edits, 4 saves (200), all persisted after reload.
+- Two tabs: the older tab's next edit got a 409, the browser then silently swapped in the server's copy, and **the edit was lost without any message** (`FromTab1`, `T1second` gone after reload). Both "new account" (version 0 race) and "existing workspace" variants reproduced.
+
+**Cause (two parts):**
+1. `FleetProvider` (mounted on every dashboard page) recorded a "last visit" in the workspace on every page load. Each page load therefore wrote the workspace and bumped its version, so merely opening a second tab made every other open tab stale. This was the only load-time writer (found by version logs; Agent Fleet itself is Coming soon).
+2. On a 409 the store adopted the server copy over the screen, discarding the user's change silently.
+
+The server contract itself was correct (compare-and-set on `version`; the stale save is refused and the stored data is not touched).
+
+**Fix:**
+- `components/agents/fleet-provider.tsx`: the visit is recorded only while `/dashboard/agents` is open, so loading pages and tabs no longer writes.
+- `lib/demo-store.tsx`: on a 409 the store marks a `conflict`, sends nothing more (no retry, no overwrite) and does not silently replace the screen's data. `components/dashboard/dashboard-shell.tsx` shows a red alert: "This workspace was changed in another tab or device, so your latest change here was not saved and nothing more will be saved from this page. Reload to get the latest version, then redo that change." with a **Reload now** button. After reloading, the tab saves normally again.
+- No server change was needed.
+
+**Verified in the browser (after):** opening extra tabs/pages = 0 writes; single-tab edits save with no banner; the stale tab's save is refused (409) and the banner appears; a further edit in the stale tab sends nothing; the server keeps the first tab's data and none of the stale tab's; Reload now shows the latest data and the same tab saves again (200) and the edit persists. In the repeat of the original repro the first tab's data now survives in both the new-account and existing-workspace cases.
+
+**Tests:** `backend/tests/test_workspace_concurrency.py` (9 tests, memory and MongoDB): single-tab saves chain and persist; stale tab refused with the newer copy and nothing overwritten; repeated stale saves change nothing; reload-then-save works; 8 simultaneous saves from one version (new and existing workspace) give exactly one 200 and seven 409s, with the stored state one writer's whole copy; per-user independence; server-owned fields still dropped; session required. Browser: 10 new checks in `scripts/qa/e2e.mjs`.
+
+## 2. Wrong-role URLs
+**Reproduced:** a freelancer opening `/dashboard/command`, `/pool`, `/automation`, `/integrations` saw the full agency shell and nav with failed 403 calls; an agency opening `/freelancer/*` saw the freelancer shell with 403 errors. The API was already refusing correctly (no data leaked); the experience was wrong and the pages still mounted and fired requests.
+
+**Fix:** `lib/access.ts` (rules) + `components/auth/role-gate.tsx` (access-denied page: "You don't have access to this page", who the area is for, and a button to the user's own dashboard), mounted in `app/dashboard/layout.tsx` and `app/freelancer/layout.tsx` inside the email-verification gate and **outside** the shell and fleet provider. For a wrong role the children never mount, so nothing renders or fetches. Rules mirror the API:
+- Agency-only: `/dashboard/command, pool, automation, growth, accounts, integrations, bidding, onboarding, agents, calendar, clients, contracts, milestones, freelancers`. Everything else under `/dashboard` (Gigs, Job Radar, Orders, Money, Banking, Marketplace, Capital, Settings, Profile, ...) stays shared by all roles, as the API allows.
+- `/freelancer/*`: freelancers only. `/investor/*`: open to every signed-in role (the capital/marketplace API is).
+- The platform owner (OWNER_EMAILS) opens everything, as on the API. Signed-out visitors still go to login. The frontend-only demo is not gated.
+- Backend authorization, sessions, CSRF and origin checks are unchanged; the gate is presentation only.
+
+**Tests:** `backend/tests/test_role_matrix.py` (39 tests): anonymous gets 401 on every restricted endpoint; agency-only, freelancer-only, any-signed-in and owner-only endpoints for agency, freelancer, investor and owner; a 403 carries no agency data. Browser (30 new checks): freelancer on 6 agency URLs sees the access-denied page, no agency data, and no agency API call is made, and its button leads to `/freelancer`; shared pages still open for a freelancer; agency on 4 freelancer URLs denied with no freelancer API call; agency, investor and owner open what they should; investor denied on agency and freelancer URLs; anonymous sent to login.
+
+## Results (final tree)
+| Check | Result |
+|---|---|
+| Backend suite, **memory** mode (Python 3.12.14) | **476 passed, 3 skipped, 0 failed** |
+| Backend suite, **real MongoDB 7** (`TEST_MONGODB_URI=mongodb://127.0.0.1:27018`) | **473 passed, 6 skipped, 0 failed** (45 min; the 3 extra skips are the memory-only tests) |
+| Typecheck / lint / production build | clean / 1 pre-existing warning (`conversations/page.tsx:46`) / passes |
+| Chromium E2E against real throwaway MongoDB | **233 / 233 passed** (192 before + 41 new) |
+
+Honest notes on the runs:
+- **Correction:** the "real MongoDB" backend results reported in the two previous passes were memory-mode runs (the wrong environment variable). The first genuine Mongo result for the whole suite on this code is the one above; the earlier session-cookie Mongo fix (21/21) was verified in genuine Mongo mode at the time.
+- The 233/233 run is the 3rd clean E2E run of this tree. One earlier run on the same code failed 2 Upwork UI checks ("both jobs appear in Gigs" timed out after the leads were already stored in MongoDB); a rerun on a fresh database passed. I did not find the cause and nothing in the Upwork code was touched: treat it as one unexplained intermittent timeout. Another run failed everything at signup because I restarted the API while the old process still held the port (my test-harness error).
+
+## Remaining limitations (this pass)
+- If a second tab edits at the same time, the older tab's edit is not merged: it is refused and the user must reload and redo it. There is no automatic merge.
+- A failed save because the server is unreachable (not a 409) is still not announced beyond the existing "can't reach the server" banner.
+- The access-denied page is a presentation layer; shared `/dashboard/*` pages remain open to all roles by design. If any of those should become agency-only, add the prefix to `lib/access.ts`.
+- All earlier "not verified" items (real emails, real AI output, Stripe, live https, backups, etc.) are unchanged.

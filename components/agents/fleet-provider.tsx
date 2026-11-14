@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { usePathname } from "next/navigation";
 import { useDemoStore, useWorkspaceSlice } from "@/lib/demo-store";
 import { DEMO_MODE, useAuth } from "@/lib/auth";
 import { API_URL, apiCall, apiGet } from "@/lib/api";
@@ -217,8 +218,11 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   // ---- load: close runs a closed tab left "running", record the visit
   const [prevVisitAt, setPrevVisitAt] = React.useState("");
   const loaded = React.useRef(false);
+  // Only while Agent Fleet is actually open. Recording a visit changes the saved workspace, so doing it on
+  // every dashboard page load made each new tab invalidate the other tabs' copies of the workspace.
+  const onFleetPage = usePathname().startsWith("/dashboard/agents");
   React.useEffect(() => {
-    if (!ready || loaded.current) return;
+    if (!ready || loaded.current || !onFleetPage) return;
     loaded.current = true;
     setPrevVisitAt(fleetRef.current.lastVisitAt);
     update((f) => touchStreak({
@@ -228,7 +232,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
         ? { ...r, status: "error", summary: "Interrupted: the page was closed mid-run", finishedAt: r.finishedAt ?? r.startedAt }
         : r)),
     }));
-  }, [ready, update]);
+  }, [ready, update, onFleetPage]);
 
   // ---- scheduler: runs due agents while Agent Fleet is open
   React.useEffect(() => {

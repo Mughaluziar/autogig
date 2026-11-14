@@ -453,9 +453,9 @@ await guard("roles", "privacy and permissions", async () => {
   check("roles", "Ann cannot read or dismiss Uma's lead by id (404)", (await api(ctxs.ann, "GET", `/api/upwork/leads/${umaLead.leadId}`)).status === 404 && (await api(ctxs.ann, "PATCH", `/api/upwork/leads/${umaLead.leadId}`, { status: "dismissed" })).status === 404);
   // The freelancer portal pages themselves for the wrong role.
   await pages.agency.goto("/freelancer/specs"); await pages.agency.waitForTimeout(1800);
-  check("roles", "an agency opening the freelancer Specs page sees a clear 'can't open' message, not data", /can.t open this page/i.test(await text(pages.agency)), (await text(pages.agency)).slice(-120));
+  check("roles", "an agency opening the freelancer Specs page sees the access-denied page, not data", /don.t have access to this page/i.test(await text(pages.agency)), (await text(pages.agency)).slice(-120));
   await pages.bob.goto("/dashboard/pool"); await pages.bob.waitForTimeout(1800);
-  check("roles", "a freelancer opening the agency pool page sees a clear 'can't open' message", /can.t open this page/i.test(await text(pages.bob)), (await text(pages.bob)).slice(-120));
+  check("roles", "a freelancer opening the agency pool page sees the access-denied page", /don.t have access to this page/i.test(await text(pages.bob)), (await text(pages.bob)).slice(-120));
 });
 
 // ====================================================================== TEST 5 — RESPONSIVE, LOADING, ERRORS
@@ -615,6 +615,100 @@ await guard("demo", "anonymous visitors, nav routes, Coming soon pages, mobile c
   check("demo", "a mobile card keeps the row's title, fields and status", cardText.length > 20, cardText.slice(0, 120));
   await fp.screenshot({ path: `${SHOTS}/mobile-cards-bids.png` });
   await fp.close();
+});
+
+
+// ====================================================================== TEST 6 — RELIABILITY: MULTI-TAB SAVES AND WRONG-ROLE URLS
+await guard("reliability", "multi-tab workspace saves", async () => {
+  const u = { first: "Tabby", last: `Tabs${RUN}`, email: unique("tabs"), company: "Tab Agency" };
+  const ctx = await newCtx(); const t1 = await signupUI(ctx, "admin", u);
+  const puts = []; const tab = (page, name) => page.on("response", (r) => { if (r.request().method() === "PUT" && r.url().includes("/api/state")) puts.push(`${name}:${r.status()}`); });
+  tab(t1, "t1");
+  const refer = async (page) => { await page.goto("/dashboard/refer", { waitUntil: "networkidle" }); await page.waitForTimeout(500); };
+  const add = async (page, name) => { await page.getByPlaceholder(/name|friend/i).first().fill(name); await page.getByRole("button", { name: /Invite/ }).first().click(); };
+  const banner = (page) => page.getByRole("alert").filter({ hasText: /changed in another tab/i });
+  await refer(t1); await t1.waitForTimeout(1500);
+  const before = puts.length;
+  // 1. Opening more tabs and pages writes nothing (this used to bump the version on every page load).
+  const t2 = await ctx.newPage(); tab(t2, "t2"); await refer(t2);
+  for (const r of ["/dashboard/command", "/dashboard/pool", "/dashboard/settings"]) { await t2.goto(r, { waitUntil: "networkidle" }); await t2.waitForTimeout(300); }
+  await refer(t2); await t2.waitForTimeout(1500);
+  check("reliability", "opening extra tabs and pages makes no workspace write", puts.length === before, puts.join(","));
+  // 2. Single-tab saves still work and persist; no banner.
+  await add(t1, "Alpha"); await t1.waitForTimeout(1500); await add(t1, "Beta"); await t1.waitForTimeout(1800);
+  check("reliability", "single-tab edits save (200) with no conflict banner", puts.filter((x) => x.startsWith("t1:200")).length >= 2 && !puts.some((x) => x.endsWith(":409")) && (await banner(t1).count()) === 0, puts.join(","));
+  // 3. The other tab is now stale. Its edit must NOT overwrite newer data and must tell the user.
+  await add(t2, "FromStaleTab"); await t2.waitForTimeout(2500);
+  check("reliability", "the stale tab's save is refused by the server (409)", puts.some((x) => x === "t2:409"), puts.join(","));
+  check("reliability", "the stale tab shows a clear 'not saved, reload' message", await banner(t2).isVisible().catch(() => false));
+  const sent = puts.length;
+  await add(t2, "AnotherStaleEdit"); await t2.waitForTimeout(2200);
+  check("reliability", "after a conflict the stale tab sends nothing more (no blind retry, no overwrite)", puts.length === sent, puts.slice(sent).join(","));
+  const fresh = await ctx.newPage(); await refer(fresh); const serverText = await text(fresh);
+  check("reliability", "the server still has the first tab's data, with nothing from the stale tab", /Alpha/.test(serverText) && /Beta/.test(serverText) && !/FromStaleTab|AnotherStaleEdit/.test(serverText), serverText.slice(0, 200));
+  // 4. Reload resolves it: latest data shown, new edits save again.
+  await t2.getByRole("button", { name: "Reload now" }).click(); await t2.waitForLoadState("networkidle"); await t2.waitForTimeout(800);
+  const after = await text(t2);
+  check("reliability", "Reload now shows the latest data and clears the message", /Alpha/.test(after) && /Beta/.test(after) && (await banner(t2).count()) === 0);
+  await add(t2, "RedoneAfterReload"); await t2.waitForTimeout(1800);
+  const check2 = await ctx.newPage(); await refer(check2);
+  check("reliability", "after reloading, the same tab can save again and the edit persists", puts.slice(-1)[0] === "t2:200" && /RedoneAfterReload/.test(await text(check2)), puts.slice(-3).join(","));
+  await ctx.close();
+});
+
+await guard("reliability", "wrong-role URLs", async () => {
+  const seen = (page, store) => page.on("request", (r) => { const u = new URL(r.url()); if (u.origin === BASE && u.pathname.startsWith("/api/")) store.push(u.pathname); });
+  const probe = async (ctx, route) => {
+    const p = await ctx.newPage(); const calls = []; seen(p, calls);
+    await p.goto(route, { waitUntil: "networkidle" }).catch(() => {}); await p.waitForTimeout(700);
+    const denied = await p.getByTestId("access-denied").isVisible().catch(() => false);
+    const t = await text(p); const url = new URL(p.url()).pathname;
+    return { p, denied, t, url, calls };
+  };
+  const SECRETS = /Mobile modal spec|Build an analytics dashboard|QA Agency/;
+  // freelancer
+  for (const route of ["/dashboard/command", "/dashboard/pool", "/dashboard/automation", "/dashboard/integrations", "/dashboard/growth", "/dashboard/accounts"]) {
+    const r = await probe(ctxs.bob, route);
+    const agencyCalls = r.calls.filter((c) => /^\/api\/(pool\/admin|automation|growth|upwork\/status|freelancer\/)/.test(c));
+    check("reliability", `freelancer opening ${route}: access-denied page, no agency data, no agency API calls`, r.denied && /don.t have access/i.test(r.t) && !SECRETS.test(r.t) && agencyCalls.length === 0 && r.url === route, `${r.denied} ${r.url} ${agencyCalls.join(",")}`);
+    await r.p.close();
+  }
+  { const r = await probe(ctxs.bob, "/dashboard/pool"); await r.p.getByRole("link", { name: "Go to my dashboard" }).click(); await r.p.waitForURL(/\/freelancer$/, { timeout: 8000 }).catch(() => {});
+    check("reliability", "the access-denied page leads a freelancer to their own dashboard", new URL(r.p.url()).pathname === "/freelancer", r.p.url()); await r.p.close(); }
+  for (const route of ["/dashboard/gigs", "/dashboard/settings", "/dashboard/money", "/dashboard/orders", "/dashboard/job-radar"]) {
+    const r = await probe(ctxs.bob, route);
+    check("reliability", `freelancer can still open the shared page ${route}`, !r.denied && r.url === route, `${r.denied} ${r.url}`); await r.p.close();
+  }
+  // agency
+  for (const route of ["/freelancer", "/freelancer/specs", "/freelancer/earnings", "/freelancer/contracts"]) {
+    const r = await probe(ctxs.agency, route);
+    const fl = r.calls.filter((c) => /^\/api\/pool\/(specs|my-|earnings)/.test(c));
+    check("reliability", `agency opening ${route}: access-denied page and no freelancer API calls`, r.denied && fl.length === 0 && r.url === route, `${r.denied} ${fl.join(",")}`); await r.p.close();
+  }
+  for (const route of ["/dashboard/command", "/dashboard/pool", "/dashboard/automation", "/investor", "/dashboard/capital"]) {
+    const r = await probe(ctxs.agency, route);
+    check("reliability", `agency can open ${route}`, !r.denied && r.url === route, `${r.denied} ${r.url}`); await r.p.close();
+  }
+  // investor
+  for (const route of ["/dashboard/command", "/dashboard/pool", "/freelancer", "/freelancer/contracts"]) {
+    const r = await probe(ctxs.investor, route);
+    const priv = r.calls.filter((c) => /^\/api\/(pool|automation|growth)/.test(c));
+    check("reliability", `investor opening ${route}: access-denied page and no pool/automation API calls`, r.denied && priv.length === 0, `${r.denied} ${priv.join(",")}`); await r.p.close();
+  }
+  for (const route of ["/investor", "/investor/marketplace", "/dashboard/capital"]) {
+    const r = await probe(ctxs.investor, route);
+    check("reliability", `investor can open ${route}`, !r.denied && r.url === route, `${r.denied} ${r.url}`); await r.p.close();
+  }
+  // platform owner: everything
+  for (const route of ["/dashboard/command", "/dashboard/pool", "/freelancer", "/investor"]) {
+    const r = await probe(ctxs.owner, route);
+    check("reliability", `platform owner can open ${route}`, !r.denied && r.url === route, `${r.denied} ${r.url}`); await r.p.close();
+  }
+  // anonymous visitors still go to login, not to an access-denied page
+  const anon = await newCtx(); const ap = await newPage(anon);
+  await ap.goto("/dashboard/pool", { waitUntil: "networkidle" }); await ap.waitForTimeout(600);
+  check("reliability", "an anonymous visitor to an agency URL is sent to login", /\/login/.test(ap.url()) && !(await ap.getByTestId("access-denied").count()), ap.url());
+  await anon.close();
 });
 
 // ---------------------------------------------------------------- console / network summary

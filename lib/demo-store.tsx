@@ -80,6 +80,12 @@ type DemoStoreValue = {
   // Money ledger and Calendar events (saved with the workspace).
   /** False until this user's workspace has loaded; don't migrate or save before. */
   hydrated: boolean;
+  /**
+   * True once the server refused a save because the workspace was changed from another tab
+   * or device after this one loaded. From then on nothing more is sent (so newer data is never
+   * overwritten) and nothing is silently discarded: the shell asks the user to reload.
+   */
+  conflict: boolean;
   updateLedger: (fn: (ledger: Row | undefined) => Row) => void;
   updateCalendarEvents: (fn: (events: Row[]) => Row[]) => void;
   /** Replace one feature-owned slice of the workspace (see useWorkspaceSlice). */
@@ -157,6 +163,8 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
   const userId = user?.id ?? null;
   const [state, setState] = React.useState<DemoState>(() => initialState());
   const [hydrated, setHydrated] = React.useState(false);
+  const [conflict, setConflict] = React.useState(false);
+  const conflictRef = React.useRef(false);
 
   const mergeSaved = React.useCallback((saved: Partial<DemoState>): DemoState => {
     const base = initialState();
@@ -193,6 +201,8 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     // Switching accounts never shows the previous user's data.
     loadedFor.current = null;
     version.current = 0;
+    conflictRef.current = false;
+    setConflict(false);
     setHydrated(false);
     setState(initialState());
     if (!userId) return;
@@ -220,7 +230,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
   const saveRemote = React.useCallback(async (owner: string) => {
     const next = pending.current;
     pending.current = null;
-    if (!next || loadedFor.current !== owner) return;
+    if (!next || loadedFor.current !== owner || conflictRef.current) return;
     const rest: Partial<DemoState> = { ...next };
     delete rest.monetization; // server-owned
     delete rest.billingHistory;
@@ -232,12 +242,13 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     if (res.ok) {
       version.current = ((await res.json()) as { version: number }).version;
     } else if (res.status === 409) {
-      // Another tab or device saved first — adopt its copy.
-      const latest = (await res.json()) as Workspace;
-      version.current = latest.version;
-      setState((cur) => mergeSaved({ ...latest.state, monetization: cur.monetization, billingHistory: cur.billingHistory }));
+      // Another tab or device saved newer data first. This copy is stale: do not retry or
+      // overwrite, and do not quietly swap in the other copy either (that would drop this
+      // edit without the user knowing). Stop saving and let the shell ask for a reload.
+      conflictRef.current = true;
+      setConflict(true);
     }
-  }, [mergeSaved]);
+  }, []);
 
   const persist = React.useCallback((next: DemoState) => {
     if (DEMO_MODE) {
@@ -250,6 +261,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     }
     const owner = loadedFor.current;
     if (!owner) return; // never overwrite the server before the workspace loaded
+    if (conflictRef.current) return; // stale copy: nothing more is sent until the page is reloaded
     pending.current = next;
     if (syncTimer.current) clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => {
@@ -430,7 +442,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     radarPatchApp: radarPatchAppCb, radarRemoveApp: radarRemoveAppCb,
     radarToggleSaved: radarToggleSavedCb, radarDismiss: radarDismissCb,
     radarSetGoal: radarSetGoalCb,
-    hydrated, updateLedger, updateCalendarEvents, updateSlice,
+    hydrated, conflict, updateLedger, updateCalendarEvents, updateSlice,
     reset,
   };
   return <DemoStoreContext.Provider value={value}>{children}</DemoStoreContext.Provider>;
