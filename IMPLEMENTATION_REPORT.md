@@ -271,7 +271,7 @@ Nothing was deployed, pushed or run against production data; the baseline tag is
 | Check | Result |
 |---|---|
 | Backend, in-memory, pinned production dependencies (Python 3.12) | **495 passed, 3 skipped, 0 failed** |
-| Backend, **real MongoDB 7** (`TEST_MONGODB_URI`) | MONGO_RESULT |
+| Backend, **real MongoDB 7** (`TEST_MONGODB_URI`) | **492 passed, 6 skipped, 0 failed** (37 min; the 3 extra skips are the memory-only tests) |
 | Frontend typecheck / lint / `npm run qa` / `npm run test:deploy-guards` / production build (clean `npm ci` export) | pass / 1 pre-existing warning / 23 pass, 3 warn, 0 fail / 5 pass / pass |
 | Chromium end-to-end against real MongoDB (Next 15, React 19, upgraded API) | **239 / 239 passed** (233 + 6 new hardening checks) |
 | `scripts/ops/staging-check.mjs` on a production-mode local API | 21/21 in three topologies; fails the unsafe hop-count case |
