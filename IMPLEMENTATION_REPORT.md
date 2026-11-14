@@ -100,13 +100,77 @@ Stack under test: production Next.js build proxying `/api` to the FastAPI app (P
 - **Real Upwork emails, real AI provider output, real inbound-email delivery, real email sending (reset links, verification codes): not tested** (no credentials). In QA the reset link is returned on screen because no email provider is configured; in production the same link is only emailed.
 - **Vercel to Render proxy in production:** same-site cookies and `X-Forwarded-*` trust were tested only on localhost. Vercel rewrites have their own timeout (about 30 s on some plans) which can be shorter than a sleeping Render free instance wakes; use a paid Render plan.
 - **Secure cookie flag** is verified by unit tests (production/https), not in a live https deployment.
-- **Admin dashboard sections that are demo-only** still make ~10 calls to endpoints that do not exist for real accounts (`/api/kpis`, `/api/agents`, ...): harmless 404s in the console, and the pages show empty zero states, but they are not features. Routes like `/dashboard/clients`, `/contracts`, `/milestones`, `/freelancers` redirect to the Command Center for real accounts.
-- **Anonymous visitors cause a 401 `/api/auth/me` console line** on every page load (expected probe; cosmetic).
-- **Mobile tables** (e.g. Open Specs) scroll sideways inside their card at 390 px; the page itself does not overflow. A card layout would be nicer.
-- **QA & Submissions** (freelancer) has no real backend.
+- **Demo-only agency sections** (superseded: see the investor-demo pass below): now marked Coming soon, no longer requested.
+- **Anonymous 401 console line:** fixed in the investor-demo pass below.
+- **Mobile tables:** fixed (stacked cards below 640 px), see below.
+- **QA & Submissions** (freelancer) has no real backend: now Coming soon.
 - **Payouts only record that the agency paid;** there is no Stripe Connect transfer. No escrow.
 - Third-party integrations awaiting credentials/approval: Stripe (live), email provider (Resend/SMTP), Groq (or another LLM), inbound-email provider, Google/GitHub/Microsoft/Apple sign-in apps, Sentry DSNs, Nango/Outlook (optional), MongoDB Atlas + backups, uptime monitor.
 - Production blockers: items above plus a lawyer's review of Terms/Privacy, Atlas backups and a restore drill, real-world check of the Upwork parser with 3-5 real alert emails, and a decision on the Upwork browser-assist extension.
 
 ## MongoDB-mode full-suite outcome (final)
 Whole backend suite against real MongoDB 7: **413 passed, 7 skipped, 11 failed**. All 11 failures were in `test_session_cookies.py`: that file created extra `TestClient`s, and a Motor (MongoDB) client cannot be shared between event loops (a test-harness limit, not a product bug; the same flows passed in the real-browser run against MongoDB). The tests now use cookie-jar "devices" on one client and the file passes in **both** modes (21/21 memory, 21/21 Mongo). The other 413 stayed green; the 7 skips are the 4 normal skips plus 3 tests that read in-memory storage by design.
+
+
+---
+
+# Investor-demo pass 2026-11-14 (honest demo, no new features)
+
+Scope given: make the existing agency workflow polished and honest; no new features, no real payments/escrow/integrations, no Upwork browser extension, nothing deployed or pushed. Method: audit first (`scripts/qa/nav-audit.mjs`: signs up a fresh synthetic agency and freelancer, visits every nav route at 1440 px and 390 px, records failed requests, redirects, Coming soon states, buttons), then fix, then re-audit.
+
+## Audit result before the changes (real agency account)
+| Area | Finding |
+|---|---|
+| Command Center | 9 requests to endpoints that exist only in demo mode (404): `kpis, agents, revenue-streams, hitl, contracts, leads, clients, milestones, invoices`; widgets showed zero revenue/margin/win-rate |
+| Calendar, Accounts, Integrations, Bidding | 2, 3, 3, 3 failing demo-only requests |
+| `/dashboard/clients, /contracts, /milestones, /freelancers` | silently redirected to the Command Center |
+| Freelancer QA, Billing | fake data and fake-success buttons ("Receipt downloaded", "Payment method updated", "Add-on activated", "PR opened"); Billing showed a hard-coded "Pro plan, trial active, 4% fee" |
+| Freelancer Profile | invented person: "Priya Sharma, 96/100, India, $28/h, 4.2 days", a canned bio, and a Save button that saved nothing |
+| Agency Profile | canned headline/bio/skills/rate and two invented portfolio items ($4,800 / $3,200), "verified" badge, placeholder stats; never loaded what the account saved |
+| Settings | password fields, timezone and currency selects and LLM-routing selects that saved nothing; "Password reset link sent" toast with no request |
+| Activity lists (Audit Log, Notifications, Integrations activity) | showed "never" for every real row: the API returns `created_at`, the UI read the demo field `time` (pre-existing bug) |
+| Anonymous visitors | a 401 for `/api/auth/me` on every page, plus 401s for pool/automation/audit/notification requests fired by dashboard pages before the redirect to login |
+| Mobile | no page overflowed; wide tables scrolled sideways inside their card |
+
+## Demo-only agency sections and what was decided
+| Section | Missing endpoints (real accounts) | Decision |
+|---|---|---|
+| Command Center | the 9 above | **Rebuilt on real data only:** open specs, bids to review, active contracts, milestones to approve, owed to freelancers, new Upwork leads, items needing a decision, latest Upwork leads, recent activity. Revenue, margin, win-rate and trend figures removed; no Agent Fleet panel; compact Calendar "Coming soon" tile |
+| Agent Fleet | `/api/agents*` (and the fleet engine is client-side) | Coming soon, in the new **Roadmap** nav group |
+| Calendar | `/api/milestones`, `/api/contracts` | Coming soon (Roadmap group) |
+| Bidding | `/api/proposals, /leads, /kpis` | Coming soon (Gigs replaced it; not in the nav) |
+| Clients, Contracts, Milestones, Freelancers | demo-only | Coming soon at their own URL (no redirect) |
+| Freelancer QA & Submissions, Messages, Billing & Plan | `/api/qa-runs, /conversations, /addons` | Coming soon (Roadmap group); milestone delivery lives in My Contracts |
+| Integrations: Connections, Voice, QA & Delivery tabs | `/api/integrations, /voice-calls, /qa-runs` | Tabs hidden for real accounts (shown only in the frontend-only demo); Capability Map, Migrate and Activity remain |
+| Arbitrage, Margins, HITL, Personas, Portfolio, Job Hunter, Marketing | demo-only | already Coming soon (unchanged) |
+| Analytics, Refer & Extend, Outreach, Client Onboarding | none failing | kept: they compute from the account's own recorded data; they still contain links to Agent Fleet/Calendar, which now say Coming soon |
+
+## What changed (commits on `main`, nothing pushed)
+`83a9a83` Command Center on real data. `8317627` Coming soon states, Roadmap group, no redirects, `useEntity` no longer requests demo-only collections. `41d45ba` money pages: explicit "no escrow, no funds move". `3779da3` `DataTable` stacked cards below 640 px (first column as title, other columns as label/value, header-less columns as the row's actions; the desktop table is unchanged). `fa2e5ab` + `211151b` anonymous visitors: no request is sent without a session hint, and the dashboard shell never mounts a page for a signed-out visitor. `8e392a5` invented profile data and fake-success actions removed. `211151b` real timestamps; 26 new browser checks. `dd43bdf` audit script. The pool test fix is its own commit.
+
+## Anonymous 401: investigation and handling
+Cause: `AuthProvider` asked `/api/auth/me` on every load, and dashboard pages mounted and fetched before the redirect to login. A 401 there is expected, but the browser logs every failed fetch as a console error. Handling (no security change): the server sets/clears the readable `autopilot_csrf` cookie together with the HttpOnly session cookie, so with no such cookie there cannot be a session and the app treats the visitor as signed out without calling the server. That cookie is only a hint. A forged or stale hint still goes to the server, gets a 401, and the user lands on login (a browser check forges both cookies and asserts exactly that). Authentication, CSRF, Origin checks, revocation, session restoration and the 401 handling for expired sessions are untouched.
+
+## Regression results (real Chromium, production build, real MongoDB 7, synthetic data, mock AI provider)
+| Check | Result |
+|---|---|
+| Browser e2e `scripts/qa/e2e.mjs` | **181 / 181 passed** (153 earlier + 28 new demo-honesty checks) |
+| Nav audit, 88 visits (agency + freelancer, desktop + mobile) | **0 failed requests** except `403 /api/beta-testers` on the owner-only page that is not in the nav, and one `409 PUT /api/state` (see below); 0 page errors; 0 horizontal overflow |
+| Backend suite, memory mode, Python 3.12.14 | **428 passed, 3 skipped, 0 failed** |
+| Backend suite, real MongoDB | **428 passed, 3 skipped, 0 failed** (after fixing the flaky test below) |
+| Frontend typecheck / production build | pass / pass |
+| Lint | 1 warning, unchanged and pre-existing (`app/dashboard/conversations/page.tsx:46`) |
+
+Bug found in my own earlier test: `test_open_specs_show_bid_counts_but_never_other_freelancers_bids` asserted that the string "25" did not appear anywhere in a bid, and the bid's timestamp contains "25" when the clock minute is 25. It failed twice in the same minute and passed otherwise. It now compares the rate value. This was a test flaw, not a product bug.
+
+## Remaining limitations (not fixed, by scope)
+- **Everything in the earlier "Not verified" list still stands:** real Upwork alert emails (parser only saw synthetic ones), real AI output, real email delivery, Stripe live, social sign-in apps, Sentry, Atlas backups and a restore drill, Vercel to Render proxy and Secure cookies on a live https deployment, lawyer review of Terms/Privacy, GitHub CI never run.
+- **Banking, Marketplace, Capital** are simulated settlement: they now state in every place that no real money moves and there is no escrow. They record ledger entries only; no licensed partner is connected. I did not audit these flows' business logic in this pass.
+- **Calendar, Agent Fleet, Clients/Contracts/Milestones/Freelancers views, freelancer QA/Messages/Billing, Bidding** are Coming soon, not built. Agency "Messages" (`/dashboard/conversations`) shows forwarded notifications only.
+- **Profile editing:** the freelancer profile is read-only (signup details); there is no profile-edit API for it. Name/email changes are not available in Settings (password change is).
+- **Settings LLM routing:** no per-task model choice; text now says drafting uses the server's configured provider.
+- **Analytics** pages link to Agent Fleet and Calendar (Coming soon) in their empty states.
+- **`409 PUT /api/state`:** observed once by the audit when two pages of the same brand-new account were open at once (workspace save version conflict). Not investigated further; single-tab use did not show it.
+- A freelancer who types an admin URL such as `/dashboard/integrations` sees an agency page shell whose admin API calls return 403 (seen in QA); role-based redirect for that case was not changed.
+- Payouts are still only recorded as paid by the agency; no money moves, no escrow.
+- The Upwork browser-assist extension was not started. The email-based Upwork assistant and all non-API Upwork code are unchanged by this pass (the Upwork e2e group passes).
