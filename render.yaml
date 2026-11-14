@@ -11,9 +11,14 @@ services:
     # (Starter) and enable the paid add-ons at the bottom of this file.
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    # --no-proxy-headers: uvicorn's own X-Forwarded-For handling trusts the LEFTMOST entry (which any caller can
+    # forge to dodge the per-IP rate limits) and by default also trusts 127.0.0.1. The app picks the client
+    # address itself from the right-hand end of the header (TRUSTED_PROXY_HOPS below, app/security.py) and reads
+    # X-Forwarded-Proto itself (app/session.py).
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers
     healthCheckPath: /health
-    autoDeploy: true
+    # false: a push never deploys by itself. Deploy deliberately (Manual Deploy) after CI is green on staging.
+    autoDeploy: false
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
@@ -22,8 +27,23 @@ services:
       - key: API_PREFIX
         value: /api
       # Must include your Vercel frontend URL (add your custom domain later).
+      # https only: production refuses to start with any http:// origin (and localhost is not needed).
       - key: CORS_ORIGINS
-        value: https://autopilotv2.vercel.app,http://localhost:3000
+        value: https://autopilotv2.vercel.app
+      # How many proxies append to X-Forwarded-For before a request reaches the app: Render's load balancer = 1,
+      # Vercel rewriting /api to Render = 2. CONFIRM on staging with GET /api/diag/request as the platform owner
+      # (docs/deployment-runbook.md): the reported clientIp must be your own public address.
+      - key: TRUSTED_PROXY_HOPS
+        value: "2"
+      - key: EMAIL_VERIFICATION
+        value: "true"
+      # Comma-separated emails that may open the platform-owner pages.
+      - key: OWNER_EMAILS
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
       # Set this in the Render dashboard (never commit it):
       #   mongodb+srv://<user>:<password>@autopilot.<id>.mongodb.net
       - key: MONGODB_URI

@@ -64,6 +64,9 @@ log = logging.getLogger("autopilot")
 
 settings = get_settings()
 settings.validate_for_production()
+if settings.environment == "production":
+    for _warning in settings.production_warnings():
+        logging.getLogger("autopilot").warning("production config: %s", _warning)
 if settings.sentry_dsn:
     sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment, traces_sample_rate=0.05)
 

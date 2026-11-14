@@ -36,6 +36,8 @@ os.environ.update({
     # verification tests switch it on.
     "EMAIL_VERIFICATION": "false",
     "PUBLIC_API_URL": "",
+    # Tests have no reverse proxy: the socket peer is the client (TRUSTED_PROXY_HOPS is covered in test_client_ip.py).
+    "TRUSTED_PROXY_HOPS": "0",
 })
 
 import httpx  # noqa: E402

@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     cookie_secure: str = ""
     # Requests per minute per client IP. One dashboard page load makes ~25 API calls and offices share an IP.
     rate_limit_per_minute: int = 900
+    # How many reverse proxies sit in front of the API and each append the address they saw to
+    # X-Forwarded-For. The client is the entry that many places from the END of the header; anything
+    # to its left is client-controlled and ignored (so a spoofed header can't dodge the per-IP
+    # limits). Render's load balancer alone = 1; Vercel rewriting to Render = 2. 0 = ignore the
+    # header and use the socket peer. Confirm the value on staging (see docs/deployment-runbook.md).
+    trusted_proxy_hops: int = 1
     # Comma-separated emails of platform owners (credential vault, all users,
     # audit log, demo reset).
     owner_emails: str = ""
@@ -220,12 +226,47 @@ class Settings(BaseSettings):
             problems.append("CORS_ORIGINS must list the real frontend origin(s); '*' is not allowed with credentials.")
         elif all(o.startswith("http://localhost") or o.startswith("http://127.0.0.1") for o in origins):
             problems.append("CORS_ORIGINS only lists localhost; set the deployed frontend origin.")
+        else:
+            plain = [o for o in origins if not o.startswith("https://")]
+            if plain:
+                problems.append(f"CORS_ORIGINS must be https:// origins in production (found {', '.join(plain)}).")
+        if self.public_site_url.strip() and not self.public_site_url.strip().startswith("https://"):
+            problems.append("PUBLIC_SITE_URL must be an https:// URL in production.")
+        if self.seed_demo_data:
+            problems.append("SEED_DEMO_DATA=true serves one shared set of demo data to every account; it must be off in production.")
+        if self.cookie_secure_flag is False:
+            problems.append("COOKIE_SECURE=false would send session cookies over plain http; remove it in production.")
+        if not 0 <= self.trusted_proxy_hops <= 5:
+            problems.append("TRUSTED_PROXY_HOPS must be between 0 and 5.")
+        if self.rate_limit_per_minute < 60:
+            problems.append("RATE_LIMIT_PER_MINUTE below 60 would lock out normal dashboard use.")
         if (self.token_encryption_key or "").strip():
             from .crypto import key_problem  # cryptography is only needed once a key is set
             problem = key_problem(self.token_encryption_key)
             if problem:
                 problems.append(problem)
         return problems
+
+    def production_warnings(self) -> list[str]:
+        """Settings that don't stop the app from starting but leave a feature off or unsafe-by-omission."""
+        warnings: list[str] = []
+        if not (self.resend_api_key or (self.smtp_host and self.smtp_user)):
+            warnings.append("No email provider (RESEND_API_KEY or SMTP_*): password-reset and verification emails cannot be "
+                            "sent, and email verification is skipped for new signups.")
+        if not self.email_verification:
+            warnings.append("EMAIL_VERIFICATION is off: new accounts are not required to confirm their email.")
+        if not self.groq_api_key:
+            warnings.append("No GROQ_API_KEY: proposal drafts use the built-in template, not an AI model.")
+        if not (self.inbound_email_domain and self.inbound_email_webhook_secret):
+            warnings.append("Inbound email (INBOUND_EMAIL_DOMAIN + INBOUND_EMAIL_WEBHOOK_SECRET) is not configured: "
+                            "Upwork alert emails cannot be forwarded in; the manual paste import still works.")
+        if not self.sentry_dsn:
+            warnings.append("No SENTRY_DSN: errors are only in the platform logs.")
+        if not (self.stripe_secret_key and self.stripe_webhook_secret):
+            warnings.append("Stripe is not configured: invoice pay links and card checkout return 503 (nothing is charged).")
+        if not self.owner_email_set:
+            warnings.append("OWNER_EMAILS is empty: no account can reach the platform-owner pages.")
+        return warnings
 
     def validate_for_production(self) -> None:
         """Fail fast on settings that would make a production deploy insecure."""

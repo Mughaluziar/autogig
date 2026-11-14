@@ -34,10 +34,26 @@ _AUTH_PATHS = ("/auth/login", "/auth/signup", "/auth/forgot-password", "/auth/re
 _auth_hits: dict[str, deque] = defaultdict(deque)
 
 
-def _client_ip(request: Request) -> str:
-    # uvicorn --proxy-headers (see render.yaml) already rewrites client.host
-    # from X-Forwarded-For when the proxy is trusted.
-    return request.client.host if request.client else "unknown"
+def client_ip(request: Request) -> str:
+    """The caller's address for per-IP limits.
+
+    Behind reverse proxies each hop appends the address it saw to X-Forwarded-For, so only the entries
+    from the right are trustworthy: with TRUSTED_PROXY_HOPS=n the client is the n-th entry from the end,
+    and everything left of it is whatever the caller chose to send. That is why uvicorn's own rewrite
+    (--forwarded-allow-ips='*' trusts the LEFTMOST entry) must not be used for this. With 0 hops, or no
+    header, the socket peer is used.
+    """
+    peer = request.client.host if request.client else "unknown"
+    hops = get_settings().trusted_proxy_hops
+    if hops <= 0:
+        return peer
+    chain = [part.strip() for part in request.headers.get("x-forwarded-for", "").split(",") if part.strip()]
+    if len(chain) < hops:
+        return peer          # fewer entries than proxies we expected: don't guess, don't trust the header
+    return chain[-hops][:64]
+
+
+_client_ip = client_ip   # old name
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

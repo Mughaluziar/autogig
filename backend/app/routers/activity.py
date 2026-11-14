@@ -21,11 +21,13 @@ import time
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import email as mail, repo, seed
 from ..auth import current_user, require_owner
+from ..config import get_settings as app_settings
+from .. import security, session as sessions
 
 router = APIRouter(tags=["activity"])
 
@@ -149,6 +151,25 @@ async def email_test(body: EmailTestBody):
     if not ok:
         raise HTTPException(502, "Provider rejected the send — check credentials.")
     return {"ok": True}
+
+
+@router.get("/diag/request", dependencies=[Depends(require_owner)])
+async def diag_request(request: Request):
+    """Platform owner only: what this API sees of the request that reached it. Used on staging to confirm the
+    proxy chain (TRUSTED_PROXY_HOPS), scheme and cookie/origin settings. Returns the caller's own request data only."""
+    s = app_settings()
+    return {
+        "environment": s.environment,
+        "clientIp": security.client_ip(request),
+        "socketPeer": request.client.host if request.client else None,
+        "xForwardedFor": request.headers.get("x-forwarded-for"),
+        "xForwardedProto": request.headers.get("x-forwarded-proto"),
+        "trustedProxyHops": s.trusted_proxy_hops,
+        "secureCookies": sessions._secure(request),
+        "origin": request.headers.get("origin"),
+        "originAllowed": (request.headers.get("origin") or "").rstrip("/").lower() in sessions.allowed_origins() if request.headers.get("origin") else None,
+        "allowedOrigins": sorted(sessions.allowed_origins()),
+    }
 
 
 @router.get("/beta-testers", dependencies=[Depends(require_owner)])

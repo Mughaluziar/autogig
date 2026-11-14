@@ -54,3 +54,55 @@ def test_all_problems_are_reported_together():
 def test_bad_encryption_key_is_refused():
     with pytest.raises(RuntimeError):
         make(token_encryption_key="not-a-fernet-key").validate_for_production()
+
+
+# --- the stricter production checks added in the production-readiness pass -----------------
+@pytest.mark.parametrize("origins", ["http://app.example.com", "https://app.example.com,http://localhost:3000",
+                                     "https://app.example.com,http://staging.example.com"])
+def test_production_cors_must_be_https_only(origins):
+    with pytest.raises(RuntimeError, match="https://"):
+        make(cors_origins=origins).validate_for_production()
+
+
+def test_public_site_url_must_be_https():
+    with pytest.raises(RuntimeError, match="PUBLIC_SITE_URL"):
+        make(public_site_url="http://app.example.com").validate_for_production()
+    make(public_site_url="https://app.example.com").validate_for_production()
+
+
+def test_demo_data_must_be_off_in_production():
+    with pytest.raises(RuntimeError, match="SEED_DEMO_DATA"):
+        make(seed_demo_data=True).validate_for_production()
+
+
+def test_cookies_cannot_be_forced_insecure_in_production():
+    with pytest.raises(RuntimeError, match="COOKIE_SECURE"):
+        make(cookie_secure="false").validate_for_production()
+    make(cookie_secure="true").validate_for_production()
+    make(cookie_secure="").validate_for_production()
+
+
+@pytest.mark.parametrize("hops", [-1, 6])
+def test_proxy_hops_must_be_sane(hops):
+    with pytest.raises(RuntimeError, match="TRUSTED_PROXY_HOPS"):
+        make(trusted_proxy_hops=hops).validate_for_production()
+
+
+def test_rate_limit_floor():
+    with pytest.raises(RuntimeError, match="RATE_LIMIT_PER_MINUTE"):
+        make(rate_limit_per_minute=10).validate_for_production()
+
+
+def test_warnings_name_every_missing_integration_but_do_not_block_startup():
+    cfg = make(owner_emails="", email_verification=True)           # (the test env sets both)
+    cfg.validate_for_production()                                   # starts fine...
+    text = " | ".join(cfg.production_warnings())                   # ...but says what is off
+    for needle in ("email provider", "GROQ_API_KEY", "Inbound email", "SENTRY_DSN", "Stripe", "OWNER_EMAILS"):
+        assert needle in text, needle
+
+
+def test_warnings_disappear_when_the_integrations_are_configured():
+    cfg = make(resend_api_key="k", groq_api_key="k", inbound_email_domain="in.example.com",
+               inbound_email_webhook_secret="s", sentry_dsn="https://x@y.ingest.sentry.io/1",
+               stripe_secret_key="k", stripe_webhook_secret="w", owner_emails="me@example.com", email_verification=True)
+    assert cfg.production_warnings() == []
