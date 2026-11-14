@@ -52,13 +52,10 @@ const nextConfig = {
   // BACKEND_API_URL (private env var mapped into the client bundle at build).
   // A non-empty value switches the app from mock-data demo to backend mode.
   env: { NEXT_PUBLIC_API_URL: backend },
-  images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "images.unsplash.com" },
-      { protocol: "https", hostname: "avatars.githubusercontent.com" },
-      { protocol: "https", hostname: "api.dicebear.com" },
-    ],
-  },
+  // No page uses next/image, so the built-in image optimizer (/_next/image) is switched off. It is the target of the
+  // critical remote-code-execution advisories for Next.js 14 (docs/production-readiness.md, "Dependencies"); plain <img>
+  // tags are unaffected (the CSP img-src list above still governs which hosts they may load from).
+  images: { unoptimized: true },
 };
 
 import { withSentryConfig } from "@sentry/nextjs/config";

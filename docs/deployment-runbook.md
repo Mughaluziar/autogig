@@ -1,0 +1,97 @@
+# Deployment runbook (staging first, then production)
+
+Status: **prepared, not executed.** Nothing has been deployed. Every step marked *needs you* requires your accounts,
+credentials or an explicit go-ahead. Nothing here is verified on a live platform until the staging steps are done.
+
+## 1. Architecture and what the code guarantees
+
+```
+Browser --https--> Vercel (Next.js)  --/api/* rewrite-->  Render (FastAPI)  -->  MongoDB Atlas
+```
+* The browser only talks to the frontend origin; `next.config.mjs` rewrites `/api/*` to `BACKEND_API_URL`, so the session
+  cookie (`autopilot_session`, HttpOnly, SameSite=Lax) is first-party and the CSP stays `connect-src 'self'`.
+* **Cookies:** `Secure` is forced in production or when `X-Forwarded-Proto` is https (`app/session.py`); `COOKIE_SECURE=false`
+  is refused at startup in production.
+* **CORS/CSRF:** only `CORS_ORIGINS` (https, validated at startup) and `PUBLIC_SITE_URL` may send cookie-authenticated unsafe
+  requests (Origin check), which also need the `X-CSRF-Token` header bound to the session.
+* **Client IP / rate limits:** per-IP limits use the entry `TRUSTED_PROXY_HOPS` places from the right of `X-Forwarded-For`
+  (`app/security.py`). uvicorn runs with `--no-proxy-headers`, because its own handling trusts the leftmost (forgeable) entry.
+* **Startup guards:** production refuses to start with a weak `SECRET_KEY`, no `MONGODB_URI`, non-https/localhost CORS, demo
+  data on, insecure cookies, a bad hop count or a rate limit below 60 (`production_problems`), and logs a warning for every
+  integration that is off (`production_warnings`). A Vercel production build refuses a missing/non-https `BACKEND_API_URL`
+  and `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` (`scripts/deploy-guards.mjs`).
+
+## 2. Accounts and access you need (needs you)
+MongoDB Atlas (Project Owner), Render (owner of the workspace), Vercel (owner/admin of the team), the DNS registrar for your
+domain, GitHub (repo admin), and for each integration its own account (see `docs/integration-verification.md`).
+
+## 3. Environment variables
+Templates (placeholders only): `backend/.env.production.example` (Render) and `.env.production.example` (Vercel). Set values
+in the platform dashboards; never commit them and never paste them into chat or tickets.
+
+## 4. Render and Vercel settings (reviewed)
+| Item | Setting | Notes |
+|---|---|---|
+| Render build | `pip install -r requirements.txt` | Python 3.12.7 (`runtime.txt`, `PYTHON_VERSION`) |
+| Render start | `uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers` | already in `render.yaml` |
+| Render health check | `GET /health` -> 200 `{"status":"ok","database":"ok"}` (503 `degraded` if MongoDB is down) | |
+| Render plan | **Not `free`** for anything real | the free plan sleeps after 15 idle minutes and the first request then takes about a minute |
+| Auto-deploy | `autoDeploy: false` in `render.yaml` | deploy deliberately after CI is green |
+| Vercel build | `npm run build` (Node 22) | set `BACKEND_API_URL` for **Production and Preview** |
+| Vercel timeouts | **unverified:** AI draft calls can take up to about 30 s (`app/llm.py` timeout); confirm they complete through the Vercel rewrite on staging with a real Groq key | if proxied requests time out, move the API behind a custom domain on the same site or shorten/stream the call |
+| Request size | Workspace saves are capped at 1 MB by the API | |
+
+## 5. Safe staging procedure (needs you for every step that touches an account)
+Use a **separate** Atlas database (e.g. `autopilot_staging`, ideally its own project/cluster), a separate Render service and
+a separate Vercel project (or a protected Preview deployment). Staging must never share data, secrets or keys with production.
+
+1. **Gate on CI:** CI green on the commit to deploy (see `docs/ci-first-run.md`). Locally: backend memory and MongoDB suites,
+   typecheck, lint, build, `npm run test:deploy-guards`, browser e2e.
+2. **Atlas (staging):** create the cluster/database and an application user with `readWrite` on that database only; add the
+   Render outbound IPs (or `0.0.0.0/0` only temporarily, then tighten) to the IP access list.
+3. **Render (staging API):** create the service from `render.yaml` (or a copy with a `-staging` name), set every variable from
+   `backend/.env.production.example` with **staging** values (staging domain in `CORS_ORIGINS`/`PUBLIC_SITE_URL`,
+   `ENVIRONMENT=production` so the production guards are exercised). Deploy. Check `/health` and the log lines
+   `production config: ...` for the warnings you still expect.
+4. **Vercel (staging frontend):** set `BACKEND_API_URL=https://<staging-api>` and `ENFORCE_DEPLOY_GUARDS=true`; deploy.
+5. **Owner account:** sign up with an address listed in `OWNER_EMAILS`. Confirm the email code arrives (this needs the email
+   provider, see integration doc). Create a separate **test** agency account (never a real customer).
+6. **Confirm the proxy chain:** signed in as the owner, open `https://<staging-frontend>/api/diag/request`. `clientIp` must be
+   your own public address, `secureCookies` true, and `xForwardedFor` should end with the addresses of the proxies in front
+   (if it shows a Vercel/Render address, change `TRUSTED_PROXY_HOPS`: too low shares one rate-limit bucket among all users,
+   **too high lets a forged header dodge the limits**).
+7. **Automated smoke check** (prints no secrets; use a throw-away test account):
+   ```bash
+   STAGING_EMAIL=<test account> STAGING_PASSWORD=<its password> \
+   node scripts/ops/staging-check.mjs --web https://<staging-frontend> --api https://<staging-api> \
+        --origin https://<staging-frontend> --rate-limit-test
+   ```
+   Expect every line PASS: security headers, the `/api` proxy, health and `environment=production`, CORS refusing a foreign
+   origin, foreign-Origin sign-in refused, session cookie `HttpOnly; Secure; SameSite=Lax`, no token in the sign-in body, CSRF
+   enforced, logout revokes the cookie, and a forged `X-Forwarded-For` cannot dodge the credential limit (briefly rate-limits
+   your address). The check was verified locally in five proxy topologies; it has **not** run against Vercel/Render yet.
+8. **Browser pass on staging with synthetic data:** `scripts/qa/e2e.mjs` needs a local stack (it creates accounts in bulk), so
+   on staging do the manual list in `docs/manual-smoke-checklist.md` instead, in a real browser over https: sign up, sign in,
+   refresh (session persists), sign out, forgot-password email link, pool workflow, Upwork paste import, AI draft.
+9. **Backups:** enable and test (docs/backup-and-monitoring.md) before any real data goes in.
+10. **Integrations:** run each procedure in `docs/integration-verification.md` that you intend to launch with.
+
+## 6. Production go-live (needs your explicit approval)
+Repeat section 5 with production resources, then: set the production DNS (frontend domain on Vercel; optional API custom
+domain on Render), confirm HTTPS certificates are issued, update `CORS_ORIGINS`/`PUBLIC_SITE_URL` to the final domain,
+enable uptime monitoring on `/health` and the home page, confirm Sentry receives a test error, confirm a restore drill passed,
+then announce. Do not change DNS or deploy without approval.
+
+## 7. Rollback
+* Frontend: Vercel -> Deployments -> promote the previous deployment. API: Render -> Deploys -> redeploy the previous commit.
+* Data: schema is additive (indexes are created at startup; no destructive migrations). If data is damaged, restore from an
+  Atlas snapshot or the archive (see backup doc); never restore over production without stopping the API first.
+* A bad `SECRET_KEY` change signs everyone out (revert it); a bad `TRUSTED_PROXY_HOPS` needs only an environment change.
+
+## 8. Known residual risks of this topology
+* The API's own `onrender.com` URL stays publicly reachable. A caller who bypasses Vercel can add one extra forged
+  `X-Forwarded-For` entry, which is believed when `TRUSTED_PROXY_HOPS=2`. Per-IP limits are therefore best effort. What does
+  not depend on the IP: the per-email login lockout (stored in MongoDB), per-account CSRF/session checks and the Origin check.
+  Hardening options (not built): a shared-secret header added by a Next.js middleware and required by the API, or a custom
+  domain with the Render URL disabled.
+* Vercel and Render proxy behaviour (headers, timeouts) is documented by the vendors but unverified here; step 6-7 verify it.
