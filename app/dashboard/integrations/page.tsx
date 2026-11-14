@@ -199,7 +199,7 @@ export default function IntegrationsPage() {
                     <div className={`mt-1 size-1.5 shrink-0 rounded-full ${a.status === "warning" ? "bg-warning" : "bg-primary"}`} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate"><span className="font-medium">{a.agent}</span> — {a.action}</p>
-                      <p className="text-xs text-muted-foreground">{a.status} · {timeAgo(a.time)}</p>
+                      <p className="text-xs text-muted-foreground">{a.status} · {timeAgo(a.time ?? a.created_at)}</p>
                     </div>
                   </div>
                 ))}

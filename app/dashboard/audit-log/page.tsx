@@ -27,7 +27,7 @@ export default function AuditLogPage() {
     { key: "agent", header: "Agent", render: (r) => <span className="font-medium">{r.agent}</span> },
     { key: "action", header: "Action", render: (r) => <span className="text-muted-foreground">{r.action}</span> },
     { key: "statusLabel", header: "Status", render: (r) => <Badge variant={r.status === "success" ? "success" : r.status === "warning" ? "warning" : "destructive"}>{r.status}</Badge> },
-    { key: "time", header: "Time", render: (r) => <span className="text-muted-foreground">{formatRelative(r.time)}</span> },
+    { key: "time", header: "Time", render: (r) => <span className="text-muted-foreground">{formatRelative(r.time ?? (r as any).created_at)}</span> },
   ];
 
   return (

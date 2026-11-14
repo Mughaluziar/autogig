@@ -17,6 +17,7 @@ import {
   User,
   X,
   Zap,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDemoStore } from "@/lib/demo-store";
@@ -307,6 +308,10 @@ export function DashboardShell({
                 description="This section isn't built for live accounts yet, so it's switched off rather than showing made-up data. The freelancer pool, Upwork leads, orders and automation are live."
                 action={<Button variant="outline" onClick={() => router.push(pathname.startsWith("/freelancer") ? "/freelancer" : "/dashboard/command")}>Back to dashboard</Button>}
               />
+            ) : !demoMode && !user ? (
+              // Not signed in (or the session is still being restored): never mount the page, so it
+              // can't fire data requests that would only come back 401. The redirect to login is above.
+              <div role="status" className="flex justify-center py-16"><Loader2 className="size-6 animate-spin text-primary" /></div>
             ) : (
               children
             )}

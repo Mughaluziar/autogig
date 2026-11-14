@@ -48,7 +48,7 @@ export default function NotificationsPage() {
                   </div>
                   <p className="text-sm text-muted-foreground">{n.body}</p>
                 </div>
-                <span className="shrink-0 text-xs text-muted-foreground">{formatRelative(n.time)}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{formatRelative(n.time ?? (n as any).created_at)}</span>
               </CardContent>
             </Card>
           );

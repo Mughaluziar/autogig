@@ -16,7 +16,7 @@ import { formatCurrency, formatRelative } from "@/lib/utils";
 
 type Lead = { id: string; title: string; status: string; budget?: string; receivedAt?: string };
 type AutoJob = { id: string; title: string; platform: string; status: string; updatedAt: string };
-type AuditRow = { id?: string; agent: string; action: string; status: string; time: string };
+type AuditRow = { id?: string; agent: string; action: string; status: string; time?: string; created_at?: string };
 
 function Tile({ label, value, hint, href }: { label: string; value: React.ReactNode; hint: string; href: string }) {
   return (
@@ -148,7 +148,7 @@ export default function CommandCenter() {
                         <span className="min-w-0"><span className="font-medium">{r.agent}</span> <span className="text-muted-foreground">{r.action}</span></span>
                         <span className="flex shrink-0 items-center gap-2">
                           <StatusBadge status={r.status} />
-                          <span className="hidden text-xs text-muted-foreground sm:inline">{formatRelative(r.time)}</span>
+                          <span className="hidden text-xs text-muted-foreground sm:inline">{formatRelative(r.time ?? r.created_at)}</span>
                         </span>
                       </li>
                     ))}

@@ -523,6 +523,87 @@ await guard("responsive", "loading and error states", async () => {
   await p.close();
 });
 
+
+// ====================================================================== TEST 5 — INVESTOR-DEMO HONESTY
+await guard("demo", "anonymous visitors, nav routes, Coming soon pages, mobile cards", async () => {
+  // Anonymous: no 401 / console error, and protected pages still send them to login.
+  const anon = await newCtx(); const ap = await newPage(anon);
+  for (const r of ["/", "/login", "/signup", "/dashboard/command", "/freelancer"]) { await ap.goto(r, { waitUntil: "networkidle" }); await ap.waitForTimeout(500); }
+  check("demo", "anonymous visits make no failing requests and log no console errors", anon.bad.length === 0 && anon.errors.length === 0, [...anon.bad, ...anon.errors].join(" | "));
+  check("demo", "an anonymous visitor to /freelancer is still sent to login", /\/login/.test(ap.url()), ap.url());
+  await anon.close();
+  // A forged session hint is still verified by the server: 401 -> signed out -> login.
+  const stale = await newCtx();
+  await stale.addCookies([{ name: "autopilot_csrf", value: "forged", url: BASE }, { name: "autopilot_session", value: "forged.jwt.value", url: BASE, httpOnly: true }]);
+  const sp = await newPage(stale); await sp.goto("/dashboard/command", { waitUntil: "networkidle" }); await sp.waitForTimeout(800);
+  check("demo", "a forged session cookie is rejected by the server and the user lands on login", /\/login/.test(sp.url()), sp.url());
+  await stale.close();
+
+  // Every agency nav route: no failed requests, no 4xx.
+  const routes = ["/dashboard/command", "/dashboard/job-radar", "/dashboard/gigs", "/dashboard/orders", "/dashboard/pool", "/dashboard/automation", "/dashboard/accounts", "/dashboard/money", "/dashboard/banking", "/dashboard/marketplace", "/dashboard/capital", "/dashboard/refer", "/dashboard/growth", "/dashboard/onboarding", "/dashboard/profile", "/dashboard/settings", "/dashboard/users", "/dashboard/integrations", "/dashboard/security", "/dashboard/analytics", "/dashboard/audit-log", "/dashboard/conversations", "/dashboard/notifications"];
+  const ag = await ctxs.agency.newPage(); const bad = []; const errs = [];
+  ag.on("response", (r) => { if (r.status() >= 400 && r.url().startsWith(BASE)) bad.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+  ag.on("pageerror", (e) => errs.push(e.message.slice(0, 100)));
+  for (const r of routes) { await ag.goto(r, { waitUntil: "networkidle" }).catch(() => {}); await ag.waitForTimeout(400); }
+  check("demo", `${routes.length} agency nav routes load with no 4xx/5xx and no page errors`, bad.length === 0 && errs.length === 0, [...new Set([...bad, ...errs])].join(" | "));
+
+  // Command Center: real numbers only.
+  await ag.goto("/dashboard/command", { waitUntil: "networkidle" }); await ag.waitForTimeout(800);
+  const cc = await text(ag);
+  check("demo", "Command Center has no win-rate, margin or percentage-trend statistics", !/win rate|live margin|\+\d+(\.\d)?%/i.test(cc), cc.slice(0, 200));
+  const specsApi = (await api(ctxs.agency, "GET", "/api/pool/admin/specs")).body;
+  const contractsApi = (await api(ctxs.agency, "GET", "/api/pool/admin/contracts")).body;
+  const tile = async (label) => (await ag.locator("a", { hasText: new RegExp(`^${label}`, "i") }).first().innerText()).replace(/\s+/g, " ");
+  const openN = specsApi.filter((x) => x.status === "open").length;
+  const activeN = contractsApi.filter((x) => x.status === "active").length;
+  check("demo", "Command Center 'Open specs' equals the API", new RegExp(`Open specs ${openN}\\b`, "i").test(await tile("Open specs")), await tile("Open specs"));
+  check("demo", "Command Center 'Active contracts' equals the API", new RegExp(`Active contracts ${activeN}\\b`, "i").test(await tile("Active contracts")), await tile("Active contracts"));
+  check("demo", "Command Center shows real timestamps in recent activity (not 'never')", /Recent activity/.test(cc) && !/\bnever\b/i.test(cc), cc.slice(-300));
+  check("demo", "Command Center lists Calendar as Coming soon and has no Agent Fleet panel", /Calendar/.test(cc) && /Coming soon/i.test(cc) && !/Agent Fleet/.test(cc));
+
+  // Coming soon pages stay on their URL and say so.
+  for (const r of ["/dashboard/agents", "/dashboard/calendar", "/dashboard/clients", "/dashboard/contracts", "/dashboard/milestones", "/dashboard/freelancers"]) {
+    await ag.goto(r, { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
+    check("demo", `${r} says Coming soon without redirecting`, new URL(ag.url()).pathname === r && /Coming soon/i.test(await text(ag)), ag.url());
+  }
+  await ag.goto("/dashboard/audit-log", { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
+  check("demo", "Audit Log shows real timestamps", !/\bnever\b/i.test(await text(ag)));
+  await ag.goto("/dashboard/integrations", { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
+  check("demo", "Integrations hides the Voice and QA & Delivery tabs", (await ag.getByRole("tab", { name: /^Voice$/ }).count()) === 0 && (await ag.getByRole("tab", { name: /QA/ }).count()) === 0);
+  for (const r of ["/dashboard/banking", "/dashboard/marketplace", "/dashboard/capital"]) {
+    await ag.goto(r, { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
+    const t = await text(ag);
+    check("demo", `${r} says simulated, no real money and no escrow`, /simulated/i.test(t) && /no real money|no funds|not a bank/i.test(t) && /escrow/i.test(t), t.slice(0, 120));
+  }
+  await ag.goto("/dashboard/profile", { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
+  const pt = await text(ag);
+  check("demo", "agency profile shows no canned persona, portfolio or stats", !/I help startups|SaaS Analytics Dashboard|AI Support Chatbot|Jobs completed/.test(pt));
+  await ag.close();
+
+  // Freelancer: Coming soon pages, real profile, mobile cards.
+  const fp = await ctxs.bob.newPage();
+  for (const r of ["/freelancer/qa", "/freelancer/messages", "/freelancer/billing"]) {
+    await fp.goto(r, { waitUntil: "networkidle" }); await fp.waitForTimeout(400);
+    check("demo", `${r} says Coming soon without redirecting`, new URL(fp.url()).pathname === r && /Coming soon/i.test(await text(fp)), fp.url());
+  }
+  await fp.goto("/freelancer/profile", { waitUntil: "networkidle" }); await fp.waitForTimeout(400);
+  const ft = await text(fp);
+  check("demo", "freelancer profile shows no invented person, score, region or rate", !/Priya|96\/100|India|\$28|4\.2 days/.test(ft), ft.slice(0, 150));
+  await fp.setViewportSize({ width: 1280, height: 800 }); await fp.goto("/freelancer/bids", { waitUntil: "networkidle" }); await fp.waitForTimeout(600);
+  const deskTable = await fp.locator("table").first().isVisible().catch(() => false);
+  const deskCards = await fp.locator('ul[aria-label="Results"]').first().isVisible().catch(() => false);
+  await fp.setViewportSize({ width: 390, height: 844 }); await fp.waitForTimeout(400);
+  const mobTable = await fp.locator("table").first().isVisible().catch(() => false);
+  const mobCards = await fp.locator('ul[aria-label="Results"]').first().isVisible().catch(() => false);
+  const overflow = await fp.evaluate(() => document.documentElement.scrollWidth > innerWidth + 2);
+  check("demo", "tables show as a table on desktop and as stacked cards at 390px", deskTable && !deskCards && !mobTable && mobCards, JSON.stringify({ deskTable, deskCards, mobTable, mobCards }));
+  check("demo", "mobile card layout has no horizontal overflow", !overflow);
+  const cardText = await fp.locator('ul[aria-label="Results"] li').first().innerText().catch(() => "");
+  check("demo", "a mobile card keeps the row's title, fields and status", cardText.length > 20, cardText.slice(0, 120));
+  await fp.screenshot({ path: `${SHOTS}/mobile-cards-bids.png` });
+  await fp.close();
+});
+
 // ---------------------------------------------------------------- console / network summary
 const summary = {};
 for (const [k, c] of Object.entries({ ann: ctxs.ann, agency: ctxs.agency, bob: ctxs.bob, uma: uwCtx, owner: ctxs.owner, investor: ctxs.investor, agency2: ctxs.agency2 })) {

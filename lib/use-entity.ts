@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { API_URL, apiFetch } from "@/lib/api";
+import { API_URL, apiFetch, hasSessionHint } from "@/lib/api";
 import { DEMO_MODE } from "@/lib/auth";
 import { useDemoStore } from "@/lib/demo-store";
 
@@ -17,7 +17,9 @@ export const DEMO_ONLY_KEYS = new Set([
   "affiliates", "market-rates", "competitors", "monetization", "users", "funnel", "channel-mix",
   "analytics", "overview", "specs", "margins", "margins/timeseries", "margins/by-project",
 ]);
-const unserved = (key: string) => !DEMO_MODE && DEMO_ONLY_KEYS.has(key);
+// Also nothing to ask for when the visitor has no session at all (signed-out, about to be sent to
+// login): the answer could only be a 401. The server still checks every request.
+const unserved = (key: string) => !DEMO_MODE && (DEMO_ONLY_KEYS.has(key) || !hasSessionHint());
 
 // Owned by the store, which loads them from the signed-in user's server
 // workspace and keeps them current after every action — a one-off fetch
