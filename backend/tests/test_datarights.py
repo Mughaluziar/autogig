@@ -303,3 +303,22 @@ def test_non_awarded_bids_and_open_specs_are_handled(client, world):
     run(client, run_due_deletions, datetime.now(timezone.utc) + timedelta(days=15))
     mine = client.get("/api/pool/my-bids", headers=h["bob"]).json()
     assert [b["status"] for b in mine] == ["rejected"]                                          # Bob's bid survives, rejected
+
+
+def test_the_background_job_executes_due_deletions_and_purges(client, world, monkeypatch):
+    import asyncio
+    from app.config import get_settings
+    from app.routers.me import housekeeping_loop
+    monkeypatch.setattr(get_settings(), "deletion_grace_days", 0)               # due immediately
+    h = world["h"]
+    assert client.post("/api/me/deletion", headers=h["bob"], json=CONFIRM).status_code == 200
+
+    async def run_job_briefly():
+        try:
+            await asyncio.wait_for(housekeeping_loop(0.05), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+    run(client, run_job_briefly)
+    assert client.post("/api/auth/login", json={"email": "bob@example.com", "password": PW}).status_code == 401
+    rows = requests(client, world["ids"]["bob"], "deletion")
+    assert rows[0]["status"] == "completed"

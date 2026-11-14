@@ -225,3 +225,21 @@ async def set_simulated_access(user_id: str, body: SimulatedAccessBody, owner: d
                             f"Simulated modules {'granted to' if body.enabled else 'removed from'} account {target['id']}")
     await repo.log_activity(target["id"], "Security", f"Simulated modules {'enabled' if body.enabled else 'disabled'} by an owner")
     return {"ok": True, "userId": target["id"], "simulatedAccess": body.enabled}
+
+
+async def housekeeping_loop(interval_seconds: int = 3600) -> None:
+    """Background job started with the API: due deletions, then expired retained rows. Never raises."""
+    import asyncio
+    import logging
+    log = logging.getLogger("autopilot.datarights")
+    while True:
+        try:
+            result = await run_due_deletions()
+            purged = await datarights.purge_expired_retained()
+            if result["completed"] or result["blocked"] or purged:
+                log.info("data rights housekeeping: deletions %s, retained rows purged %s", result, purged)
+        except asyncio.CancelledError:
+            raise
+        except Exception:                       # noqa: BLE001 - the next run retries; one bad row must not stop the loop
+            log.exception("data rights housekeeping failed")
+        await asyncio.sleep(interval_seconds)

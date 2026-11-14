@@ -5,6 +5,7 @@ MongoDB when MONGODB_URI is set (see db.py, repo.py); otherwise in memory.
 Run:  uvicorn app.main:app --reload --port 8000
 Docs: http://localhost:8000/docs
 """
+import asyncio
 import logging
 import json
 import time
@@ -143,6 +144,15 @@ async def startup() -> None:
         log.info("MongoDB connected")
     else:
         log.warning("MONGODB_URI not set — accounts and data are kept in memory only")
+    if settings.deletion_runner and settings.environment != "test":
+        app.state.housekeeping = asyncio.create_task(me.housekeeping_loop())
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    task = getattr(app.state, "housekeeping", None)
+    if task:
+        task.cancel()
 
 
 @app.get("/health")

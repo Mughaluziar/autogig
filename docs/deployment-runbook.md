@@ -14,8 +14,12 @@ Browser --https--> Vercel (Next.js)  --/api/* rewrite-->  Render (FastAPI)  --> 
   is refused at startup in production.
 * **CORS/CSRF:** only `CORS_ORIGINS` (https, validated at startup) and `PUBLIC_SITE_URL` may send cookie-authenticated unsafe
   requests (Origin check), which also need the `X-CSRF-Token` header bound to the session.
-* **Client IP / rate limits:** per-IP limits use the entry `TRUSTED_PROXY_HOPS` places from the right of `X-Forwarded-For`
-  (`app/security.py`). uvicorn runs with `--no-proxy-headers`, because its own handling trusts the leftmost (forgeable) entry.
+* **Client IP / rate limits:** the website's middleware (`middleware.ts`) signs every `/api` request it proxies with
+  `EDGE_SHARED_SECRET` (HMAC over timestamp, method, path and visitor address); the API (`app/edge.py`) verifies it and
+  trusts the signed address. A request without a valid proof is "direct": its address is the right-most `X-Forwarded-For`
+  entry that Render appends (`TRUSTED_PROXY_HOPS=1`), and with `REQUIRE_EDGE_PROOF=true` direct requests are refused (403)
+  except webhooks, health, OAuth callbacks and API keys. uvicorn runs with `--no-proxy-headers`. Counters are shared by every
+  API instance through MongoDB (`app/ratelimit.py`). The exact verification is `docs/staging-verification.md`.
 * **Startup guards:** production refuses to start with a weak `SECRET_KEY`, no `MONGODB_URI`, non-https/localhost CORS, demo
   data on, insecure cookies, a bad hop count or a rate limit below 60 (`production_problems`), and logs a warning for every
   integration that is off (`production_warnings`). A Vercel production build refuses a missing/non-https `BACKEND_API_URL`
@@ -56,10 +60,9 @@ a separate Vercel project (or a protected Preview deployment). Staging must neve
 4. **Vercel (staging frontend):** set `BACKEND_API_URL=https://<staging-api>` and `ENFORCE_DEPLOY_GUARDS=true`; deploy.
 5. **Owner account:** sign up with an address listed in `OWNER_EMAILS`. Confirm the email code arrives (this needs the email
    provider, see integration doc). Create a separate **test** agency account (never a real customer).
-6. **Confirm the proxy chain:** signed in as the owner, open `https://<staging-frontend>/api/diag/request`. `clientIp` must be
-   your own public address, `secureCookies` true, and `xForwardedFor` should end with the addresses of the proxies in front
-   (if it shows a Vercel/Render address, change `TRUSTED_PROXY_HOPS`: too low shares one rate-limit bucket among all users,
-   **too high lets a forged header dodge the limits**).
+6. **Confirm the proxy chain and the edge proof:** follow `docs/staging-verification.md` steps 2-4 (direct hop count, `edgeProof:
+   verified` through the site, forged headers). Do not guess `TRUSTED_PROXY_HOPS` (too low shares one rate-limit bucket among
+   all users, too high lets a forged header dodge the limits) and do not enable `REQUIRE_EDGE_PROOF` before those steps pass.
 7. **Automated smoke check** (prints no secrets; use a throw-away test account):
    ```bash
    STAGING_EMAIL=<test account> STAGING_PASSWORD=<its password> \
@@ -89,9 +92,9 @@ then announce. Do not change DNS or deploy without approval.
 * A bad `SECRET_KEY` change signs everyone out (revert it); a bad `TRUSTED_PROXY_HOPS` needs only an environment change.
 
 ## 8. Known residual risks of this topology
-* The API's own `onrender.com` URL stays publicly reachable. A caller who bypasses Vercel can add one extra forged
-  `X-Forwarded-For` entry, which is believed when `TRUSTED_PROXY_HOPS=2`. Per-IP limits are therefore best effort. What does
-  not depend on the IP: the per-email login lockout (stored in MongoDB), per-account CSRF/session checks and the Origin check.
-  Hardening options (not built): a shared-secret header added by a Next.js middleware and required by the API, or a custom
-  domain with the Render URL disabled.
+* The API's own `onrender.com` URL stays publicly reachable. With the signed edge proof and `REQUIRE_EDGE_PROOF=true` a
+  direct call is refused (webhooks, health, OAuth callbacks and API-key calls excepted: those carry their own secret or
+  signature and per-key limits). Until `REQUIRE_EDGE_PROOF` is turned on after staging, direct requests are limited by the
+  address Render appends. If `EDGE_SHARED_SECRET` leaks, rotate it (new value plus `EDGE_SHARED_SECRET_PREVIOUS`, redeploy
+  both sides, drop the old one). A compromised Vercel project can sign anything: protect the Vercel account (2FA).
 * Vercel and Render proxy behaviour (headers, timeouts) is documented by the vendors but unverified here; step 6-7 verify it.

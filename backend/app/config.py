@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # (personal fields removed) for this many years: a PLACEHOLDER until a lawyer sets the real period.
     deletion_grace_days: int = 14
     financial_retention_years: int = 7
+    # An hourly in-process job executes deletions whose grace period has ended and removes retained rows past their
+    # retention date. Safe with several instances (every step is idempotent). Off in tests. POST /api/admin/deletions/run does the same on demand.
+    deletion_runner: bool = True
     # Who may open the simulated money modules (Banking, Marketplace, Capital, Token): "off" = owners only,
     # "invited" = owners and accounts an owner granted access to, "all" = every signed-in user. Production
     # refuses "all" unless ALLOW_PUBLIC_SIMULATED_MODULES=true.

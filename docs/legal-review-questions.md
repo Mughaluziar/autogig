@@ -16,19 +16,19 @@ Checkout for invoice pay links, and it is **off** until Stripe keys are configur
 ## 2. Claims in the current legal pages that need review or correction
 | Page / claim | What the product actually does | Issue |
 |---|---|---|
-| Terms intro: "By accessing or using the platform, you agree..." | No acceptance step is recorded at signup (a checkbox exists; acceptance is not stored with a version/time) | Is click-wrap acceptance enough? Do we need to store version + timestamp? |
-| Terms 2: accounts "across Admin, Freelancer, and Client roles" | Client accounts were retired; roles are Agency, Freelancer, Investor | Outdated; also no Investor terms exist |
+| Terms intro: "By accessing or using the platform, you agree..." | **Now recorded server-side**: user id, Terms and Privacy version, UTC time, and method (signup or re-accept) in an append-only table; no IP or user agent is stored | Is click-wrap acceptance enough? Do you want IP / user agent / document hash stored too (more evidence, more personal data)? |
+| Terms 2: accounts across roles | **Corrected to agency, freelancer or investor** | No Investor-specific terms exist (risk disclosures, accredited-investor wording on the landing page) |
 | Terms 3: Stripe processes payments only when the operator enables it; not a bank/trustee/escrow agent | True as built (see section 1) | Wording and fee/refund/dispute language need a lawyer; no fee schedule is stated |
 | Terms 3A: Autopilot does not log in to or submit on Upwork/Fiverr; user reviews and submits | True as built (human-in-the-loop; automation is refused) | Is this consistent with Upwork's/Fiverr's terms about third-party tools and forwarding their emails? |
-| Terms 4: freelancers "deliver work that passes automated quality gates" and "NDA-shielding requirements" | There are no automated quality gates and no NDA-shielding in the product (milestones are approved by the agency) | Not true as built: remove or implement |
+| Terms 4: freelancers "deliver work that passes automated quality gates" and "NDA-shielding requirements" | **Reworded to what exists** (agency approves milestones; confidentiality as the agency asks) | Is that wording enough to create a confidentiality duty? |
 | Terms 5: "as is", no warranties | Only limitation; no cap on liability, no indemnity, no termination, no governing law, no dispute resolution, no age limit, no IP ownership of drafts/work, no acceptable-use clause | Missing clauses |
-| Privacy 1-2: collects "usage analytics"; generates proposals "via RAG" | No analytics trackers are installed; proposals are drafted by prompting an LLM with the job text and the user's profile; there is no retrieval index | Inaccurate |
-| Privacy 3: "strict intermediary... Client identities are shielded from freelancers" under an "NDA-shielding model" | Pool bids are blind between freelancers; identities are not otherwise shielded | Inaccurate |
-| Privacy 4: "store credentials in a dedicated secrets manager", "never log secrets" | Passwords are hashed in MongoDB; stored tokens are encrypted with an app key from an environment variable; logs exclude secrets by convention | Overstated: reword to what is true |
-| Privacy 5: "request access, correction or deletion at any time" | **No account-deletion or data-export feature exists** (neither in the UI nor the API) | Unsupported promise: needs a process (even a manual one with a deadline) |
+| Privacy 1-2: collects "usage analytics"; generates proposals "via RAG" | **Privacy page rewritten to the facts**: no trackers; proposals are drafted by prompting an AI provider with job text and profile | Please review the rewrite as a whole |
+| Privacy 3: "strict intermediary... NDA-shielding model" | **Removed**; replaced by a processor list and "other users see only what the product shows them" | Is the processor list (Atlas, Render, Vercel, Groq, email provider, optional Stripe/Sentry/inbound email) complete and sufficient? |
+| Privacy 4: "store credentials in a dedicated secrets manager", "never log secrets" | **Reworded**: one-way password hashes, encrypted provider tokens with a key held outside the database | Is "No system is perfectly secure" acceptable wording? |
+| Privacy 5: "request access, correction or deletion at any time" | **Built**: self-service export (JSON) and scheduled deletion with a 14-day grace period; details in `docs/data-lifecycle.md`. Correction of name/email is not self-service yet | Are 14 days acceptable? Is self-service sufficient or must a response deadline be promised? |
 | Privacy: no list of processors | Data goes to MongoDB Atlas, Render, Vercel, Groq (job text and profile), Resend/SMTP (emails), Stripe, Sentry (errors), Nango/Microsoft (optional), inbound-email provider | Cross-border transfers and processor list undisclosed |
 | Privacy: retention, cookies, children, breach notice, contact | Session and CSRF cookies only (strictly functional); no cookie banner; activity kept 180 days, notifications 90 days (TTL indexes); no stated retention for accounts | Missing |
-| AI Disclosure: "Stealth mode ... human-impersonation behaviors" | A header/Settings toggle labelled "Stealth: impersonation, typos, no AI disclosure" exists but is **only a browser setting with no server-side effect** | Decision needed (see section 4): disclose, remove, or keep out of the product |
+| AI Disclosure: "Stealth mode ... human-impersonation behaviors" | **Removed from the product and from the page** (toggle, setting, code, wording); a QA rule fails the build if it returns | The Personas feature (working names for AI agents) remains: does it need explicit disclosure wording in outbound messages? |
 | AI Disclosure: sentiment monitoring escalations, "all capital movements require explicit human approval", portfolio-bounded agents | Those are demo-only (not built) or simulated | Claims describe unbuilt features |
 
 ## 3. Questions for a Pakistani technology lawyer
@@ -60,3 +60,19 @@ Compliance mechanics
 * Whether the "Stealth mode" toggle stays (recommendation: remove it; it does nothing server-side and contradicts the no-stealth rule).
 * Whether a data export/deletion process is built (a small feature) or run manually on request within a stated deadline.
 * Which countries' users you will accept at launch.
+
+## 5. Added in the second production-readiness pass (2026-11-14): what exists now, and new questions
+**What exists (all local; nothing deployed):**
+* Terms/Privacy acceptance record (above); a re-accept screen when the version changes. Versions are `draft-...` until a lawyer approves text.
+* Export and deletion (`docs/data-lifecycle.md`): deleted / kept-with-name-removed / kept, collection by collection; retention period is a **placeholder** (7 years) in `FINANCIAL_RETENTION_YEARS`.
+* The simulated money modules (Banking, Marketplace, Capital, pool token) are restricted by default in production to platform owners and accounts an owner invited; pages show "by invitation, a demonstration, no real money" to others.
+* No concealment features: stealth mode removed.
+
+**New questions:**
+16. Retention: what period and legal basis for contract, payout and ledger records that must outlive an account? Is replacing names with "Deleted user <code>" sufficient anonymization, given that contract text and amounts remain?
+17. Shared business text (contract titles, milestone text, bid notes) stays as written because it is also the counterparty's record. Acceptable?
+18. Is a 14-day deletion grace period acceptable (it protects against mistaken or malicious requests but delays deletion)? Should a longer-lived backup copy at the database host be disclosed with an expiry?
+19. Deletion does not call third-party processors (AI provider, email provider, Stripe, error tracker). Is a processor-deletion flow required?
+20. Should the Terms acceptance log also keep IP address, user agent or a hash of the document text?
+21. Can the invitation-only demonstration modules be shown to investors without a licence, and what disclaimer text is required on them?
+22. Is "Deleted user" labelling plus retention enough where a freelancer's tax reporting needs the record to identify them?

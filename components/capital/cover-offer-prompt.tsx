@@ -44,7 +44,8 @@ export function CoverOfferPrompt() {
   // Polls the backend: new orders arrive from the scheduler and inbound
   // email, with no push channel to the browser.
   React.useEffect(() => {
-    if (!API_URL || !user) return;
+    // Simulated module: skip it entirely for accounts the server has not invited (it would only answer 403).
+    if (!API_URL || !user || user.modules?.simulated === false) return;
     void load();
     const visible = () => document.visibilityState === "visible";
     const timer = window.setInterval(() => visible() && void load(), POLL_MS);
