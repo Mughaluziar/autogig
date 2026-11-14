@@ -230,3 +230,54 @@ Honest notes on the runs:
 - A failed save because the server is unreachable (not a 409) is still not announced beyond the existing "can't reach the server" banner.
 - The access-denied page is a presentation layer; shared `/dashboard/*` pages remain open to all roles by design. If any of those should become agency-only, add the prefix to `lib/access.ts`.
 - All earlier "not verified" items (real emails, real AI output, Stripe, live https, backups, etc.) are unchanged.
+
+---
+
+# Production-readiness pass 2026-11-14 (audit, hardening, backups, deployment/CI/legal preparation)
+
+**The platform is not declared production-ready.** Full register and classification: `docs/production-readiness.md`.
+Nothing was deployed, pushed or run against production data; the baseline tag is untouched.
+
+## What was found and changed
+1. **Spoofable client IP (security).** `--forwarded-allow-ips='*'` made uvicorn trust the leftmost `X-Forwarded-For` entry, so a
+   forged header dodged the per-IP rate and credential limits (reproduced). Fix: `--no-proxy-headers` + `TRUSTED_PROXY_HOPS`
+   (`app/security.py`), owner-only `GET /api/diag/request` to confirm the chain on staging. Verified with proxies that append,
+   in three correct topologies (direct / one proxy / two proxies: 21/21 staging checks) and an over-set hop count (detected, fails).
+   Self-hosted `next start` does **not** append the client address, so a Vercel-like chain cannot be modelled locally:
+   this must be confirmed on staging.
+2. **Startup guards.** Production now also refuses `SEED_DEMO_DATA`, `COOKIE_SECURE=false`, non-https CORS/site URL, a bad hop
+   count and a rate limit below 60, and logs a warning for each missing integration.
+3. **Frontend deploy guard.** A Vercel production build refuses a missing/non-https `BACKEND_API_URL` (it would silently ship the
+   unauthenticated demo) and `NEXT_PUBLIC_DEV_BYPASS_AUTH=true`.
+4. **Dependencies.** Next.js 14.2.35 -> 15.5.29 with React 19 (critical image-optimizer RCE and several high advisories),
+   `next-themes` 0.4.6, `recharts` 2.15.4; image optimizer disabled (nothing used it; `/_next/image` is 404). Backend upgraded and
+   pinned (FastAPI 0.162.7, Starlette 1.10.0, cryptography 50.0.2, PyMongo 4.20.0 ...): `pip-audit` clean (23 advisories before).
+   Frontend `npm audit`: 0 critical; 4 high + 6 moderate remain, all build-time tooling or the optional Nango SDK (see register R4).
+5. **CI.** The first GitHub run would have failed: `npm run qa` flagged the corrected Terms as promising escrow. Fixed; the
+   workflow gained least-privilege permissions, timeouts, concurrency control, the deploy-guard test, and runs the 45-minute
+   real-MongoDB job only on pushes to `main`/manual runs. `actionlint`: clean. Never run on GitHub (no remote).
+6. **Backups (verified).** Disposable MongoDB populated through the real API: backup -> restore -> `verify_restore.py` compared
+   45 collections, 28 documents and 128 indexes (unique and TTL included): identical; the API then booted on the restored copy and
+   signed in with the original passwords. Overwrite protection, retention and failure handling checked. New `verify_restore.py`
+   and `restore-drill.sh` (which also fixed a trap: `mongorestore` adds to an existing database).
+7. **Legal/launch.** Public placeholder text removed and a visible "Draft, not reviewed by a lawyer" notice added. Claims the
+   product does not support (client role, quality gates, NDA shielding, RAG, secrets manager, deletion/export, stealth mode) and 15
+   questions for a Pakistani technology lawyer are in `docs/legal-review-questions.md`; simulated Banking/Marketplace/Capital are
+   documented as moving no money and providing no escrow. No legal compliance is claimed.
+8. **Docs added:** `deployment-runbook.md`, `integration-verification.md`, `ci-first-run.md`, `production-readiness.md`,
+   rewritten `backup-and-monitoring.md`, env templates, `scripts/ops/staging-check.mjs`.
+
+## Tests (final tree)
+| Check | Result |
+|---|---|
+| Backend, in-memory, pinned production dependencies (Python 3.12) | **495 passed, 3 skipped, 0 failed** |
+| Backend, **real MongoDB 7** (`TEST_MONGODB_URI`) | MONGO_RESULT |
+| Frontend typecheck / lint / `npm run qa` / `npm run test:deploy-guards` / production build (clean `npm ci` export) | pass / 1 pre-existing warning / 23 pass, 3 warn, 0 fail / 5 pass / pass |
+| Chromium end-to-end against real MongoDB (Next 15, React 19, upgraded API) | **239 / 239 passed** (233 + 6 new hardening checks) |
+| `scripts/ops/staging-check.mjs` on a production-mode local API | 21/21 in three topologies; fails the unsafe hop-count case |
+| `pip-audit` (pinned requirements) / `npm audit --omit=dev` | no known vulnerabilities / 0 critical, 4 high, 6 moderate |
+| `actionlint` on the workflow | no findings |
+
+## Not verified in this pass (needs accounts or approval; see the register)
+Atlas backups and restore time, Vercel/Render header and timeout behaviour, real email/AI/inbound email/Stripe/social/Sentry/
+Nango, real Upwork alert emails, a first GitHub run, behaviour against a pre-existing production database, and all legal items.

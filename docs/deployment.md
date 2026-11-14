@@ -1,3 +1,9 @@
+> **Superseded in part (2026-11-14).** The current deployment procedure, environment templates and checks are in
+> `docs/deployment-runbook.md` (staging first) and `docs/production-readiness.md`. Where this older guide differs (the
+> `NEXT_PUBLIC_API_URL` browser-to-API model, `--forwarded-allow-ips='*'`, `http://localhost` in `CORS_ORIGINS`, auto-deploy),
+> follow the runbook: the API is now reached through the frontend's same-site `/api` proxy with cookie sessions, and uvicorn
+> must run with `--no-proxy-headers`.
+
 # Deploying Autopilot: step-by-step (free demo on Render + Vercel)
 
 This guide puts the app online **using only free accounts**, for a client demo. The backend runs on **Render** (free plan) and the frontend on **Vercel** (free Hobby plan); data lives in a free **MongoDB Atlas** cluster.

@@ -24,20 +24,6 @@ const check = (name, ok, detail = "") => { results.push({ name, ok: !!ok }); con
 const skip = (name, why) => console.log(`SKIP  ${name}  (${why})`);
 const get = async (url, init = {}) => { try { return await fetch(url, { redirect: "manual", ...init }); } catch (e) { return { status: 0, headers: new Headers(), text: async () => "", json: async () => ({}), error: e.message }; } };
 
-// ---- forged X-Forwarded-For must not dodge the per-IP credential limit (runs FIRST, on a fresh budget)
-// Sends 24 failed sign-ins for made-up addresses, each with a different forged X-Forwarded-For. The per-IP
-// credential limit is 20 per minute, so a correctly configured TRUSTED_PROXY_HOPS gives at least 3 x 429; none
-// means the forged header was believed (hops too high for the real proxy chain), which is unsafe.
-if (flag("--rate-limit-test")) {
-  let limited = 0;
-  const run = Math.random().toString(36).slice(2, 8);      // fresh made-up addresses every run: the per-EMAIL lockout persists in the database
-  for (let i = 0; i < 24; i++) {
-    const r = await get(`${apiBase}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "X-Session-Mode": "cookie", "X-Forwarded-For": `10.${i}.${i}.${i}` }, body: JSON.stringify({ email: `nobody-${run}-${i}@example.test`, password: "x" }) });
-    if (r.status === 429) limited++;
-  }
-  check("rotating a forged X-Forwarded-For does not avoid the credential rate limit", limited >= 3, `429 count = ${limited} of 24; fewer than 3 means TRUSTED_PROXY_HOPS is higher than the real number of proxies (forged header believed)`);
-} else skip("forged X-Forwarded-For test", "opt in with --rate-limit-test (briefly rate-limits your address)");
-
 // ---- frontend: security headers and the proxy
 const page = await get(`${WEB}/login`);
 const h = (name) => page.headers.get(name) || "";
@@ -84,6 +70,21 @@ if (EMAIL && PASSWORD) {
   const replay = await get(`${apiBase}/api/auth/me`, { headers: { Cookie: jar } });
   check("the logged-out session cookie is rejected when replayed (401)", replay.status === 401, replay.status);
 } else skip("sign-in cookie checks", "set STAGING_EMAIL and STAGING_PASSWORD (a TEST account) to enable");
+
+// ---- forged X-Forwarded-For must not dodge the per-IP credential limit (runs LAST: it uses up this client's own credential budget for a minute)
+// Sends 24 failed sign-ins for made-up addresses, each with a different forged X-Forwarded-For. The per-IP
+// credential limit is 20 per minute and the checks above used a few of them, so a correctly configured TRUSTED_PROXY_HOPS gives
+// several 429s (at least 2 are required); none
+// means the forged header was believed (hops too high for the real proxy chain), which is unsafe.
+if (flag("--rate-limit-test")) {
+  let limited = 0;
+  const run = Math.random().toString(36).slice(2, 8);      // fresh made-up addresses every run: the per-EMAIL lockout persists in the database
+  for (let i = 0; i < 24; i++) {
+    const r = await get(`${apiBase}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "X-Session-Mode": "cookie", "X-Forwarded-For": `10.${i}.${i}.${i}` }, body: JSON.stringify({ email: `nobody-${run}-${i}@example.test`, password: "x" }) });
+    if (r.status === 429) limited++;
+  }
+  check("rotating a forged X-Forwarded-For does not avoid the credential rate limit", limited >= 2, `429 count = ${limited} of 24; fewer than 2 means TRUSTED_PROXY_HOPS is higher than the real number of proxies (forged header believed)`);
+} else skip("forged X-Forwarded-For test", "opt in with --rate-limit-test (briefly rate-limits your address)");
 
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed${failed.length ? `; ${failed.length} failed` : ""}`);

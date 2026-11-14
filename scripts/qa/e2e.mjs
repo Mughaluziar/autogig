@@ -711,6 +711,26 @@ await guard("reliability", "wrong-role URLs", async () => {
   await anon.close();
 });
 
+
+// ====================================================================== TEST 7 — PRODUCTION-READINESS HARDENING
+await guard("hardening", "legal draft notices, disabled image optimizer, security headers", async () => {
+  const anon = await newCtx(); const p = await newPage(anon);
+  for (const path of ["/legal/terms", "/legal/privacy", "/legal/ai-disclosure"]) {
+    await p.goto(path, { waitUntil: "networkidle" });
+    const t = await text(p);
+    check("hardening", `${path} carries the 'draft, not reviewed by a lawyer' notice and no placeholder text`, (await p.getByTestId("legal-draft-notice").isVisible()) && /not yet been reviewed by a lawyer/i.test(t) && !/placeholder/i.test(t), t.slice(0, 160));
+  }
+  await p.goto("/legal/terms", { waitUntil: "networkidle" });
+  const terms = await text(p);
+  check("hardening", "the Terms still state plainly that Autopilot is not an escrow agent and simulated figures are not real money", /not a bank, a trustee\s+or an escrow agent/i.test(terms) && /simulated are illustrations only/i.test(terms), terms.slice(300, 420));
+  const img = await anon.request.fetch(`${BASE}/_next/image?url=${encodeURIComponent("https://images.unsplash.com/x.jpg")}&w=64&q=75`);
+  check("hardening", "the Next.js image optimizer endpoint is disabled (404)", img.status() === 404, img.status());
+  const page = await anon.request.fetch(`${BASE}/login`);
+  const h = (n) => page.headers()[n] || "";
+  check("hardening", "HSTS, CSP frame-ancestors none, nosniff and no X-Powered-By on pages", /max-age=\d{8,}/.test(h("strict-transport-security")) && /frame-ancestors 'none'/.test(h("content-security-policy")) && h("x-content-type-options") === "nosniff" && !h("x-powered-by"));
+  await anon.close();
+});
+
 // ---------------------------------------------------------------- console / network summary
 const summary = {};
 for (const [k, c] of Object.entries({ ann: ctxs.ann, agency: ctxs.agency, bob: ctxs.bob, uma: uwCtx, owner: ctxs.owner, investor: ctxs.investor, agency2: ctxs.agency2 })) {
