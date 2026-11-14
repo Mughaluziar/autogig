@@ -198,7 +198,7 @@ def test_upwork_api_oauth_graphql_and_submit_routes_no_longer_exist(client):
     for method, path in (("get", "/api/upwork/connections"), ("post", "/api/upwork/oauth/start"),
                          ("get", "/api/upwork/oauth/callback"), ("get", "/api/upwork/jobs")):
         assert getattr(client, method)(path, headers=admin).status_code in (404, 405), path
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])   # (app.routes internals differ between FastAPI versions)
     assert not any("/upwork/oauth" in p or "/upwork/connections" in p or p.endswith("/upwork/jobs") for p in paths)
     # The assistant's own routes are still there.
     assert "/api/upwork/leads" in paths and "/api/upwork/leads/import" in paths
