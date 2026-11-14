@@ -66,7 +66,7 @@ def test_open_specs_show_bid_counts_but_never_other_freelancers_bids(client, peo
     seen = client.get("/api/pool/specs", headers=ann).json()
     mine = next(x for x in seen if x["id"] == s["id"])
     assert mine["bidsIn"] == 2 and mine["myBid"]["hours"] == 50 and mine["myBid"]["rate"] == 30.0
-    assert "bids" not in mine and "25" not in str(mine["myBid"])             # Bob's rate is not visible
+    assert "bids" not in mine and 25 not in mine["myBid"].values()           # Bob's rate is not visible (compare values: a timestamp may contain "25")
     assert [b["spec"] for b in client.get("/api/pool/my-bids", headers=bob).json()] == ["Build a dashboard"]
     assert client.get("/api/pool/my-bids", headers=bob).json()[0]["total"] == 1750.0
     # The agency sees every bid with names.
