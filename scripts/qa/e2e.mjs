@@ -568,6 +568,18 @@ await guard("demo", "anonymous visitors, nav routes, Coming soon pages, mobile c
   }
   await ag.goto("/dashboard/audit-log", { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
   check("demo", "Audit Log shows real timestamps", !/\bnever\b/i.test(await text(ag)));
+  const soonRe = /^\/(dashboard\/(agents|calendar|bidding|clients|contracts|milestones|freelancers|arbitrage|margins|hitl|personas|portfolio|job-hunter|marketing)|freelancer\/(qa|messages|billing))(\/|$)/;
+  for (const r of ["/dashboard/analytics", "/dashboard/analytics/activity", "/dashboard/analytics/pipeline", "/dashboard/analytics/earnings", "/dashboard/accounts", "/dashboard/command", "/dashboard/gigs", "/dashboard/pool"]) {
+    await ag.goto(r, { waitUntil: "networkidle" }); await ag.waitForTimeout(400);
+    const hrefs = await ag.$$eval("main a[href^='/']", (as) => as.map((a) => a.getAttribute("href")));
+    const bad = [...new Set(hrefs.filter((h) => soonRe.test(h.split("?")[0])))];
+    check("demo", `${r} has no links into Coming soon pages`, bad.length === 0, bad.join(", "));
+  }
+  await ag.goto("/dashboard/profile", { waitUntil: "networkidle" }); await ag.waitForTimeout(400);
+  check("demo", "agency profile says the sign-in email can't be changed here", /can.t be changed here yet/i.test(await text(ag)));
+  await ag.goto("/dashboard/settings", { waitUntil: "networkidle" }); await ag.waitForTimeout(400);
+  await ag.getByRole("tab", { name: /Account/ }).click(); await ag.waitForTimeout(300);
+  check("demo", "Settings says name and email can't be changed and links to Change password", /can.t be changed here yet/i.test(await text(ag)) && (await ag.getByRole("link", { name: /Change password/ }).count()) > 0);
   await ag.goto("/dashboard/integrations", { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
   check("demo", "Integrations hides the Voice and QA & Delivery tabs", (await ag.getByRole("tab", { name: /^Voice$/ }).count()) === 0 && (await ag.getByRole("tab", { name: /QA/ }).count()) === 0);
   for (const r of ["/dashboard/banking", "/dashboard/marketplace", "/dashboard/capital"]) {
@@ -588,6 +600,7 @@ await guard("demo", "anonymous visitors, nav routes, Coming soon pages, mobile c
   }
   await fp.goto("/freelancer/profile", { waitUntil: "networkidle" }); await fp.waitForTimeout(400);
   const ft = await text(fp);
+  check("demo", "freelancer profile says plainly that editing is not available yet", /Editing coming soon/i.test(ft) && /Editing is not available yet/i.test(ft));
   check("demo", "freelancer profile shows no invented person, score, region or rate", !/Priya|96\/100|India|\$28|4\.2 days/.test(ft), ft.slice(0, 150));
   await fp.setViewportSize({ width: 1280, height: 800 }); await fp.goto("/freelancer/bids", { waitUntil: "networkidle" }); await fp.waitForTimeout(600);
   const deskTable = await fp.locator("table").first().isVisible().catch(() => false);

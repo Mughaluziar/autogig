@@ -343,7 +343,7 @@ export default function AccountsPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <MiniStat label="Profile entries" value={String(accounts.length)} icon={<Link2 className="size-4" />} hint="Details only; not OAuth connections" />
         <MiniStat label="Gig drafts" value={String(gigs.filter((g: any) => g.status === "Draft").length)} icon={<Store className="size-4" />} />
-        <MiniStat label="Applications sent" value={String(applications)} icon={<Zap className="size-4" />} href="/dashboard/bidding" />
+        <MiniStat label="Applications sent" value={String(applications)} icon={<Zap className="size-4" />} href="/dashboard/gigs" />
         <MiniStat label="Bid credits" value={isPro ? "Unlimited" : String(monetization.bidCredits)} icon={<Gavel className="size-4" />} href="/dashboard/money" />
       </div>
 

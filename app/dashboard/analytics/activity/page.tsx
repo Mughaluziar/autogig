@@ -15,14 +15,14 @@ export default function ActivityAnalyticsPage() {
         return (
           <div className="space-y-6">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard label="Agent runs" value={String(a.runs)} hint={`${a.succeeded} succeeded · ${a.failed} failed`} href="/dashboard/agents" />
-              <StatCard label="Agent success rate" value={a.successRate === null ? "—" : `${a.successRate}%`} hint="finished runs only" href="/dashboard/agents" />
+              <StatCard label="Agent runs" value={String(a.runs)} hint={`${a.succeeded} succeeded · ${a.failed} failed`} />
+              <StatCard label="Agent success rate" value={a.successRate === null ? "—" : `${a.successRate}%`} hint="finished runs only" />
               <StatCard label="Orders in range" value={String(ord.total)} hint={src.ordersAvailable ? `${ord.active} active now` : "connect accounts to track"} href="/dashboard/orders" />
-              <StatCard label="Calendar, next 7 days" value={String(cal.upcoming)} hint="events you added" href="/dashboard/calendar" />
+              <StatCard label="Calendar, next 7 days" value={String(cal.upcoming)} hint="Calendar is coming soon" />
             </div>
 
             <ChartCard title="Agent runs over time" subtitle="Dry runs excluded" table={{ columns: ["Period", "Runs"], rows: a.series.map((r) => [r.label, r.value]) }}>
-              {a.runs ? <TrendArea id="runs" data={a.series} name="runs" height={260} /> : <EmptyChart text="Run an agent from Agent Fleet and its activity shows up here." href="/dashboard/agents" cta="Open Agent Fleet" />}
+              {a.runs ? <TrendArea id="runs" data={a.series} name="runs" height={260} /> : <EmptyChart text="Agent activity will show here once Agent Fleet is available (coming soon)." />}
             </ChartCard>
 
             <div className="grid gap-6 lg:grid-cols-3">

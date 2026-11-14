@@ -105,7 +105,7 @@ export default function ProfilePage() {
                 <div className="space-y-1.5"><Label>Hourly rate ($)</Label><Input value={rate} onChange={(e) => setRate(e.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Location</Label><Input value={location} onChange={(e) => setLocation(e.target.value)} /></div>
               </div>
-              <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={user?.email ?? ""} readOnly /></div>
+              <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={user?.email ?? ""} readOnly aria-describedby="email-note" /><p id="email-note" className="text-xs text-muted-foreground">Your sign-in email can't be changed here yet.</p></div>
               <div className="space-y-1.5"><Label>Bio</Label><Textarea rows={3} value={bio} onChange={(e) => setBio(e.target.value)} /></div>
             </CardContent>
           </Card>

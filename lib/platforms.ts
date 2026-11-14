@@ -284,7 +284,7 @@ export const CATEGORY_LABELS: Record<PlatformCategory, { label: string; descript
 export const HUB_LABELS: Record<Hub, { label: string; href: string }> = {
   inbox: { label: "Unified Inbox", href: "/dashboard/conversations" },
   jobs: { label: "Job Finder", href: "/dashboard/job-radar" },
-  bidding: { label: "Auto Bidding", href: "/dashboard/bidding" },
+  bidding: { label: "Auto Bidding", href: "/dashboard/gigs" },
   gigs: { label: "Gig Posting", href: "/dashboard/accounts" },
   account: { label: "Account Setup", href: "/dashboard/accounts" },
 };

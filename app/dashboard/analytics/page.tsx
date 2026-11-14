@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { ArrowRight, Bot, Radar, Wallet } from "lucide-react";
+import { ArrowRight, Briefcase, Radar, Wallet } from "lucide-react";
 import { StatCard } from "@/components/shared/stat-card";
 import { AnalyticsFrame } from "@/components/analytics/frame";
 import {
@@ -69,7 +69,7 @@ export default function AnalyticsPage() {
 
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
               <ChartCard title="Agent activity" subtitle="Runs by agent (dry runs excluded)">
-                {a.runs ? <RankedBars rows={a.byAgent} /> : <EmptyChart text="Your agents haven't run in this range." href="/dashboard/agents" cta="Open Agent Fleet" />}
+                {a.runs ? <RankedBars rows={a.byAgent} /> : <EmptyChart text="Agent activity will show here once Agent Fleet is available (coming soon)." />}
               </ChartCard>
               <ChartCard title="Orders by platform" subtitle={src.ordersAvailable ? "Orders detected on your connected accounts" : "Connect accounts to track orders"}>
                 {ord.total ? (
@@ -115,7 +115,7 @@ function GettingStarted() {
   const steps = [
     { icon: Wallet, title: "Record money", text: "Add income and expenses or send an invoice.", href: "/dashboard/money" },
     { icon: Radar, title: "Track jobs", text: "Save and apply to jobs from Job Radar.", href: "/dashboard/job-radar" },
-    { icon: Bot, title: "Run your agents", text: "Let Scout and Writer find and draft work.", href: "/dashboard/agents" },
+    { icon: Briefcase, title: "Review Upwork leads", text: "Read your job-alert leads and draft proposals in Gigs.", href: "/dashboard/gigs" },
   ];
   return (
     <section className="panel overflow-hidden p-5">
