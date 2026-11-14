@@ -311,7 +311,7 @@ Plan: `docs/superpowers/plans/2026-11-14-security-and-data-rights.md`. Nothing p
 | Check | Result |
 |---|---|
 | Backend, in-memory, pinned dependencies | **557 passed, 8 skipped, 0 failed** |
-| Backend, real MongoDB 7 | MONGO_RESULT |
+| Backend, real MongoDB 7 | **559 passed, 6 skipped, 0 failed** (50 min; includes two real API processes sharing a limit and the Mongo-only data-map check) |
 | Chromium end-to-end, real MongoDB, real API, website proxy with the **edge proof enforced** | **259 / 259 passed** (239 earlier + 20 new: terms record, export download, deletion schedule/lock/cancel, Terms gate, restricted modules) |
 | Frontend typecheck / lint / `npm run qa` / deploy-guard + edge-sign tests | pass / 1 pre-existing warning / 24 pass, 3 warn, 0 fail / 10 pass |
 | `npm audit --omit=dev` | 0 critical, 0 high, 5 moderate (Sentry build-plugin chain) |
