@@ -51,7 +51,7 @@ export default function PrivacyPage() {
         <li>
           <strong>Kept without your name:</strong> contracts, recorded payouts and similar records shared with another
           person or needed for financial records stay for a retention period (set by the operator and to be confirmed
-          with a lawyer), with your name replaced by a placeholder, then they are removed. Proof that you accepted the
+          with a lawyer), with your name replaced by a generic label, then they are removed. Proof that you accepted the
           Terms and a log that a request happened are kept without personal content.
         </li>
         <li>Deletion is refused while there are active contracts, team members or open simulated positions that others depend on.</li>
