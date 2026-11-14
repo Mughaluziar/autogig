@@ -208,3 +208,20 @@ async def run_due_deletions(at=None) -> dict:
 @router.post("/admin/deletions/run")
 async def run_deletions(user: dict = Depends(require_owner)):
     return await run_due_deletions()
+
+
+class SimulatedAccessBody(BaseModel):
+    enabled: bool
+
+
+@router.post("/admin/users/{user_id}/simulated-access")
+async def set_simulated_access(user_id: str, body: SimulatedAccessBody, owner: dict = Depends(require_owner)):
+    """Platform owner: let one account open (or stop opening) the simulated money modules (SIMULATED_MODULES=invited)."""
+    target = await db.find_user_by_id(user_id[:64])
+    if not target:
+        raise HTTPException(404, "No such account.")
+    await db.update_user(target["email"], {"simulated_access": body.enabled})
+    await repo.log_activity(owner["id"], "Security",
+                            f"Simulated modules {'granted to' if body.enabled else 'removed from'} account {target['id']}")
+    await repo.log_activity(target["id"], "Security", f"Simulated modules {'enabled' if body.enabled else 'disabled'} by an owner")
+    return {"ok": True, "userId": target["id"], "simulatedAccess": body.enabled}

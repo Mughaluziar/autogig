@@ -24,13 +24,19 @@ export type SessionUser = {
   /** False for accounts created with social sign-in that never set a password. */
   hasPassword?: boolean;
   profile?: Record<string, unknown>;
+  /** The Terms or Privacy Policy changed (or were never accepted): the account must accept them to continue. */
+  needsTermsAcceptance?: boolean;
+  /** Which restricted areas the server lets this account open. `simulated`: Banking, Marketplace, Capital, Token. */
+  modules?: { simulated?: boolean };
+  /** ISO time the account will be deleted, when the owner asked for deletion (it can still be cancelled). */
+  deletionScheduledFor?: string | null;
 };
 
 /** The SessionUser fields from a server `user` object (signup, login, /me, OAuth). */
 export function sessionFields(user: Record<string, any> | undefined | null): Partial<SessionUser> {
   if (!user) return {};
   const out: Partial<SessionUser> = {};
-  for (const key of ["id", "name", "email", "company", "owner", "emailVerified", "verificationRequired", "hasPassword", "profile"] as const) {
+  for (const key of ["id", "name", "email", "company", "owner", "emailVerified", "verificationRequired", "hasPassword", "profile", "needsTermsAcceptance", "modules", "deletionScheduledFor"] as const) {
     if (user[key] !== undefined && user[key] !== null) (out as any)[key] = user[key];
   }
   return out;

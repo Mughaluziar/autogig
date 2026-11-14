@@ -2,10 +2,10 @@ import { LegalPage } from "@/components/marketing/legal-page";
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Terms of Service" updated="September 16, 2026">
+    <LegalPage title="Terms of Service" updated="November 14, 2026">
       <p>
         These Terms of Service govern your use of the Autopilot platform. By accessing or using the platform, you
-        agree to be bound by these terms once they are finalised.
+        agree to be bound by these terms once they are finalised. When you create an account, or when these terms change, we record which version you accepted and when.
       </p>
       <h2>1. Use of Service</h2>
       <p>
@@ -15,7 +15,7 @@ export default function TermsPage() {
       <h2>2. Accounts</h2>
       <p>
         You are responsible for maintaining the confidentiality of your account credentials and for all activity
-        under your account across Admin, Freelancer, and Client roles.
+        under your account as an agency, freelancer or investor.
       </p>
       <h2>3. Payments</h2>
       <p>
@@ -34,8 +34,14 @@ export default function TermsPage() {
       </p>
       <h2>4. Freelancer Obligations</h2>
       <p>
-        Freelancers agree to deliver work that passes automated quality gates and to comply with confidentiality
-        and NDA-shielding requirements.
+        Freelancers agree to deliver the work they bid on, which the agency reviews and approves milestone by
+        milestone, and to keep confidential what the agency asks them to keep confidential.
+      </p>
+      <h2>4A. Demonstration modules</h2>
+      <p>
+        Banking, Marketplace, Capital and the pool token are demonstrations. They record entries in Autopilot&apos;s
+        own ledger, move no real money, and are not financial, investment or insurance services. They are available
+        only to accounts the operator has invited.
       </p>
       <h2>5. Limitation of Liability</h2>
       <p>

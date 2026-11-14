@@ -22,6 +22,14 @@ export const AGENCY_ONLY_PREFIXES = [
 
 const under = (path: string, prefix: string) => path === prefix || path.startsWith(`${prefix}/`);
 
+/** Simulated money modules (Banking, Marketplace, Capital, Token): the server may restrict them to invited accounts. */
+export const SIMULATED_PREFIXES = [
+  "/dashboard/banking", "/dashboard/marketplace", "/dashboard/capital",
+  "/investor",
+];
+export const isSimulatedPath = (pathname: string) => !under(pathname, "/investor/your-data") && SIMULATED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+
+
 export type Area = "agency" | "freelancer" | null;
 
 /** The account type a path is reserved for, or null when any signed-in role may open it. */

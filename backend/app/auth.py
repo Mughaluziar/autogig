@@ -138,6 +138,7 @@ async def current_user(request: Request) -> dict:
         if request.url.path not in {f"{prefix}{p}" for p in _UNVERIFIED_PATHS}:
             raise HTTPException(403, "Verify your email address to continue.")
     user = {"id": claims["sub"], "email": claims["email"], "role": claims["role"]}
+    request.state.account = account          # the stored account, for guards that need more than the token carries
     request.state.user = user
     request.state.claims = claims
     request.state.auth_source = source

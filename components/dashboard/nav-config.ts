@@ -42,7 +42,7 @@ import {
   Coins,
 } from "lucide-react";
 
-export type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string; soon?: boolean };
+export type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string; soon?: boolean; simulated?: boolean };
 export type NavSection = {
   title: string;
   items: NavItem[];
@@ -86,9 +86,9 @@ export const adminNav: NavSection[] = [
     title: "Finance",
     items: [
       { href: "/dashboard/money", label: "Money", icon: DollarSign },
-      { href: "/dashboard/banking", label: "Banking", icon: Wallet },
-      { href: "/dashboard/marketplace", label: "Marketplace", icon: Coins },
-      { href: "/dashboard/capital", label: "Capital", icon: Landmark },
+      { href: "/dashboard/banking", label: "Banking", icon: Wallet, simulated: true },
+      { href: "/dashboard/marketplace", label: "Marketplace", icon: Coins, simulated: true },
+      { href: "/dashboard/capital", label: "Capital", icon: Landmark, simulated: true },
     ],
   },
   {
@@ -108,6 +108,7 @@ export const adminNav: NavSection[] = [
       { href: "/dashboard/users", label: "Team & Invites", icon: UserCog },
       { href: "/dashboard/integrations", label: "Integrations", icon: Plug },
       { href: "/dashboard/security", label: "Security & API", icon: ShieldCheck },
+      { href: "/dashboard/your-data", label: "Your data", icon: FileText },
       { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
       { href: "/dashboard/audit-log", label: "Audit Log", icon: ScrollText },
     ],
@@ -137,6 +138,7 @@ export const freelancerNav: NavSection[] = [
     items: [
       { href: "/freelancer/earnings", label: "Earnings", icon: Wallet },
       { href: "/freelancer/profile", label: "My Profile", icon: User },
+      { href: "/freelancer/your-data", label: "Your data", icon: ShieldCheck },
     ],
   },
   {
@@ -154,10 +156,14 @@ export const investorNav: NavSection[] = [
   {
     title: "Invest",
     items: [
-      { href: "/investor", label: "Portfolio", icon: Landmark },
-      { href: "/investor/marketplace", label: "Marketplace", icon: TrendingUp },
-      { href: "/investor/banking", label: "Banking", icon: Wallet },
-      { href: "/investor/token", label: "Pool token", icon: Coins },
+      { href: "/investor", label: "Portfolio", icon: Landmark, simulated: true },
+      { href: "/investor/marketplace", label: "Marketplace", icon: TrendingUp, simulated: true },
+      { href: "/investor/banking", label: "Banking", icon: Wallet, simulated: true },
+      { href: "/investor/token", label: "Pool token", icon: Coins, simulated: true },
     ],
+  },
+  {
+    title: "Account",
+    items: [{ href: "/investor/your-data", label: "Your data", icon: ShieldCheck }],
   },
 ];

@@ -49,12 +49,16 @@ export function DashboardShell({
   const router = useRouter();
   const { user, restored, logout, setRole, demoMode } = useAuth();
   // Demo-data pages stay visible as a roadmap but are marked "Soon".
+  // Banking, Marketplace, Capital and Token are simulated demonstrations: the server decides who may open them.
+  const hideSimulated = !demoMode && user?.modules?.simulated === false;
   const nav = React.useMemo(
-    () => demoMode ? navItems : navItems.map((section) => ({
+    () => (demoMode ? navItems : navItems.map((section) => ({
       ...section,
-      items: section.items.map((item) => (isDemoOnlyRoute(item.href) ? { ...item, soon: true } : item)),
-    })),
-    [navItems, demoMode]
+      items: section.items
+        .filter((item) => !(hideSimulated && item.simulated))
+        .map((item) => (isDemoOnlyRoute(item.href) ? { ...item, soon: true } : item)),
+    }))).filter((section) => section.items.length > 0),
+    [navItems, demoMode, hideSimulated]
   );
   const comingSoon = !demoMode && isDemoOnlyRoute(pathname);
 

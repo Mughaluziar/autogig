@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useAuth, dashboardHomeFor, sessionFields, type Role } from "@/lib/auth";
-import { apiCall } from "@/lib/api";
+import { apiCall, apiGet } from "@/lib/api";
 import { useToast } from "@/components/ui/toast";
 import { SIGNUP_EMAIL_KEY } from "@/lib/landing";
 import { nextFromLocation, rememberNext, withNext } from "@/lib/safe-next";
@@ -118,8 +118,11 @@ export function SignupShell({
           try {
             // Frontend-only demo (no backend) continues with a local session;
             // with a backend the account and session come from the server.
+            // The Terms/Privacy versions the person is agreeing to are recorded by the server with the account.
+            const legal = await apiGet<{ terms: string; privacy: string; required: boolean }>("/api/legal/versions");
             const res = await apiCall<SignupResponse>("/api/auth/signup", {
               name: name ?? "", email: email ?? "", password, role, company: company ?? "", profile,
+              ...(legal?.required ? { acceptedTerms: { terms: legal.terms, privacy: legal.privacy } } : {}),
             });
             if (!res && !demoMode) {
               toast({ title: "Can't reach the server", description: "Check your connection and try again." });

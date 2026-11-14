@@ -31,6 +31,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
 from .. import db, email as mail, oauth, repo, session as sessions, terms
+from ..modules_gate import allowed as simulated_allowed
 from ..auth import (
     MIN_PASSWORD_LENGTH, RETIRED_ROLES, SIGNUP_ROLES, check_login_allowed, clear_login_failures,
     _token_from, create_access_token, current_user, hash_password, is_owner, needs_rehash,
@@ -113,7 +114,8 @@ def _session(doc: dict, **extra) -> dict:
         "ok": True,
         "token": create_access_token(user, email_verified=not pending, session_version=doc.get("session_version", 0)),
         "user": {**user, "owner": is_owner(user), "verificationRequired": pending,
-                 "needsTermsAcceptance": terms.needs_acceptance(doc)},
+                 "needsTermsAcceptance": terms.needs_acceptance(doc),
+                 "modules": {"simulated": simulated_allowed(doc, user)}},
         **extra,
     }
 
@@ -337,7 +339,8 @@ async def me(request: Request, response: Response, session: dict = Depends(curre
     user = db._public_user(doc)
     pending = _needs_verification(doc)
     out: dict = {"user": {**user, "owner": is_owner(user), "verificationRequired": pending,
-                          "needsTermsAcceptance": terms.needs_acceptance(doc)}}
+                          "needsTermsAcceptance": terms.needs_acceptance(doc),
+                          "modules": {"simulated": simulated_allowed(doc, user)}}}
     if getattr(request.state, "token_pending", False) and not pending:
         # Verified since this token was issued (e.g. the code was entered on
         # another device): without a fresh token every other route would 403.

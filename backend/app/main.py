@@ -20,6 +20,7 @@ from . import db, repo, rights_store
 from . import integrations
 from . import oauth
 from .auth import current_user, require_roles
+from .modules_gate import require_simulated_access
 from .config import get_settings
 from .routers import (
     activity, admin, agents, auth, automation, billing, core, demo, freelancer, growth,
@@ -175,15 +176,15 @@ app.include_router(inbox.router, prefix=settings.api_prefix)
 # Per-user routes guard themselves; the provider webhook authenticates by signature.
 app.include_router(orders.router, prefix=settings.api_prefix)
 # Any signed-in role; investing and early payment are gated by verification.
-app.include_router(capital.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
+app.include_router(capital.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 # Investment marketplace and banking (simulated settlement, same ledger as capital).
 from .routers import banking as banking_routes, marketplace as marketplace_routes  # noqa: E402
-app.include_router(marketplace_routes.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
-app.include_router(banking_routes.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
+app.include_router(marketplace_routes.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
+app.include_router(banking_routes.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 # Token program: the transparency report is public (no personal data); the
 # rest needs a session, and admin routes check for a platform owner.
 app.include_router(token.public_router, prefix=settings.api_prefix)
-app.include_router(token.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
+app.include_router(token.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 app.include_router(integrations.router, prefix=settings.api_prefix,
                    dependencies=[Depends(current_user)])
 # Invoice pay links: the pay page and Stripe webhook are public (the link

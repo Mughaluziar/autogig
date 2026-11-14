@@ -3,6 +3,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { AccountGate } from "@/components/auth/account-gate";
 
 /**
  * Keeps accounts that haven't confirmed their email out of the dashboards:
@@ -27,5 +28,5 @@ export function RequireVerifiedEmail({ children }: { children: React.ReactNode }
       </div>
     );
   }
-  return <>{children}</>;
+  return <AccountGate>{children}</AccountGate>;
 }
