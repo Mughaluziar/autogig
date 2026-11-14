@@ -3,6 +3,10 @@
 // Tailwind/Radix set inline styles; everything else is locked to this origin,
 // the configured API, Sentry and Nango's connect UI. Dev needs 'unsafe-eval'
 // for React Refresh.
+import { enforceDeployGuards } from "./scripts/deploy-guards.mjs";
+
+enforceDeployGuards(process.env); // production deploys only: see scripts/deploy-guards.mjs
+
 const isDev = process.env.NODE_ENV !== "production";
 // The backend (Render). The browser never talks to it directly: /api/* is proxied
 // through this site (see rewrites below), so session cookies are first-party and

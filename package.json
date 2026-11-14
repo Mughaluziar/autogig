@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "qa": "node scripts/qa/gapcheck.mjs",
     "qa:crawl": "node scripts/qa/crawl.mjs",
-    "qa:auth": "node scripts/qa/authguard.mjs"
+    "qa:auth": "node scripts/qa/authguard.mjs",
+    "test:deploy-guards": "node --test scripts/deploy-guards.test.mjs"
   },
   "dependencies": {
     "@nangohq/frontend": "^0.69.46",
