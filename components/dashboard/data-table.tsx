@@ -51,6 +51,38 @@ export function DataTable<T extends Record<string, any>>({
           {toolbar && <div className="flex items-center gap-2">{toolbar}</div>}
         </div>
       )}
+      {/* Below 640px each row becomes a stacked card: first column as the title, the
+          other columns as label/value pairs, and header-less columns (row actions) as a footer. */}
+      <ul className="divide-y sm:hidden" aria-label="Results">
+        {filtered.map((row, i) => {
+          const [first, ...rest] = columns;
+          const actions = rest.filter((c) => !c.header);
+          const fields = rest.filter((c) => c.header);
+          const cell = (c: Column<T>) => (c.render ? c.render(row) : String(row[c.key] ?? ""));
+          return (
+            <li
+              key={row.id ?? i}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              className={`space-y-2 p-4 ${onRowClick ? "cursor-pointer active:bg-accent/40" : ""}`}
+            >
+              {first && <div className="flex items-center gap-2 text-sm font-medium">{cell(first)}</div>}
+              {fields.length > 0 && (
+                <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+                  {fields.map((c) => (
+                    <React.Fragment key={c.key}>
+                      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{c.header}</dt>
+                      <dd className="min-w-0 break-words text-right">{cell(c)}</dd>
+                    </React.Fragment>
+                  ))}
+                </dl>
+              )}
+              {actions.length > 0 && <div className="flex flex-wrap justify-end gap-2 pt-1">{actions.map((c) => <React.Fragment key={c.key}>{cell(c)}</React.Fragment>)}</div>}
+            </li>
+          );
+        })}
+        {filtered.length === 0 && <li className="py-10 text-center text-sm text-muted-foreground">No results found.</li>}
+      </ul>
+      <div className="hidden sm:block">
       <Table>
         <TableHeader>
           <TableRow className="border-border/50 hover:bg-transparent">
@@ -84,6 +116,7 @@ export function DataTable<T extends Record<string, any>>({
           )}
         </TableBody>
       </Table>
+      </div>
     </Card>
   );
 }
