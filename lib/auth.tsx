@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 
-import { API_URL, apiFetch, markSession } from "@/lib/api";
+import { API_URL, apiFetch, markSession, hasSessionHint } from "@/lib/api";
 import { safeNext, withNext } from "@/lib/safe-next";
 
 // Client accounts were retired: clients pay invoices through pay links
@@ -126,7 +126,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         else if (isRole(role)) setUser(DEFAULT_USERS[role]);
         return;
       }
-      // Real backend: the HttpOnly session cookie is the only proof. Ask the server who we are.
+      // Real backend: the HttpOnly session cookie is the only proof. Ask the server who we are,
+      // unless there is no sign of a session at all (anonymous visitor): that request can only
+      // fail with a 401, which the browser would log as a console error.
+      if (!hasSessionHint()) {
+        markSession(false);
+        storeSessionUser(null);
+        setUser(null);
+        return;
+      }
       try {
         const res = await apiFetch("/api/auth/me");
         if (cancelled) return;

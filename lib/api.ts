@@ -39,6 +39,17 @@ export function markSession(active: boolean) {
   signedIn = active;
 }
 
+/**
+ * True when the browser holds the readable CSRF cookie, which the server sets and clears together
+ * with the HttpOnly session cookie. It is only a hint used to skip a request that cannot succeed
+ * for a visitor who never signed in: it proves nothing, and the server still verifies the session
+ * on every request. With no hint the visitor is treated as signed out; a stale hint just gets the
+ * normal 401 and is cleared.
+ */
+export function hasSessionHint(): boolean {
+  return readCookie("autopilot_csrf") !== "";
+}
+
 function readCookie(name: string): string {
   if (typeof document === "undefined") return "";
   const hit = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`));
