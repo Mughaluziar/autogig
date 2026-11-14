@@ -86,7 +86,10 @@ add("Ops", ".env.example documents required variables", exists(".env.example") |
 // 6. Payments truthfulness
 const terms = read("app/(marketing)/legal/terms/page.tsx");
 const stripeLive = /stripe/i.test(read("package.json")) || /stripe\.(checkout|PaymentIntent)/i.test(read("backend/app/routers/billing.py"));
-add("Payments", "Stripe/escrow actually integrated (Terms mention escrow)", !(/escrow/i.test(terms) && !stripeLive), "Terms promise escrow but payments are stubbed. Remove the claim or integrate Stripe.");
+// A sentence that mentions escrow must be a disclaimer ("not ... an escrow agent", "no escrow"); an affirmative escrow claim
+// without a real payment integration fails.
+const escrowClaim = terms.replace(/\s+/g, " ").split(/(?<=[.!?])\s/).some((sentence) => /escrow/i.test(sentence) && !/\b(not|no|never|without|neither)\b/i.test(sentence));
+add("Payments", "No unbacked escrow claim in the Terms", !(escrowClaim && !stripeLive), "Terms promise escrow but payments are stubbed. Remove the claim or integrate Stripe.");
 
 // 7. A11y (static)
 const noLabel = [];

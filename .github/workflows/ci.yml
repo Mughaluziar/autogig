@@ -1,13 +1,24 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches: [main, master]
 
+# Least privilege: the jobs only read the repository and need no secrets (tests use throw-away services).
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR cancels the older run (saves minutes).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,10 +29,12 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run qa
+      - run: npm run test:deploy-guards
       - run: npm run build
 
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
@@ -36,8 +49,13 @@ jobs:
       - run: pytest
 
   backend-mongo:
-    # The same suite against a real MongoDB (persistence, unique indexes, TTL indexes).
+    # The same suite against a real MongoDB (persistence, unique indexes, TTL indexes). It drops the database before every
+    # test and took about 45 minutes locally, so it runs on pushes to main (and manual runs), not on every pull request:
+    # on a private repository that would use up the free Actions minutes quickly. Run it locally before merging
+    # (TEST_MONGODB_URI=mongodb://localhost:27017 pytest).
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     services:
       mongo:
         image: mongo:7
