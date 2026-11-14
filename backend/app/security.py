@@ -111,7 +111,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 # Paths a personal API key may never call, relative to the API prefix: a
 # leaked key must not mint more keys, change sign-in details or move the team.
-_KEY_BLOCKED = ("/api-keys", "/auth/", "/team")
+_KEY_BLOCKED = ("/api-keys", "/auth/", "/team", "/me/", "/admin/deletions")
 _READ_METHODS = ("GET", "HEAD", "OPTIONS")
 _TOUCH_EVERY = timedelta(seconds=60)
 

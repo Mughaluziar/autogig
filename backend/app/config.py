@@ -26,6 +26,23 @@ class Settings(BaseSettings):
     # limits). Render's load balancer alone = 1; Vercel rewriting to Render = 2. 0 = ignore the
     # header and use the socket peer. Confirm the value on staging (see docs/deployment-runbook.md).
     trusted_proxy_hops: int = 1
+    # Legal document versions recorded when a user accepts them (terms.py). Bump when the text changes so
+    # existing users are asked again. "draft-..." means the text has not been reviewed by a lawyer.
+    terms_version: str = "draft-2026-11-14"
+    privacy_version: str = "draft-2026-11-14"
+    # New accounts must accept the Terms and Privacy Policy (versions above); existing and social-sign-in accounts
+    # are asked at their next visit.
+    require_terms_acceptance: bool = True
+    # Data rights (datarights.py): deleting an account is scheduled this many days ahead so a mistaken or
+    # malicious request can be cancelled. Financial and contract records that must be kept are retained
+    # (personal fields removed) for this many years: a PLACEHOLDER until a lawyer sets the real period.
+    deletion_grace_days: int = 14
+    financial_retention_years: int = 7
+    # Who may open the simulated money modules (Banking, Marketplace, Capital, Token): "off" = owners only,
+    # "invited" = owners and accounts an owner granted access to, "all" = every signed-in user. Production
+    # refuses "all" unless ALLOW_PUBLIC_SIMULATED_MODULES=true.
+    simulated_modules: str = ""      # blank: "invited" in production, "all" elsewhere
+    allow_public_simulated_modules: bool = False
     # Comma-separated emails of platform owners (credential vault, all users,
     # audit log, demo reset).
     owner_emails: str = ""
@@ -208,6 +225,11 @@ class Settings(BaseSettings):
         return url.rstrip("/")
 
     @property
+    def simulated_modules_mode(self) -> str:
+        value = self.simulated_modules.strip().lower()
+        return value or ("invited" if self.environment == "production" else "all")
+
+    @property
     def owner_email_set(self) -> set[str]:
         return {e.strip().lower() for e in self.owner_emails.split(",") if e.strip()}
 
@@ -238,6 +260,11 @@ class Settings(BaseSettings):
             problems.append("COOKIE_SECURE=false would send session cookies over plain http; remove it in production.")
         if not 0 <= self.trusted_proxy_hops <= 5:
             problems.append("TRUSTED_PROXY_HOPS must be between 0 and 5.")
+        if self.simulated_modules_mode not in ("off", "invited", "all"):
+            problems.append("SIMULATED_MODULES must be off, invited or all.")
+        elif self.simulated_modules_mode == "all" and not self.allow_public_simulated_modules:
+            problems.append("SIMULATED_MODULES=all would show demo-only money features to every user; use 'invited', or set "
+                            "ALLOW_PUBLIC_SIMULATED_MODULES=true after the owner has decided.")
         if self.rate_limit_per_minute < 60:
             problems.append("RATE_LIMIT_PER_MINUTE below 60 would lock out normal dashboard use.")
         if (self.token_encryption_key or "").strip():

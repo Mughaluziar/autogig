@@ -12,6 +12,7 @@ autopilot.oauth_identities  "<provider>:<subject>" -> email, for social sign-in
 """
 import secrets
 import time
+from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
@@ -63,6 +64,12 @@ async def find_user(email: str) -> dict | None:
     if not enabled():
         return _mem_users.get(email)
     return await _get_db().users.find_one({"_id": email})
+
+
+async def find_user_by_id(user_id: str) -> dict | None:
+    if not enabled():
+        return next((d for d in _mem_users.values() if d.get("id") == user_id), None)
+    return await _get_db().users.find_one({"id": user_id})
 
 
 async def list_users() -> list[dict]:
@@ -217,6 +224,12 @@ def is_email_verified(doc: dict) -> bool:
     return bool(doc.get("email_verified", True))
 
 
+def _iso(value) -> str | None:
+    if not isinstance(value, datetime):
+        return None
+    return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _public_user(doc: dict) -> dict:
     return {
         "id": doc["id"],
@@ -227,4 +240,5 @@ def _public_user(doc: dict) -> dict:
         "emailVerified": is_email_verified(doc),
         "hasPassword": bool(doc.get("password_hash")),
         "profile": doc.get("profile") or {},
+        "deletionScheduledFor": _iso(doc.get("deletion_scheduled_for")),
     }

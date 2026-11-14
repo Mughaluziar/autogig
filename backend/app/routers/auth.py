@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
-from .. import db, email as mail, oauth, repo, session as sessions
+from .. import db, email as mail, oauth, repo, session as sessions, terms
 from ..auth import (
     MIN_PASSWORD_LENGTH, RETIRED_ROLES, SIGNUP_ROLES, check_login_allowed, clear_login_failures,
     _token_from, create_access_token, current_user, hash_password, is_owner, needs_rehash,
@@ -112,7 +112,8 @@ def _session(doc: dict, **extra) -> dict:
     return {
         "ok": True,
         "token": create_access_token(user, email_verified=not pending, session_version=doc.get("session_version", 0)),
-        "user": {**user, "owner": is_owner(user), "verificationRequired": pending},
+        "user": {**user, "owner": is_owner(user), "verificationRequired": pending,
+                 "needsTermsAcceptance": terms.needs_acceptance(doc)},
         **extra,
     }
 
@@ -203,6 +204,9 @@ class SignupBody(BaseModel):
     role: str = "admin"
     company: str = Field(default="", max_length=120)
     profile: SignupProfile | None = None
+    # The Terms and Privacy versions the person agreed to (from GET /api/legal/versions); required unless
+    # REQUIRE_TERMS_ACCEPTANCE is off.
+    acceptedTerms: dict | None = None
 
 
 class LoginBody(BaseModel):
@@ -239,6 +243,11 @@ async def signup(body: SignupBody, request: Request, response: Response):
         raise HTTPException(422, "Client accounts are no longer offered. Choose another account type.")
     if body.role not in SIGNUP_ROLES:
         raise HTTPException(422, "Choose a valid account type.")
+    if terms.required():
+        if not body.acceptedTerms:
+            raise HTTPException(422, "Accept the Terms of Service and Privacy Policy to create an account.")
+        if not terms.versions_match(body.acceptedTerms):
+            raise HTTPException(409, "The Terms or Privacy Policy changed while this page was open. Reload and read the new version.")
     profile = _profile_doc(body.profile)
     try:
         user = await db.create_user(body.name, email, hash_password(body.password), body.role, body.company or None,
@@ -269,6 +278,9 @@ async def signup(body: SignupBody, request: Request, response: Response):
             raise HTTPException(409, "An account with this email already exists.")
     await repo.log_activity(user["id"], "Operator", f"Account created ({body.role})")
     doc = await db.find_user(email) or {}
+    if terms.required():
+        await terms.record(doc, "signup", terms.current())
+        doc = await db.find_user(email) or doc
     if verification_enforced():
         verification = await _issue_code(doc, sent_at)
     else:
@@ -324,7 +336,8 @@ async def me(request: Request, response: Response, session: dict = Depends(curre
     doc = await _session_doc(session)
     user = db._public_user(doc)
     pending = _needs_verification(doc)
-    out: dict = {"user": {**user, "owner": is_owner(user), "verificationRequired": pending}}
+    out: dict = {"user": {**user, "owner": is_owner(user), "verificationRequired": pending,
+                          "needsTermsAcceptance": terms.needs_acceptance(doc)}}
     if getattr(request.state, "token_pending", False) and not pending:
         # Verified since this token was issued (e.g. the code was entered on
         # another device): without a fresh token every other route would 403.

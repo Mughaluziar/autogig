@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import db, repo
+from . import db, repo, rights_store
 from . import integrations
 from . import oauth
 from .auth import current_user, require_roles
@@ -24,7 +24,7 @@ from .config import get_settings
 from .routers import (
     activity, admin, agents, auth, automation, billing, core, demo, freelancer, growth,
     capital, operations, orders, pipeline, portal, public, radar, revenue, studio, system, token, workspace,
-    inbox, payments, pool, upwork, upwork_leads,
+    inbox, payments, pool, upwork, upwork_leads, me,
 )
 from .capital import ledger as capital_ledger, store as capital_store
 from .orders import store as order_store
@@ -134,6 +134,7 @@ async def startup() -> None:
         await session_store.ensure_indexes()
         await pool_store.ensure_indexes()
         await access_store.ensure_indexes()
+        await rights_store.ensure_indexes()
         await repo.archive_legacy_state()
         log.info("MongoDB connected")
     else:
@@ -200,6 +201,8 @@ app.include_router(fleet_router.router, prefix=settings.api_prefix, dependencies
 # link token authorises it); everything else needs a session.
 app.include_router(team_router.public_router, prefix=settings.api_prefix)
 app.include_router(team_router.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
+app.include_router(me.public_router, prefix=settings.api_prefix)
+app.include_router(me.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 app.include_router(api_keys_router.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 
 # Agency dashboard — admin accounts only.

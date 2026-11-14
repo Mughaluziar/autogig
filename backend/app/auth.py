@@ -91,6 +91,7 @@ def create_access_token(user: dict, *, email_verified: bool = True, session_vers
 
 
 # What a session that still has to confirm its email may call.
+_DELETION_PENDING_PATHS = ("/auth/me", "/auth/logout", "/me/deletion", "/me/export", "/me/terms")
 _UNVERIFIED_PATHS = ("/auth/me", "/auth/verify-email", "/auth/resend-verification")
 
 
@@ -127,6 +128,11 @@ async def current_user(request: Request) -> dict:
         raise HTTPException(503, "Account service is temporarily unavailable.")
     if account is None or account.get("id") != claims["sub"] or account.get("session_version", 0) != claims.get("sv", 0):
         raise _unauthorized("Session ended — please sign in again.")
+    if account.get("deletion_scheduled_for"):
+        # Deletion is scheduled: the account is locked until the date; only cancelling, exporting and signing out work.
+        prefix = get_settings().api_prefix
+        if request.url.path not in {f"{prefix}{p}" for p in _DELETION_PENDING_PATHS}:
+            raise HTTPException(403, "This account is scheduled for deletion. Cancel the deletion in Settings to continue.")
     if claims.get("ev") is False:
         prefix = get_settings().api_prefix
         if request.url.path not in {f"{prefix}{p}" for p in _UNVERIFIED_PATHS}:

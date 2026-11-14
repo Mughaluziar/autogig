@@ -38,6 +38,8 @@ os.environ.update({
     "PUBLIC_API_URL": "",
     # Tests have no reverse proxy: the socket peer is the client (TRUSTED_PROXY_HOPS is covered in test_client_ip.py).
     "TRUSTED_PROXY_HOPS": "0",
+    # Most tests sign up without the Terms checkbox; test_terms.py switches this on.
+    "REQUIRE_TERMS_ACCEPTANCE": "false",
 })
 
 import httpx  # noqa: E402
@@ -54,6 +56,8 @@ from app.payments import store as payments_store  # noqa: E402
 from app.routers import payments as payments_router  # noqa: E402
 from app.capital import ledger as capital_ledger, store as capital_store  # noqa: E402
 from app.token import service as token_service, state as token_state  # noqa: E402
+from app import datarights, rights_store  # noqa: E402
+from app.access import store as access_store  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -82,6 +86,9 @@ def client():
     auth._failures.clear()
     sessions.reset_memory()
     pool_store.reset_memory()
+    access_store.reset_memory()
+    rights_store.reset_memory()
+    datarights._mem_deleted.clear()
     # Every TestClient request shares one client IP; without this the
     # per-IP rate limiter trips once the whole suite passes 240 requests/min.
     security._hits.clear()
