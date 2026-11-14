@@ -19,7 +19,7 @@ export function SimulatedBanner() {
       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
       <p>
         <span className="font-medium">Simulated settlement.</span> Deposits, early payments, repayments and payouts are
-        recorded in the ledger, but no real money moves until a licensed settlement partner is connected. Order insurance
+        recorded in the ledger, but no real money moves and no escrow is provided until a licensed settlement partner is connected. Order insurance
         is backed by the platform&apos;s protection fund, <span className="font-medium">not a licensed insurer</span>: claims are
         reviewed and paid only up to the fund&apos;s balance.
       </p>

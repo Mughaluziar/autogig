@@ -49,13 +49,13 @@ export function SimulatedNote({ kind }: { kind: "market" | "banking" }) {
       {kind === "market" ? (
         <p>
           <span className="font-semibold">Simulated settlement.</span> Investments, repayments and distributions are recorded
-          in the ledger, but no real money moves until a licensed partner is connected. Investments are not bank deposits,
+          in the ledger, but no real money moves and Autopilot provides no escrow until a licensed partner is connected. Investments are not bank deposits,
           are <span className="font-semibold">not FDIC insured</span> and can lose value.
         </p>
       ) : (
         <p>
           <span className="font-semibold">Autopilot is not a bank.</span> Balances, transfers and statements are simulated:
-          no bank or blockchain is contacted yet. Accounts, cards and financing will be provided through licensed partners,
+          no bank or blockchain is contacted and no funds are held in escrow. Accounts, cards and financing will be provided through licensed partners,
           subject to approval. Balances are <span className="font-semibold">not FDIC insured</span>.
         </p>
       )}
