@@ -14,8 +14,10 @@ export async function middleware(req: NextRequest) {
 
   const headers = new Headers(req.headers);
   for (const name of EDGE_HEADERS) headers.delete(name); // never forward values a visitor sent
-  const ip = clientIpFrom(req.headers);
-  if (ip) {
+  // Vercel always supplies the visitor address. A self-hosted server (local QA, a plain `next start`) may not: those requests are
+  // still signed, as one shared "unknown" visitor, so they are never mistaken for direct requests to the API.
+  const ip = clientIpFrom(req.headers) || "unknown";
+  {
     const ts = String(Math.floor(Date.now() / 1000));
     const nonce = crypto.randomUUID().replace(/-/g, ""); // single use: the API refuses a replay of the same signed request
     headers.set("x-edge-ts", ts);
