@@ -44,6 +44,11 @@ in the platform dashboards; never commit them and never paste them into chat or 
 | Vercel build | `npm run build` (Node 22) | set `BACKEND_API_URL` for **Production and Preview** |
 | Vercel timeouts | **unverified:** AI draft calls can take up to about 30 s (`app/llm.py` timeout); confirm they complete through the Vercel rewrite on staging with a real Groq key | if proxied requests time out, move the API behind a custom domain on the same site or shorten/stream the call |
 | Request size | Workspace saves are capped at 1 MB by the API | |
+| Edge proof secret | `EDGE_SHARED_SECRET` on **both** hosts (same 48+ random characters; Vercel: a server-side variable, Production + Preview; Render: Environment) | generate once with `python3 -c "import secrets;print(secrets.token_urlsafe(48))"`; never `NEXT_PUBLIC_`; a Vercel production build fails without it |
+| Edge enforcement | `REQUIRE_EDGE_PROOF=false` until `docs/staging-verification.md` steps 3-4 pass, then `true` | webhooks, health, OAuth callbacks and API keys stay reachable directly |
+| Simulated modules | `SIMULATED_MODULES=invited` (default in production) | grant access per account: `POST /api/admin/users/{id}/simulated-access` as owner |
+| Terms | `TERMS_VERSION` / `PRIVACY_VERSION` | bump when the legal text changes; the API then requires everyone to accept again |
+| Sentry | `SENTRY_DSN` (Render), `NEXT_PUBLIC_SENTRY_DSN` and `SENTRY_AUTH_TOKEN` (Vercel) | privacy baseline is in code; verify one real event (`integration-verification.md` s.6) |
 
 ## 5. Safe staging procedure (needs you for every step that touches an account)
 Use a **separate** Atlas database (e.g. `autopilot_staging`, ideally its own project/cluster), a separate Render service and
