@@ -579,7 +579,7 @@ await guard("demo", "anonymous visitors, nav routes, Coming soon pages, mobile c
   check("demo", "agency profile says the sign-in email can't be changed here", /can.t be changed here yet/i.test(await text(ag)));
   await ag.goto("/dashboard/settings", { waitUntil: "networkidle" }); await ag.waitForTimeout(400);
   await ag.getByRole("tab", { name: /Account/ }).click(); await ag.waitForTimeout(300);
-  check("demo", "Settings says name and email can't be changed and links to Change password", /can.t be changed here yet/i.test(await text(ag)) && (await ag.getByRole("link", { name: /Change password/ }).count()) > 0);
+  check("demo", "Settings points to the Account & data page for name/email changes and links to Change password", /Account (&|and) data page/i.test(await text(ag)) && (await ag.getByRole("link", { name: /Change password/ }).count()) > 0 && (await ag.getByRole("link", { name: /Name, email, download or delete data/ }).count()) > 0);
   await ag.goto("/dashboard/integrations", { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
   check("demo", "Integrations hides the Voice and QA & Delivery tabs", (await ag.getByRole("tab", { name: /^Voice$/ }).count()) === 0 && (await ag.getByRole("tab", { name: /QA/ }).count()) === 0);
   for (const r of ["/dashboard/banking", "/dashboard/marketplace", "/dashboard/capital"]) {
