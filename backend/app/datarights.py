@@ -177,6 +177,7 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
     # --- system / transient state: no personal data ----------------------------------------------------------
     Coll("rate_limits", (), "none", "Request counters keyed by network address, not by user; each expires about two minutes "
          "after its window. Not linkable to an account."),
+    Coll("edge_nonces", (), "none", "Single-use request identifiers of the website proxy (replay protection); expire in about two minutes. No personal data."),
     Coll("revoked_sessions", (), "none", "Revoked session ids; expire on their own."),
     Coll("oauth_states", (), "none", "Single-use sign-in state; expires on its own."),
     Coll("oauth_handoffs", (), "none", "Single-use sign-in handoff; expires on its own."),

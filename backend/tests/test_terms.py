@@ -93,3 +93,24 @@ def test_acceptance_history_is_per_user(client):
 def test_switching_the_requirement_off_never_blocks_signup(client, monkeypatch):
     monkeypatch.setattr(get_settings(), "require_terms_acceptance", False)
     assert client.post("/api/auth/signup", json=BODY).status_code == 200
+
+
+def test_the_api_refuses_everything_else_until_the_new_terms_are_accepted(client, monkeypatch):
+    res = client.post("/api/auth/signup", json={**BODY, "acceptedTerms": versions(client)})
+    h = bearer(res.json()["token"])
+    assert client.get("/api/settings", headers=h).status_code == 200
+    monkeypatch.setattr(get_settings(), "terms_version", "draft-2027-02-02")
+    blocked = client.get("/api/settings", headers=h)
+    assert blocked.status_code == 403 and "Terms" in blocked.json()["detail"]
+    for path in ("/api/auth/me", "/api/me/terms"):
+        assert client.get(path, headers=h).status_code == 200                      # still reachable so the user can accept
+    assert client.post("/api/me/export", headers=h, json={"password": BODY["password"]}).status_code == 200
+    assert client.post("/api/state", headers=h, json={}).status_code in (403, 405)
+    assert client.post("/api/me/terms/accept", headers=h, json=versions(client)).status_code == 200
+    assert client.get("/api/settings", headers=h).status_code == 200
+
+
+def test_enforcement_is_off_when_the_requirement_is_off(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "require_terms_acceptance", False)
+    h = bearer(signup(client, email="plain@example.com")["token"])
+    assert client.get("/api/settings", headers=h).status_code == 200

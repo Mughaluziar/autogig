@@ -1,6 +1,7 @@
 """Edge proof (R1): only requests signed by our own website proxy get their client address trusted, and with
 REQUIRE_EDGE_PROOF the public API address cannot be used to get around the website."""
 import time
+import uuid
 
 import pytest
 
@@ -21,9 +22,10 @@ def configured(monkeypatch):
     monkeypatch.setattr(s, "trusted_proxy_hops", 1)
 
 
-def signed(method="GET", path="/api/auth/me", ip="203.0.113.7", secret=SECRET, ts=None):
+def signed(method="GET", path="/api/auth/me", ip="203.0.113.7", secret=SECRET, ts=None, nonce=None):
     ts = str(int(time.time()) if ts is None else ts)
-    return {"x-edge-ts": ts, "x-edge-ip": ip, "x-edge-sig": edge.sign(secret, ts, method, path, ip)}
+    nonce = nonce or uuid.uuid4().hex
+    return {"x-edge-ts": ts, "x-edge-ip": ip, "x-edge-nonce": nonce, "x-edge-sig": edge.sign(secret, ts, method, path, ip, nonce)}
 
 
 _tokens: dict = {}
@@ -44,7 +46,7 @@ def test_a_valid_signature_makes_the_signed_address_the_client(client):
 
 
 def test_forged_or_missing_proof_is_treated_as_direct(client):
-    forged = {"x-edge-ts": str(int(time.time())), "x-edge-ip": "198.51.100.99", "x-edge-sig": "0" * 64}
+    forged = {"x-edge-ts": str(int(time.time())), "x-edge-ip": "198.51.100.99", "x-edge-nonce": uuid.uuid4().hex, "x-edge-sig": "0" * 64}
     body = whoami(client, {**forged, "x-forwarded-for": "6.6.6.6, 5.5.5.5"}).json()
     assert body["edgeProof"] == "invalid signature" and body["clientIp"] == "5.5.5.5" and body["edgeIp"] is None   # rightmost XFF (hops=1), not the forged ip
     assert whoami_again(client, {"x-forwarded-for": "6.6.6.6, 5.5.5.5"})["edgeProof"] == "absent"
@@ -54,7 +56,7 @@ def whoami_again(client, headers):
     return whoami(client, headers).json()
 
 
-@pytest.mark.parametrize("tamper", ["method", "path", "ip", "ts"])
+@pytest.mark.parametrize("tamper", ["method", "path", "ip", "ts", "nonce"])
 def test_the_signature_is_bound_to_method_path_ip_and_time(client, tamper):
     good = signed(method="GET", path="/api/diag/request")
     if tamper == "method":
@@ -63,6 +65,8 @@ def test_the_signature_is_bound_to_method_path_ip_and_time(client, tamper):
         good = signed(path="/api/something/else")
     elif tamper == "ip":
         good = {**good, "x-edge-ip": "198.51.100.1"}
+    elif tamper == "nonce":
+        good = {**good, "x-edge-nonce": "z" * 32}
     else:
         good = {**good, "x-edge-ts": str(int(good["x-edge-ts"]) + 1)}
     assert whoami(client, good).json()["edgeProof"] == "invalid signature"
@@ -75,7 +79,7 @@ def test_old_and_future_timestamps_are_rejected(client, offset):
 
 
 def test_bad_timestamp_and_oversized_ip(client):
-    assert whoami(client, {"x-edge-ts": "abc", "x-edge-ip": "1.1.1.1", "x-edge-sig": "00"}).json()["edgeProof"] == "invalid timestamp"
+    assert whoami(client, {"x-edge-ts": "abc", "x-edge-ip": "1.1.1.1", "x-edge-nonce": "n" * 20, "x-edge-sig": "00"}).json()["edgeProof"] == "invalid timestamp"
     long_ip = "1" * 80
     assert whoami(client, signed(path="/api/diag/request", ip=long_ip)).json()["edgeProof"] == "invalid"
 
@@ -147,8 +151,7 @@ def test_production_requires_a_real_secret(monkeypatch):
 
 def test_signature_matches_the_javascript_implementation():
     """lib/edge-sign.test.mjs asserts the same vector; the two sides must agree byte for byte."""
-    assert edge.sign("s" * 40, "1760000000", "POST", "/api/auth/login", "203.0.113.7") == \
-        "f3e6738047b6a7334800b593ef0f07da5f8adb53b3d5f5d6f193a945e84f90a6"
+    assert edge.sign("s" * 40, "1760000000", "POST", "/api/auth/login", "203.0.113.7", "n" * 32) == "8e59b114015e3636f22308e735ff0f2b48bdc71df88c360b9f9f8d84dfb8479c"
 
 
 def test_diag_sleep_is_owner_only_off_by_default_and_capped(client, monkeypatch):
@@ -175,3 +178,39 @@ def test_skew_boundary_is_exactly_the_configured_window():
     assert edge.verify(req(base), now=base + 61) == (False, "expired")
     assert edge.verify(req(base), now=base - 60)[0] is True
     assert edge.verify(req(base), now=base - 61) == (False, "expired")
+
+
+def test_a_replayed_signed_request_is_refused(client, monkeypatch):
+    """Capturing a valid signed request and sending it again (same nonce) must not be trusted a second time."""
+    monkeypatch.setattr(get_settings(), "require_edge_proof", True)
+    headers = signed("POST", "/api/auth/login", ip="203.0.113.60")
+    body = {"email": "r@example.com", "password": "wrong-wrong-1"}
+    first = client.post("/api/auth/login", json=body, headers=headers)
+    assert first.status_code == 401                                     # accepted as a website request (wrong password)
+    again = client.post("/api/auth/login", json=body, headers=headers)
+    assert again.status_code == 403 and "website" in again.json()["detail"]
+
+
+def test_replay_is_reported_in_diagnostics_and_a_fresh_nonce_works(client):
+    h = signed(path="/api/diag/request")
+    assert whoami(client, h).json()["edgeProof"] == "verified"
+    assert whoami(client, h).json()["edgeProof"] == "replayed"          # same nonce, same signature
+    assert whoami(client, signed(path="/api/diag/request")).json()["edgeProof"] == "verified"
+
+
+def test_a_missing_or_short_nonce_is_not_accepted(client):
+    h = signed(path="/api/diag/request")
+    no_nonce = {k: v for k, v in h.items() if k != "x-edge-nonce"}
+    assert whoami(client, no_nonce).json()["edgeProof"] == "absent"
+    ts = str(int(time.time()))
+    short = {"x-edge-ts": ts, "x-edge-ip": "1.1.1.1", "x-edge-nonce": "abc", "x-edge-sig": edge.sign(SECRET, ts, "GET", "/api/diag/request", "1.1.1.1", "abc")}
+    assert whoami(client, short).json()["edgeProof"] == "invalid"
+
+
+def test_nonces_expire_so_the_store_does_not_grow(client):
+    async def go():
+        assert await edge.claim_nonce("a" * 20, now=1000.0)
+        assert not await edge.claim_nonce("a" * 20, now=1010.0)
+        assert await edge.claim_nonce("b" * 20, now=1000.0 + 500)           # the old one has expired and is pruned
+        return len(edge._seen)
+    assert client.portal.call(go) == 1

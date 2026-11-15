@@ -17,9 +17,11 @@ export async function middleware(req: NextRequest) {
   const ip = clientIpFrom(req.headers);
   if (ip) {
     const ts = String(Math.floor(Date.now() / 1000));
+    const nonce = crypto.randomUUID().replace(/-/g, ""); // single use: the API refuses a replay of the same signed request
     headers.set("x-edge-ts", ts);
     headers.set("x-edge-ip", ip);
-    headers.set("x-edge-sig", await signEdge(secret, ts, req.method, decodePath(req.nextUrl.pathname), ip));
+    headers.set("x-edge-nonce", nonce);
+    headers.set("x-edge-sig", await signEdge(secret, ts, req.method, decodePath(req.nextUrl.pathname), ip, nonce));
   }
   return NextResponse.rewrite(new URL(req.nextUrl.pathname + req.nextUrl.search, backend), { request: { headers } });
 }

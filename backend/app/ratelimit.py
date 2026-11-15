@@ -48,6 +48,7 @@ async def ensure_indexes() -> None:
     if not db.enabled():
         return
     await db._get_db().rate_limits.create_index("expire_at", expireAfterSeconds=0)
+    await db._get_db().edge_nonces.create_index("expire_at", expireAfterSeconds=0)
 
 
 def _memory(q: deque, now: float, limit: int, record: bool = True) -> tuple[bool, int]:

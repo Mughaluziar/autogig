@@ -32,7 +32,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import Depends, HTTPException, Request
 
-from . import db, session as sessions
+from . import db, session as sessions, terms
 from .config import get_settings
 
 ROLES = ("admin", "freelancer", "client", "investor")
@@ -91,6 +91,7 @@ def create_access_token(user: dict, *, email_verified: bool = True, session_vers
 
 
 # What a session that still has to confirm its email may call.
+_TERMS_PENDING_PREFIXES = ("/auth/me", "/auth/logout", "/me/terms", "/me/export", "/me/deletion")
 _DELETION_PENDING_PATHS = ("/auth/me", "/auth/logout", "/me/deletion", "/me/export", "/me/terms")
 _UNVERIFIED_PATHS = ("/auth/me", "/auth/verify-email", "/auth/resend-verification")
 
@@ -133,6 +134,11 @@ async def current_user(request: Request) -> dict:
         prefix = get_settings().api_prefix
         if request.url.path not in {f"{prefix}{p}" for p in _DELETION_PENDING_PATHS}:
             raise HTTPException(403, "This account is scheduled for deletion. Cancel the deletion in Settings to continue.")
+    if terms.needs_acceptance(account):
+        # The Terms/Privacy Policy changed (or were never accepted): enforce it on the server, not only in the page.
+        relative = request.url.path[len(get_settings().api_prefix):] if request.url.path.startswith(get_settings().api_prefix) else request.url.path
+        if not relative.startswith(_TERMS_PENDING_PREFIXES):
+            raise HTTPException(403, "Accept the current Terms of Service and Privacy Policy to continue.")
     if claims.get("ev") is False:
         prefix = get_settings().api_prefix
         if request.url.path not in {f"{prefix}{p}" for p in _UNVERIFIED_PATHS}:

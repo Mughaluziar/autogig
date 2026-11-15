@@ -89,6 +89,8 @@ def client():
     access_store.reset_memory()
     rights_store.reset_memory()
     datarights._mem_deleted.clear()
+    from app import edge as _edge
+    _edge.reset_memory()
     # Every TestClient request shares one client IP; without this the
     # per-IP rate limiter trips once the whole suite passes 240 requests/min.
     security._hits.clear()

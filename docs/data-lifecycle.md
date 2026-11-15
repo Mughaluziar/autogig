@@ -83,6 +83,7 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `terms_acceptances` | yes | Kept as is | Proof of which Terms/Privacy version was accepted and when (no personal content). |
 | `data_requests` | yes | Kept as is | Audit trail of export/deletion requests (counts, no content). |
 | `rate_limits` | no | Not personal data | Request counters keyed by network address, not by user; each expires about two minutes after its window. Not linkable to an account. |
+| `edge_nonces` | no | Not personal data | Single-use request identifiers of the website proxy (replay protection); expire in about two minutes. No personal data. |
 | `revoked_sessions` | no | Not personal data | Revoked session ids; expire on their own. |
 | `oauth_states` | no | Not personal data | Single-use sign-in state; expires on its own. |
 | `oauth_handoffs` | no | Not personal data | Single-use sign-in handoff; expires on its own. |
