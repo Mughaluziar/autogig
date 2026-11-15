@@ -8,8 +8,8 @@ vulnerable code is loaded by this app, and checked for a fix, and whether the fi
 
 | | before this pass | after |
 |---|---|---|
-| Production dependencies (`npm audit --omit=dev`) | 0 critical, **4 high**, 6 moderate | **0 critical, 0 high, 5 moderate** |
-| All dependencies including dev tooling | (not recorded) | 0 critical, 0 high, 10 moderate |
+| Production dependencies (`npm audit --omit=dev`) | 0 critical, **4 high**, 6 moderate | **0 advisories** |
+| All dependencies including dev tooling | (not recorded) | 6 moderate (dev tooling only) |
 
 ## Fixed without a breaking change
 | Advisory group | How it was reachable | Fix applied | Verified |
@@ -20,29 +20,31 @@ vulnerable code is loaded by this app, and checked for a fix, and whether the fi
 Both overrides are removable: Next.js 16.x depends on a patched PostCSS itself, and a Nango release without the axios types
 dependency would make the override unnecessary. Keep them until then and re-check on each upgrade.
 
-## Remaining: 5 moderate in production dependencies, all one chain (build-time)
-`@sentry/nextjs 10.78` -> `@sentry/bundler-plugins` / `@sentry/webpack-plugin` -> `glob 13.0.6` (GHSA-3g3m-2fjr-6pw4: an
-`AbortSignal` cancellation bypass allowing filesystem traversal after a timeout) -> `minimatch 10.2.6` (GHSA-g3hv-75wg-m249:
-denial of service through glob-pattern amplification).
-* **Reachability:** these packages are used by the Sentry **build plugin** to find source-map files when uploading them (only when
-  `SENTRY_AUTH_TOKEN` is set, see `next.config.mjs`). They run on the build machine over the project's own build output; no
-  visitor input reaches them, and they are not part of the running site.
-* **Fix:** `@sentry/nextjs` **11.12.0** (a major). A lock-file dry run in a scratch copy (the project was not changed) showed
-  `npm audit --omit=dev` reporting **0 vulnerabilities** with it. It supports Next.js 14, 15 and 16, so it does **not** depend on
-  the Next 16 upgrade.
-* **Why it is not applied:** (1) the upgrade guide lists changes that matter here and cannot be proven without a Sentry
-  project: **`dataCollection` replaces `sendDefaultPii` and, left unset, collects more by default** (cookies, headers, query
-  parameters, user data: this is a privacy decision, the baseline must be set explicitly in the three `sentry.*.config.ts`
-  files before upgrading), span streaming becomes the default, `enableOpenTelemetrySetup` now defaults to `true` for
-  `@sentry/nextjs`, Node 20.19+ is required (the project uses Node 22), the `loader` entry was removed (not used), and
-  `withSentryConfig` must come from `@sentry/nextjs/config` (already the case); (2) source-map upload and event capture cannot
-  be exercised locally. **Recommendation:** approve a small, separate change: bump to 11.12, set `dataCollection` explicitly to
-  the minimum (no cookies, headers or user data), then verify on staging with a real DSN that an error arrives with the
-  environment tag and without request bodies, cookies or email addresses (docs/integration-verification.md section 6).
-  Effort about half a day plus the staging check.
-* **Interim risk:** low. Do not run `npm run build` with `SENTRY_AUTH_TOKEN` set on a machine that builds untrusted code.
+## Sentry 11 applied (2026-11-15): production audit now 0 advisories
+`@sentry/nextjs` 10.78 -> **11.12.0** (exact pin). The five moderate advisories came from the Sentry **build plugin**'s `glob`/`minimatch`
+(build time only); Sentry 11 ships patched ones. It supports Next.js 14/15/16, so it did not require the Next 16 upgrade, and the project
+already imported `withSentryConfig` from `@sentry/nextjs/config` (the only API move that affects this codebase). Node 22 satisfies its
+engine range.
 
-## Remaining: 5 moderate in development tooling only
+**Privacy (the real risk of this upgrade):** Sentry 11 replaces `sendDefaultPii` with `dataCollection` and, left unset, collects more
+(cookies, user info, request bodies, query data, database query data, local variables). Nothing is left unset:
+* `lib/sentry-privacy.ts`, used by the client, server and edge configs: `userInfo`, `cookies`, `httpHeaders` (request and response),
+  `httpBodies`, `urlQueryParams`, `genAI` inputs and outputs, `databaseQueryData`, `queues`, `stackFrameVariables` and GraphQL data are all
+  off, `sendDefaultPii: false`, and a `beforeSend` scrubber drops `user`, request body/cookies/headers/query string, the query string of the
+  URL, and breadcrumb messages and data. What remains is the error, its stack and the page path.
+* The Python API (`app/main.py`, `app/privacy.py`): `send_default_pii=False`, `max_request_body_size="never"`,
+  `include_local_variables=False` and the same scrubber. (sentry-sdk would otherwise attach request bodies to error events.)
+* Tests: `lib/sentry-privacy.test.mjs` (configuration is the strict baseline; the scrubber removes personal data and keeps the error) and
+  `backend/tests/test_privacy_filter.py`.
+* Data that should never reach an error report in this product: passwords, session tokens, API keys, email addresses, proposal text, job
+  text, bank or wallet details. They live in request bodies, cookies, headers and local variables, all of which are excluded.
+
+**What still needs a real DSN and a staging error (cannot be verified locally):** that an event arrives with the environment tag; that the
+event JSON in Sentry really contains no request body, cookies, headers, user or query string (open one and check "Additional data");
+that source-map upload works with `SENTRY_AUTH_TOKEN` (the build plugin was not exercised); Sentry project data-scrubbing and retention
+settings; the alert rules. Procedure: `docs/integration-verification.md` section 6.
+
+## Remaining: 6 moderate in development tooling only (not shipped)
 `eslint-config-next` -> `@typescript-eslint/*` -> `typescript-estree` -> `minimatch 10.2.6` (the same denial-of-service
 advisory). Linting runs on developers' machines and in CI over the project's own source. Not shipped. It clears with a newer
 `@typescript-eslint` release that depends on `minimatch >= 11`; `npm update` will pick it up when `eslint-config-next`

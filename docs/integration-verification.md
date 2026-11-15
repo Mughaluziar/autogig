@@ -72,6 +72,16 @@ maps) and redeploy. Trigger a deliberate test error on staging (for example, cal
 raises, or a one-off `/api` call you add temporarily on a scratch branch) and confirm it appears with the environment tag;
 confirm that request bodies, cookies and email addresses are not captured, then create an alert rule for new issues.
 
+Sentry 11 specifics (privacy baseline in `lib/sentry-privacy.ts` and `backend/app/privacy.py`): after the test error arrives, open the
+event and confirm the sections **Request**, **User** and **Breadcrumbs** carry no body, cookie, header, query string, email address or text
+from a form; confirm the page URL has no `?query`. Pass only if all are empty. Source maps: set `SENTRY_AUTH_TOKEN` on the Vercel build
+and confirm the stack trace shows source file names.
+
+## 6a. AI disclosure on drafted replies
+Needs the Groq key. In the Unified Inbox open a forwarded message, press the sparkle button: the composer shows an "AI-assisted draft"
+badge and, under it, the exact disclosure line; edit the text freely; press Copy and paste into a scratch note: the copied text must end
+with the disclosure line. In Settings change the wording to something without "AI" and confirm it is refused. Pass: all three.
+
 ## 7. Optional: Outlook inbox via Nango
 Needs *you*: a Nango account, a Microsoft app registration approved for `Mail.Read`, and the settings
 `NANGO_SECRET_KEY`, `NANGO_WEBHOOK_SIGNING_KEY`, `NANGO_INTEGRATIONS`, `OUTLOOK_INBOX_READ_APPROVED=true`. Connect a test

@@ -44,6 +44,12 @@ enough once signed in). Expected: `edgeProof: "verified"` and `edgeIp` equal to 
 * `edgeProof: "invalid signature"`: the two secrets differ (copy/paste, trailing space) or the path differs; re-enter both.
 * `edgeProof: "expired"`: the clocks differ by more than 60 s (unlikely) or a cached response; retry.
 
+### 3a. Replay protection (nonce)
+Every proxied request carries a single-use `X-Edge-Nonce`; the API refuses a second request with the same nonce (`edgeProof: "replayed"`).
+This is proven by unit tests and the local proxy test. On staging, confirm only that normal browsing never produces `replayed`
+(browser retries, prefetches and Vercel retries each get a fresh nonce because the middleware runs per request). If `replayed` shows up for a
+legitimate page load, stop and report the request path.
+
 ## 4. Forged headers sent to the website
 `node scripts/ops/staging-check.mjs --web https://<site> --api https://<api> --expect-edge-proof` with the owner variables
 set. It sends `X-Forwarded-For: 198.51.100.77`, `X-Real-IP: ...78`, `X-Vercel-Forwarded-For: ...79` to the site and asserts the

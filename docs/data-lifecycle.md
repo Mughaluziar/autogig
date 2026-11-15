@@ -26,6 +26,21 @@ sets it (`FINANCIAL_RETENTION_YEARS`, default 7).
 * **Audit**: `data_requests` records type, status, times and counts only; `terms_acceptances` records ids, versions, time and
   method only.
 
+## Shared records, teams and account changes (reviewed 2026-11-15)
+* **Tenant isolation:** every collection is read through one owner rule per collection (`DATA_MAP`). A team **member's** export has
+  only the member's rows; a team **owner's** export lists the roster they already manage (member names and emails), never the members'
+  own workspaces, settings or messages (`test_datarights_edge.py`). Deleting a member removes only their membership; deleting a
+  bystander leaves other teams untouched; invitations addressed to a deleted address are removed.
+* **Ledger entries** that involve several users (simulated Capital/Banking) are exported to each user named in them; the entry lists the
+  other party only as an opaque account id.
+* **Email change:** the account document is keyed by email, so a confirmed change moves it to the new key (new copy first, then the old
+  one is deleted), signs every other session out (`session_version`), clears pending reset tokens, and updates the copies of the address
+  on API keys, team memberships and social-sign-in links. Pending change codes (`email_change`) are never exported. Names already copied
+  into shared records (a signed contract) keep the name they had; a later deletion replaces whichever name the record holds.
+* **Terms:** `terms_accepted` on the account and the append-only `terms_acceptances` rows are kept as proof; the API refuses everything
+  but account, export and deletion calls until the current versions are accepted.
+* **Replay protection** (`edge_nonces`) and **rate limits** (`rate_limits`) hold no personal data and expire in minutes.
+
 ## Collection by collection
 Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collection the app writes is missing from it.
 
