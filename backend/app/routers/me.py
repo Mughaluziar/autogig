@@ -260,20 +260,38 @@ EMAIL_CHANGES_PER_HOUR = 3
 
 
 class ProfileBody(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    name: str | None = Field(default=None, max_length=120)
+    profile: dict | None = None          # same fields and validation as at signup (country, hourlyRate, skills, ...)
 
 
 @router.patch("/me/profile")
 async def update_profile(body: ProfileBody, user: dict = Depends(current_user)):
-    """Correct your display name. (Email is changed with /me/email/change: it needs proof of the new address.)"""
-    name = " ".join(body.name.split())
-    if not name:
-        raise HTTPException(422, "Enter your name.")
+    """Correct your display name and/or your profile details (rate, skills, bio...). Email is changed with
+    /me/email/change: it needs proof of the new address."""
+    if body.name is None and body.profile is None:
+        raise HTTPException(422, "Nothing to change.")
     doc = await _account(user)
-    await db.update_user(doc["email"], {"name": name})
-    await access_store.rename_member(doc["id"], name)
-    await repo.log_activity(doc["id"], "Account", "Name changed")
-    return {"ok": True, "user": {**db._public_user({**doc, "name": name}), "owner": auth.is_owner(user)}}
+    changes: dict = {}
+    if body.name is not None:
+        name = " ".join(body.name.split())
+        if not name:
+            raise HTTPException(422, "Enter your name.")
+        changes["name"] = name
+    if body.profile is not None:
+        from . import auth as auth_routes     # (imported here: routers.auth imports modules that import this one)
+        try:
+            parsed = auth_routes.SignupProfile(**body.profile)
+        except Exception:
+            raise HTTPException(422, "Check the profile details (rate, skills, bio or linked account).")
+        new_profile = auth_routes._profile_doc(parsed)
+        if "linkedAccount" not in body.profile and (doc.get("profile") or {}).get("linkedAccount"):
+            new_profile["linkedAccount"] = doc["profile"]["linkedAccount"]       # not part of this edit: keep it
+        changes["profile"] = new_profile
+    await db.update_user(doc["email"], changes)
+    if "name" in changes:
+        await access_store.rename_member(doc["id"], changes["name"])
+    await repo.log_activity(doc["id"], "Account", "Profile updated")
+    return {"ok": True, "user": {**db._public_user({**doc, **changes}), "owner": auth.is_owner(user)}}
 
 
 def _email_code_hash(user_id: str, new_email: str, code: str) -> str:

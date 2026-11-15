@@ -160,3 +160,36 @@ def test_identities_and_team_rows_follow(client, me):
     client.post("/api/me/email/confirm", headers=h, json={"code": code})
     ident = run(client, db.find_identity, "google", "sub-1")
     assert ident["email"] == "new@example.com"
+
+
+def test_profile_details_can_be_edited_with_the_signup_validation(client, me):
+    h, _ = me
+    ok = client.patch("/api/me/profile", headers=h, json={"profile": {
+        "country": "Pakistan", "hourlyRate": 45, "skills": ["Python", " python ", "FastAPI"], "experience": "3–5",
+        "availability": "Full-time", "bio": "Backend engineer."}})
+    assert ok.status_code == 200
+    profile = client.get("/api/auth/me", headers=h).json()["user"]["profile"]
+    assert profile["hourlyRate"] == 45 and profile["skills"] == ["Python", "FastAPI"] and profile["country"] == "Pakistan"
+    for bad in ({"hourlyRate": -5}, {"hourlyRate": 99999}, {"skills": ["x"] * 31}, {"bio": "b" * 1001},
+                {"linkedAccount": {"platform": "upwork", "url": "https://evil.example.com/me"}}):
+        assert client.patch("/api/me/profile", headers=h, json={"profile": bad}).status_code == 422, bad
+    assert client.get("/api/auth/me", headers=h).json()["user"]["profile"]["hourlyRate"] == 45            # unchanged by the bad ones
+    assert client.patch("/api/me/profile", headers=h, json={}).status_code == 422
+
+
+def test_profile_edit_does_not_leak_to_other_accounts(client, me):
+    h, _ = me
+    other = bearer(signup(client, email="o2@example.com", role="freelancer", profile={"hourlyRate": 10, "skills": ["Go"]})["token"])
+    client.patch("/api/me/profile", headers=h, json={"profile": {"hourlyRate": 99}})
+    assert client.get("/api/auth/me", headers=other).json()["user"]["profile"]["hourlyRate"] == 10
+
+
+def test_editing_without_the_linked_account_keeps_it(client):
+    res = signup(client, email="la@example.com", role="freelancer", profile={
+        "skills": ["Go"], "linkedAccount": {"platform": "upwork", "url": "https://www.upwork.com/freelancers/~0123456789abcdef"}})
+    h = bearer(res["token"])
+    before = client.get("/api/auth/me", headers=h).json()["user"]["profile"]
+    assert before.get("linkedAccount")
+    client.patch("/api/me/profile", headers=h, json={"profile": {"skills": ["Go", "Rust"]}})
+    after = client.get("/api/auth/me", headers=h).json()["user"]["profile"]
+    assert after["linkedAccount"] == before["linkedAccount"] and after["skills"] == ["Go", "Rust"]

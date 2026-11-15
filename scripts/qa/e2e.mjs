@@ -815,6 +815,60 @@ await guard("datarights", "Terms gate and restricted simulated modules (server f
 });
 await danaCtx?.close();
 
+// ====================================================================== TEST 9 — PROFILE, EMAIL CHANGE, AI DISCLOSURE, SIMULATED BANNER
+const eli = { first: "Eli", last: `Edit${RUN}`, email: unique("eli") };
+const eliNew = unique("eli-new");
+await guard("profile", "name correction and a verified email change through the UI", async () => {
+  const ctx = await newCtx();
+  const page = await signupUI(ctx, "freelancer", eli);
+  const second = await newCtx(); await loginUI(second, "Freelancer", eli.email);           // another device, signed in
+  await page.goto("/freelancer/your-data", { waitUntil: "networkidle" });
+  await page.fill("#profile-name", "Eliza Corrected"); await page.getByTestId("name-save").click();
+  await page.getByTestId("name-message").waitFor({ timeout: 10000 });
+  const me1 = await api(ctx, "GET", "/api/auth/me");
+  check("profile", "the corrected name is saved and shown", me1.body?.user?.name === "Eliza Corrected" && /updated/i.test(await page.getByTestId("name-message").innerText()), JSON.stringify(me1.body?.user?.name));
+
+  await page.fill("#new-email", eliNew); await page.fill("#email-pw", PW); await page.getByTestId("email-request").click();
+  await page.getByTestId("email-devcode").waitFor({ timeout: 15000 });
+  const still = await api(ctx, "GET", "/api/auth/me");
+  check("profile", "asking for a new address does not change the account until the code is entered", still.body?.user?.email === eli.email.toLowerCase(), JSON.stringify(still.body?.user?.email));
+  await page.fill("#email-code", "000000"); await page.getByTestId("email-confirm").click();
+  await page.waitForTimeout(1200);
+  check("profile", "a wrong code is refused with a message", /isn.t right/i.test(await page.getByTestId("email-message").innerText()), await page.getByTestId("email-message").innerText());
+  const code = (await page.getByTestId("email-devcode").innerText()).match(/\d{6}/)?.[0];
+  await page.fill("#email-code", code); await page.getByTestId("email-confirm").click();
+  await page.waitForFunction(() => /Email changed/.test(document.querySelector("[data-testid=email-message]")?.textContent || ""), null, { timeout: 15000 });
+  const me2 = await api(ctx, "GET", "/api/auth/me");
+  check("profile", "after the code the account uses the new address and this browser stays signed in", me2.body?.user?.email === eliNew.toLowerCase(), JSON.stringify(me2.body?.user?.email));
+  const other = await api(second, "GET", "/api/auth/me");
+  check("profile", "the other device was signed out by the change (401)", other.status === 401, other.status);
+  const oldLogin = await rawApi("POST", "/api/auth/login", { email: eli.email, password: PW });
+  const newLogin = await rawApi("POST", "/api/auth/login", { email: eliNew, password: PW });
+  check("profile", "the old address no longer signs in; the new one does", oldLogin.status === 401 && newLogin.status === 200, `${oldLogin.status}/${newLogin.status}`);
+  await ctx.close(); await second.close();
+});
+
+await guard("disclosure", "AI disclosure wording: editable, cannot be made untrue; simulated banner on demo modules", async () => {
+  const pg = await newPage(ctxs.agency);
+  await pg.goto("/dashboard/settings", { waitUntil: "networkidle" });
+  await pg.waitForSelector("#ai-disclosure", { timeout: 15000 });
+  await pg.fill("#ai-disclosure", "Written by me personally"); await pg.getByTestId("disclosure-save").click();
+  await pg.waitForTimeout(1200);
+  check("disclosure", "a wording that does not mention AI is refused", /must say/i.test(await text(pg)), (await text(pg)).slice(0, 100));
+  await pg.fill("#ai-disclosure", "Drafted with AI help and reviewed by our team."); await pg.getByTestId("disclosure-save").click();
+  await pg.waitForTimeout(1200);
+  const st = await api(ctxs.agency, "GET", "/api/settings");
+  check("disclosure", "a wording that says AI was used is saved", st.body?.aiDisclosure === "Drafted with AI help and reviewed by our team.", JSON.stringify(st.body?.aiDisclosure));
+  const off = await api(ctxs.agency, "PATCH", "/api/settings", { aiDisclosure: "" });
+  check("disclosure", "the disclosure cannot be switched off (empty is refused, 422)", off.status === 422, off.status);
+  await pg.close();
+  const ip = await newPage(ctxs.investor);
+  await ip.goto("/investor/marketplace", { waitUntil: "networkidle" }); await ip.waitForTimeout(800);
+  const banner = await ip.getByTestId("simulated-banner").innerText().catch(() => "");
+  check("disclosure", "simulated modules show the 'not a financial service, no escrow, no real money' banner", /Simulated demonstration/.test(banner) && /no real money moves/.test(banner), banner.slice(0, 120));
+  await ip.close();
+});
+
 // ---------------------------------------------------------------- console / network summary
 const summary = {};
 for (const [k, c] of Object.entries({ ann: ctxs.ann, agency: ctxs.agency, bob: ctxs.bob, uma: uwCtx, owner: ctxs.owner, investor: ctxs.investor, agency2: ctxs.agency2 })) {
