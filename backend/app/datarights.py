@@ -31,7 +31,7 @@ log = logging.getLogger("autopilot.datarights")
 
 # Fields that never leave the server, in any collection.
 NEVER_EXPORT = frozenset({"_id", "password_hash", "salt", "token_hash", "key_hash", "inbound_token_hash",
-                          "reset", "verify", "session_version", "totp_secret"})
+                          "reset", "verify", "email_change", "session_version", "totp_secret"})
 NAME_KEYS = ("name", "display_name", "freelancer_name", "owner_name", "invited_by_name", "client_name", "holder",
              "nickname", "legal_name")
 

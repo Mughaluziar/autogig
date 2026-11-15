@@ -11,7 +11,11 @@ DELETE /api/me/deletion               -> cancels a pending deletion
 POST   /api/admin/deletions/run       platform owner: carry out the deletions whose grace period has ended
 
 Personal API keys can't call any of these (security.py blocks /me for keys)."""
+import hashlib
+import hmac
 import json
+import re
+import secrets
 import time
 from datetime import timedelta
 
@@ -19,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .. import auth, datarights, db, repo, rights_store, session as sessions, terms
+from .. import auth, datarights, db, email as mail, repo, rights_store, session as sessions, terms
 from ..access import store as access_store
 from ..auth import current_user, require_owner
 from ..config import get_settings
@@ -243,3 +247,115 @@ async def housekeeping_loop(interval_seconds: int = 3600) -> None:
         except Exception:                       # noqa: BLE001 - the next run retries; one bad row must not stop the loop
             log.exception("data rights housekeeping failed")
         await asyncio.sleep(interval_seconds)
+
+
+
+# --------------------------------------------------------------------------------------------------------------
+# Profile: name correction and a secure email change
+# --------------------------------------------------------------------------------------------------------------
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
+EMAIL_CODE_TTL = 15 * 60
+EMAIL_CODE_ATTEMPTS = 5
+EMAIL_CHANGES_PER_HOUR = 3
+
+
+class ProfileBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+@router.patch("/me/profile")
+async def update_profile(body: ProfileBody, user: dict = Depends(current_user)):
+    """Correct your display name. (Email is changed with /me/email/change: it needs proof of the new address.)"""
+    name = " ".join(body.name.split())
+    if not name:
+        raise HTTPException(422, "Enter your name.")
+    doc = await _account(user)
+    await db.update_user(doc["email"], {"name": name})
+    await access_store.rename_member(doc["id"], name)
+    await repo.log_activity(doc["id"], "Account", "Name changed")
+    return {"ok": True, "user": {**db._public_user({**doc, "name": name}), "owner": auth.is_owner(user)}}
+
+
+def _email_code_hash(user_id: str, new_email: str, code: str) -> str:
+    return hmac.new(get_settings().secret_key.encode(), f"email-change:{user_id}:{new_email}:{code}".encode(), hashlib.sha256).hexdigest()
+
+
+class EmailChangeBody(BaseModel):
+    newEmail: str = Field(max_length=254)
+    password: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/me/email/change")
+async def request_email_change(body: EmailChangeBody, request: Request, user: dict = Depends(current_user)):
+    """Step 1: needs the current password (or a fresh sign-in); emails a 6-digit code to the NEW address and a heads-up to
+    the old one. Nothing changes until the code is entered (step 2)."""
+    doc = await _account(user)
+    _reauth(doc, body.password, request)
+    new = body.newEmail.strip().lower()
+    if not _EMAIL_RE.match(new):
+        raise HTTPException(422, "Enter a valid email address.")
+    if new == doc["email"]:
+        raise HTTPException(422, "That is already your email address.")
+    if auth.is_owner(user):
+        raise HTTPException(409, "Platform owner accounts can't change their email here (OWNER_EMAILS is configured by address).")
+    from . import auth as auth_routes          # (imported here: routers.auth imports modules that import this one)
+    if not db.is_email_verified(doc) and auth_routes.verification_enforced():
+        raise HTTPException(403, "Verify your current email address first.")
+    pending = doc.get("email_change") or {}
+    sent = [t for t in pending.get("sent_at", []) if time.time() - t < 3600]
+    if len(sent) >= EMAIL_CHANGES_PER_HOUR:
+        raise HTTPException(429, "Too many email-change requests. Try again in an hour.", headers={"Retry-After": "3600"})
+    if await db.find_user(new) or await db.email_has_identity(new):
+        # Same answer whether or not the address is registered would hide it from the owner; signup already reveals it.
+        raise HTTPException(409, "That email address can't be used. Choose another.")
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    await db.update_user(doc["email"], {"email_change": {
+        "email": new, "code_hash": _email_code_hash(doc["id"], new, code), "expires_at": time.time() + EMAIL_CODE_TTL,
+        "attempts": 0, "sent_at": sent + [time.time()]}})
+    out: dict = {"ok": True, "expiresInSeconds": EMAIL_CODE_TTL, "sent": False}
+    if mail.enabled():
+        subject, html = mail.email_change_code_email(doc.get("name", ""), code, EMAIL_CODE_TTL // 60)
+        out["sent"] = await mail.send_email(new, subject, html)
+        subject, html = mail.email_change_notice_email(doc.get("name", ""), new, changed=False)
+        await mail.send_email(doc["email"], subject, html)
+    elif get_settings().environment != "production":
+        out["devCode"] = code                      # no email provider outside production: the page shows it, labelled
+    await repo.log_activity(doc["id"], "Security", "Email change requested")
+    return out
+
+
+class EmailConfirmBody(BaseModel):
+    code: str = Field(max_length=20)
+
+
+@router.post("/me/email/confirm")
+async def confirm_email_change(body: EmailConfirmBody, request: Request, response: Response, user: dict = Depends(current_user)):
+    """Step 2: the code proves control of the new address. Then the account moves to it, every other session is signed
+    out, and this browser gets a fresh session."""
+    doc = await _account(user)
+    pending = doc.get("email_change") or {}
+    if not pending:
+        raise HTTPException(404, "No email change is pending.")
+    if time.time() > pending.get("expires_at", 0):
+        await db.update_user(doc["email"], {}, unset=("email_change",))
+        raise HTTPException(410, "That code expired. Start the change again.")
+    if pending.get("attempts", 0) >= EMAIL_CODE_ATTEMPTS:
+        raise HTTPException(429, "Too many wrong codes. Start the change again.")
+    code = re.sub(r"\D", "", body.code)
+    if not hmac.compare_digest(_email_code_hash(doc["id"], pending["email"], code), pending.get("code_hash", "")):
+        await db.update_user(doc["email"], {"email_change": {**pending, "attempts": pending.get("attempts", 0) + 1}})
+        raise HTTPException(400, "That code isn't right.")
+    old, new = doc["email"], pending["email"]
+    moved = await db.change_email(old, new, {"email_verified": True, "session_version": doc.get("session_version", 0) + 1})
+    if moved is None:
+        await db.update_user(old, {}, unset=("email_change",))
+        raise HTTPException(409, "That email address can't be used. Choose another.")
+    await access_store.rename_email(doc["id"], new)
+    await db.relink_identities(old, new)
+    await repo.log_activity(doc["id"], "Security", "Email changed; other sessions signed out")
+    if mail.enabled():
+        subject, html = mail.email_change_notice_email(doc.get("name", ""), new, changed=True)
+        await mail.send_email(old, subject, html)
+    public = db._public_user(moved)
+    token = auth.create_access_token(public, session_version=moved["session_version"])
+    return sessions.issue(request, response, {"ok": True, "token": token, "user": {**public, "owner": auth.is_owner(public)}})

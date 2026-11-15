@@ -108,7 +108,7 @@ export const adminNav: NavSection[] = [
       { href: "/dashboard/users", label: "Team & Invites", icon: UserCog },
       { href: "/dashboard/integrations", label: "Integrations", icon: Plug },
       { href: "/dashboard/security", label: "Security & API", icon: ShieldCheck },
-      { href: "/dashboard/your-data", label: "Your data", icon: FileText },
+      { href: "/dashboard/your-data", label: "Account & data", icon: FileText },
       { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
       { href: "/dashboard/audit-log", label: "Audit Log", icon: ScrollText },
     ],
@@ -138,7 +138,7 @@ export const freelancerNav: NavSection[] = [
     items: [
       { href: "/freelancer/earnings", label: "Earnings", icon: Wallet },
       { href: "/freelancer/profile", label: "My Profile", icon: User },
-      { href: "/freelancer/your-data", label: "Your data", icon: ShieldCheck },
+      { href: "/freelancer/your-data", label: "Account & data", icon: ShieldCheck },
     ],
   },
   {
@@ -164,6 +164,6 @@ export const investorNav: NavSection[] = [
   },
   {
     title: "Account",
-    items: [{ href: "/investor/your-data", label: "Your data", icon: ShieldCheck }],
+    items: [{ href: "/investor/your-data", label: "Account & data", icon: ShieldCheck }],
   },
 ];

@@ -128,6 +128,35 @@ no account is activated without the code.</p>""",
     )
 
 
+def email_change_code_email(name: str, code: str, minutes: int) -> tuple[str, str]:
+    first = (name or "there").split()[0]
+    spaced = " ".join(code)
+    return (
+        f"{code} confirms your new Autopilot email address",
+        _wrap(
+            f"Confirm your new email, {first}",
+            f"""
+<p>Someone asked to use this address as the sign-in email of an Autopilot account. Enter this code on the settings page to confirm:</p>
+<p style="font-size:32px;letter-spacing:8px;font-weight:700;color:#e6edf3;margin:20px 0">{spaced}</p>
+<p>The code expires in {minutes} minutes. If this wasn't you, ignore this email: nothing changes without the code.</p>""",
+        ),
+    )
+
+
+def email_change_notice_email(name: str, new_email: str, changed: bool) -> tuple[str, str]:
+    first = (name or "there").split()[0]
+    if changed:
+        subject, title = "Your Autopilot sign-in email was changed", f"Your email was changed, {first}"
+        body = (f"<p>The sign-in email of your Autopilot account is now <strong>{new_email}</strong>. All other sessions were signed out.</p>"
+                "<p>If you didn't do this, reset your password straight away and contact support: someone with your password and access to that mailbox made the change.</p>")
+    else:
+        subject, title = "Someone asked to change your Autopilot sign-in email", f"Email change requested, {first}"
+        body = (f"<p>A request was made to change the sign-in email of your account to <strong>{new_email}</strong>. "
+                "Nothing changes until a code sent to that address is entered.</p>"
+                "<p>If this wasn't you, change your password now: the request needed your password.</p>")
+    return subject, _wrap(title, body)
+
+
 def reset_email(name: str, link: str, minutes: int) -> tuple[str, str]:
     first = (name or "there").split()[0]
     return (

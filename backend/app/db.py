@@ -242,3 +242,37 @@ def _public_user(doc: dict) -> dict:
         "profile": doc.get("profile") or {},
         "deletionScheduledFor": _iso(doc.get("deletion_scheduled_for")),
     }
+
+
+async def change_email(old_email: str, new_email: str, extra: dict) -> dict | None:
+    """Move an account to a new sign-in address (the email is the document key). Returns the new document, or None if the
+    new address is taken or the account vanished. Order: write the new document first, then delete the old one, so a crash
+    leaves two copies of the same account (never none); the old copy is removed by re-running the confirmation."""
+    old_email, new_email = old_email.strip().lower(), new_email.strip().lower()
+    doc = await find_user(old_email)
+    if doc is None:
+        return None
+    moved = {**{k: v for k, v in doc.items() if k not in ("_id", "email_change", "reset")}, **extra,
+             "_id": new_email, "email": new_email}
+    if not enabled():
+        if new_email in _mem_users:
+            return None
+        _mem_users[new_email] = moved
+        _mem_users.pop(old_email, None)
+        return moved
+    try:
+        await _get_db().users.insert_one(moved)
+    except DuplicateKeyError:
+        return None
+    await _get_db().users.delete_one({"_id": old_email, "id": doc["id"]})
+    return moved
+
+
+async def relink_identities(old_email: str, new_email: str) -> None:
+    """Social sign-in links point at the account's email; follow it when it changes."""
+    if not enabled():
+        for doc in _mem_identities.values():
+            if doc.get("email") == old_email:
+                doc["email"] = new_email
+        return
+    await _get_db().oauth_identities.update_many({"email": old_email}, {"$set": {"email": new_email}})

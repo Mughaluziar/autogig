@@ -242,3 +242,27 @@ async def touch_key(key_id: str, when: datetime) -> None:
             d["last_used_at"] = when
         return
     await db._get_db().api_keys.update_one({"_id": key_id}, {"$set": {"last_used_at": when}})
+
+
+async def rename_email(user_id: str, new_email: str, new_name: str | None = None) -> None:
+    """The person changed their sign-in address (or name): update the copies on their API keys and team memberships."""
+    fields = {"email": new_email}
+    if not db.enabled():
+        for d in _mem["keys"].values():
+            if d.get("user_id") == user_id:
+                d["email"] = new_email
+        for d in _mem["members"].values():
+            if d.get("user_id") == user_id:
+                d.update({"email": new_email, **({"name": new_name} if new_name else {})})
+        return
+    await db._get_db().api_keys.update_many({"user_id": user_id}, {"$set": fields})
+    await db._get_db().team_members.update_many({"user_id": user_id}, {"$set": {**fields, **({"name": new_name} if new_name else {})}})
+
+
+async def rename_member(user_id: str, new_name: str) -> None:
+    if not db.enabled():
+        for d in _mem["members"].values():
+            if d.get("user_id") == user_id:
+                d["name"] = new_name
+        return
+    await db._get_db().team_members.update_many({"user_id": user_id}, {"$set": {"name": new_name}})

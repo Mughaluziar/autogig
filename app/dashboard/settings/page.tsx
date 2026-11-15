@@ -191,10 +191,10 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="space-y-1.5"><Label>Full name</Label><Input value={user?.name ?? ""} readOnly /></div>
               <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={user?.email ?? ""} readOnly /></div>
-              <p className="text-sm text-muted-foreground">Name and email can't be changed here yet. To change your password, use Security.</p>
+              <p className="text-sm text-muted-foreground">Change your name or sign-in email on the Account &amp; data page. To change your password, use Security.</p>
               <div className="flex flex-wrap gap-2">
                 <Button asChild variant="outline"><Link href="/dashboard/security/password"><KeyRound className="size-4" /> Change password</Link></Button>
-                <Button asChild variant="outline"><Link href="/dashboard/your-data">Download or delete my data</Link></Button>
+                <Button asChild variant="outline"><Link href="/dashboard/your-data">Name, email, download or delete data</Link></Button>
               </div>
             </CardContent>
           </Card>
