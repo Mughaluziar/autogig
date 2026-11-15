@@ -208,9 +208,18 @@ def test_a_missing_or_short_nonce_is_not_accepted(client):
 
 
 def test_nonces_expire_so_the_store_does_not_grow(client):
+    from app import db
+    from conftest import TEST_MONGODB_URI
+
     async def go():
         assert await edge.claim_nonce("a" * 20, now=1000.0)
-        assert not await edge.claim_nonce("a" * 20, now=1010.0)
-        assert await edge.claim_nonce("b" * 20, now=1000.0 + 500)           # the old one has expired and is pruned
+        assert not await edge.claim_nonce("a" * 20, now=1010.0)                # replay inside the window
+        if TEST_MONGODB_URI:
+            idx = await db._get_db().edge_nonces.index_information()           # MongoDB removes expired nonces itself (TTL)
+            assert any(v.get("expireAfterSeconds") == 0 and v["key"][0][0] == "expire_at" for v in idx.values())
+            return None
+        assert await edge.claim_nonce("b" * 20, now=1000.0 + 500)              # the old one has expired and is pruned
         return len(edge._seen)
-    assert client.portal.call(go) == 1
+    result = client.portal.call(go)
+    if not TEST_MONGODB_URI:
+        assert result == 1
