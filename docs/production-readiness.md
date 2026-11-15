@@ -28,6 +28,7 @@ Legend: **L** = I can complete it locally (done unless noted) · **X** = needs e
 | 17 | **Terms acceptance was a client-side checkbox only.** | L | **Recorded server-side**: append-only `terms_acceptances` (user id, versions, UTC time, method); re-accept screen when `TERMS_VERSION`/`PRIVACY_VERSION` change; social-sign-in accounts are asked at first visit. |
 | 18 | **Simulated money modules visible to every user.** | L | **Restricted:** `SIMULATED_MODULES=invited` is the production default (owners + accounts an owner invites); production refuses `all` without an explicit opt-in; nav, cover-offer polling and pages respect it; pages explain "by invitation, no real money". |
 | 19 | **R4: npm advisories.** | L / A | `axios` (never loaded, types-only) and the PostCSS copy inside Next fixed with same-major overrides: production audit now **0 critical, 0 high, 5 moderate** (all one Sentry build-plugin chain). `docs/npm-advisories.md` has every advisory, reachability and the upgrade analysis. Sentry 11 clears the rest but changes data-collection defaults (privacy): **awaiting your approval**. Next 16 and Nango 0.72 are not needed. |
+| 21 | **Owner decisions applied (2026-11-15):** simulated-module banner; AI disclosure on AI-drafted replies; profile correction and secure email change; Sentry 11 with explicit privacy settings; server-side Terms enforcement; single-use nonce on the edge proof. | L | **Done and tested** (`docs/requirements-checklist.md`, third pass in `IMPLEMENTATION_REPORT.md`). Sentry and email delivery need real accounts to verify. |
 | 20 | **R3: no way to verify the Vercel to Render chain.** | L (run: X) | `docs/staging-verification.md`, extra checks in `scripts/ops/staging-check.mjs` (owner diagnostics, forged headers, edge-proof expectations, timeout probe), owner-only `/api/diag/request` and a staging-only `/api/diag/sleep`. **Not run on real infrastructure.** |
 
 ## 2. Blockers that remain (classified)
@@ -47,9 +48,7 @@ Legend: **L** = I can complete it locally (done unless noted) · **X** = needs e
 | Terms, Privacy, AI Disclosure; money/licensing questions; data-protection regime | P | docs/legal-review-questions.md |
 | Lawyer review of the rewritten Privacy/Terms and of the data lifecycle (retention period for kept records is a **placeholder of 7 years**; 14-day grace; shared business text kept; processor deletion; acceptance evidence) | P | `docs/legal-review-questions.md` questions 1-22 |
 | Decide launch posture for the invitation-only simulated modules (who is invited, what disclaimer investors see) | A, P | owner decision + lawyer (question 21) |
-| Personas feature (working names for AI agents): decide whether outbound messages need an explicit AI disclosure line | A, P | owner decision |
-| Self-service correction of name/email does not exist (only export and delete) | A (a feature) | decide if needed for launch |
-| Sentry 11 (clears the last 5 moderate production advisories; sets data-collection defaults, needs a DSN to verify) | A, X | approve; then verify on staging (`docs/npm-advisories.md`) |
+| Verify Sentry 11 with a real DSN: one test event with no body, cookies, headers, user or query string; source-map upload | X | `docs/integration-verification.md` s.6 |
 
 ## 3. Residual security and operational risks (not fixed)
 * **R1 (reduced, not closed): unverified on real Vercel/Render.** The signed-proof design works locally. If Vercel does not pass
@@ -61,7 +60,7 @@ Legend: **L** = I can complete it locally (done unless noted) · **X** = needs e
 * **R2 (closed locally): counters are shared** through MongoDB. Residual: a fixed-window burst can reach 2x the general limit at a
   window boundary; if MongoDB errors the counters degrade to per-process memory (logged); one extra small write per request.
 * **R3 (open): vendor behaviour unverified** (Vercel/Render headers, rewrite timeouts, cold starts on a sleeping plan).
-* **R4 (reduced): 5 moderate production advisories left** in the Sentry build plugin chain (build-time only); fix = Sentry 11 (approval).
+* **R4 (closed for production): 0 advisories**; 6 moderate remain in dev tooling only (eslint chain).
 * **R5: parsers and AI quality unverified on real data** (Upwork alert parser, Groq output); prompt-injection handling tested on synthetic text only.
 * **R6 (reduced): simulated money features** are hidden from ordinary users in production by default and labelled where shown; payouts are only recorded.
 * **R7: legal exposure** until the lawyer items are done. The product no longer promises features it lacks, but the texts are drafts.

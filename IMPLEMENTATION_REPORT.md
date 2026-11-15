@@ -324,3 +324,46 @@ must reach the API only through the website when the edge proof is enforced (web
 ## Not verified (needs accounts or approval)
 Vercel passing middleware headers to the external rewrite and overwriting visitor forwarded headers; Render hop count; proxy timeout for
 AI drafts; Sentry 11 behaviour; everything in the first report's list; a lawyer's view of every text and of retention.
+
+
+# Third pass (2026-11-15): decisions applied, hardening, full regression
+
+Requirement-by-requirement status: `docs/requirements-checklist.md` (COMPLETED / PARTIAL / BLOCKED). Production readiness is **not**
+declared: real staging verification, integrations, Atlas and the lawyer's review have not happened.
+
+## Added in this pass
+1. **Simulated modules:** stay owner-invited; a banner on every simulated page says they are demonstrations, not financial services, no escrow, no real money.
+2. **AI disclosure:** AI-drafted replies show an "AI-assisted draft" badge, are editable, and gain a disclosure line when copied; wording is editable in Settings
+   but must still say AI was used (empty or untrue wording is refused, 422). Demo persona messages always carry it. Autopilot sends nothing itself; the prompt no longer asks for "human-sounding" text.
+3. **Profile:** name correction and editable freelancer profile (rate, skills, availability, bio, validated like signup; linked account preserved); **secure email change**:
+   password (or fresh sign-in) + 6-digit code sent to the new address (15 min, 5 attempts, bound to that address, 3 requests/hour), heads-up email to the old address,
+   all other sessions signed out, reset tokens cleared, API keys/team rows/social links follow the new address, owners and unverified accounts refused, API keys cannot use it.
+4. **Sentry 11.12** with an explicit privacy baseline (frontend and API) and event scrubbing; production `npm audit` is now 0 advisories (see `docs/npm-advisories.md`).
+5. **Edge proof hardened:** single-use nonce (replay refused, shared through MongoDB with a TTL), signing even when the host supplies no visitor address.
+6. **Terms enforced on the server:** until the current versions are accepted the API answers 403 to everything except account, export, deletion and accept calls.
+7. **More data-rights tests:** teams (owner blocked while members remain, member deletion leaves the team, invitations to a deleted address removed), tenant isolation of exports, open simulated positions block deletion, deletion after an email change.
+8. **Docs:** requirements checklist, data lifecycle (teams, ledger, email change), staging verification (nonce), npm advisories (Sentry applied), integration verification (Sentry/AI disclosure), runbook settings.
+
+## Defects found by the regression and fixed (nothing weakened or skipped)
+* `npm run lint` failed with a parsing error in `lib/edge-sign.d.mts` (the first CI run would have been red): fixed with ambient `declare`s.
+* The proxy middleware did not sign requests when the host gave no visitor address (self-hosted/local), so the API treated them as direct: now signed as "unknown".
+* A test of mine asserted on the in-memory nonce store and failed in MongoDB mode: rewritten to check the TTL index there.
+* Two e2e checks asserted the old wording of Settings and the read-only profile: updated to the new behaviour.
+* Test harness: a stale `next start` on port 3100 (not visible to `lsof`) silently survived restarts and served an older build; processes are now killed by pid from `ss`.
+
+## Tests (final tree, 2026-11-15) and how to run them
+| Check | Command | Result |
+|---|---|---|
+| Backend, memory mode | `cd backend && pytest -q tests` (pinned deps, Python 3.12 venv) | **600 passed, 8 skipped, 0 failed** (the skips are memory-only or chain-only tests) |
+| Backend, real MongoDB 7 | `TEST_MONGODB_URI=mongodb://127.0.0.1:27018 pytest -q tests` | full run: **601 passed, 6 skipped, 1 failed**; the failure was my test above; after the fix `tests/test_edge.py` passes in Mongo mode (23 passed). No complete 602-pass re-run was made |
+| Browser e2e (real Chromium, real MongoDB, real API, website proxy with the **edge proof enforced**) | `BASE=http://localhost:3100 API=http://localhost:3100 CHROME=<chromium> node scripts/qa/e2e.mjs` | **270 / 270 passed** on the final run. Two earlier runs of the same tree: 269/270 (outdated Settings wording check, fixed) and 269/270 (timing-based multi-tab save check while a 1-hour Mongo suite was loading the machine; passed on the idle rerun) |
+| Frontend | `npm run typecheck` / `npm run lint` / `npm run qa` | pass / 0 errors, 1 pre-existing warning (conversations effect dependencies) / 24 pass, 3 warn, 0 fail |
+| Deploy guards, edge signing, Sentry privacy | `npm run test:deploy-guards` | 12 pass, 0 fail |
+| Production build | `npm run build` | compiled successfully (6.4 min); type checking and lint ran during it |
+| Dependencies | `npm audit --omit=dev` / `npm audit` / `pip-audit -r backend/requirements.txt` | 0 advisories / 6 moderate (dev tooling only) / no known vulnerabilities |
+| Workflow | `docker run rhysd/actionlint` | no findings |
+| Local proxy check | `next start` + real API | direct call 403, through the site works, visitor-sent `X-Edge-*` replaced, replay refused |
+
+## Not verified (needs accounts, staging or professional approval)
+Vercel passing middleware headers and overwriting visitor forwarded headers; Render hop count; proxy timeout for AI drafts; Sentry events with a real DSN and source-map upload;
+email delivery; Groq output; real Upwork alert emails; Atlas backups/restore; GitHub Actions first run; every legal text and the retention/grace decisions.
