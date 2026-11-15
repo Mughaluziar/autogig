@@ -600,7 +600,11 @@ await guard("demo", "anonymous visitors, nav routes, Coming soon pages, mobile c
   }
   await fp.goto("/freelancer/profile", { waitUntil: "networkidle" }); await fp.waitForTimeout(400);
   const ft = await text(fp);
-  check("demo", "freelancer profile says plainly that editing is not available yet", /Editing coming soon/i.test(ft) && /Editing is not available yet/i.test(ft));
+  check("demo", "freelancer profile is editable (rate, skills, availability, bio) and no longer says editing is unavailable", (await fp.getByTestId("profile-save").count()) === 1 && !/Editing coming soon/i.test(ft), ft.slice(0, 120));
+  await fp.fill("#pf-rate", "61"); await fp.fill("#pf-bio", "Edited in the browser test."); await fp.getByTestId("profile-save").click();
+  await fp.getByTestId("profile-message").waitFor({ timeout: 10000 });
+  const savedProfile = await api(ctxs.bob, "GET", "/api/auth/me");
+  check("demo", "saving the profile persists it on the server", savedProfile.body?.user?.profile?.hourlyRate === 61 && savedProfile.body?.user?.profile?.bio === "Edited in the browser test.", JSON.stringify(savedProfile.body?.user?.profile).slice(0, 160));
   check("demo", "freelancer profile shows no invented person, score, region or rate", !/Priya|96\/100|India|\$28|4\.2 days/.test(ft), ft.slice(0, 150));
   await fp.setViewportSize({ width: 1280, height: 800 }); await fp.goto("/freelancer/bids", { waitUntil: "networkidle" }); await fp.waitForTimeout(600);
   const deskTable = await fp.locator("table").first().isVisible().catch(() => false);
