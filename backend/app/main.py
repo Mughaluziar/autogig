@@ -71,7 +71,11 @@ if settings.environment == "production":
     for _warning in settings.production_warnings():
         logging.getLogger("autopilot").warning("production config: %s", _warning)
 if settings.sentry_dsn:
-    sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment, traces_sample_rate=0.05)
+    from .privacy import scrub_event
+    # Errors only: no request bodies, cookies, headers, user or query strings (see app/privacy.py).
+    sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment, traces_sample_rate=0.05,
+                    send_default_pii=False, max_request_body_size="never", include_local_variables=False,
+                    before_send=scrub_event)
 
 app = FastAPI(
     title="Autopilot Agency API",

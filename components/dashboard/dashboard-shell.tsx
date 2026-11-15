@@ -33,6 +33,7 @@ import { useEntity } from "@/lib/use-entity";
 import { EmptyState } from "@/components/shared/empty-state";
 import { CoverOfferPrompt } from "@/components/capital/cover-offer-prompt";
 import { isDemoOnlyRoute, type NavSection } from "./nav-config";
+import { isSimulatedPath } from "@/lib/access";
 
 const ROLE_NAMES: Record<string, string> = { admin: "Administrator", freelancer: "Freelancer", investor: "Investor" };
 
@@ -299,6 +300,15 @@ export function DashboardShell({
             <div role="alert" className="mx-auto mb-4 flex max-w-7xl items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
               <AlertTriangle className="size-4 shrink-0 text-warning" />
               Can&apos;t reach the server — some data may be missing or out of date, and changes you make now may not be saved.
+            </div>
+          )}
+          {isSimulatedPath(pathname) && !comingSoon && (
+            <div role="note" data-testid="simulated-banner" className="mx-auto mb-4 flex max-w-7xl items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-primary" />
+              <span>
+                <strong>Simulated demonstration.</strong> Banking, Marketplace, Capital and the pool token record entries in Autopilot&apos;s own ledger.
+                They are not financial services, hold no money in escrow, and no real money moves. Nothing here is a bank, investment or insurance product.
+              </span>
             </div>
           )}
           <div className="mx-auto max-w-7xl animate-fade-in">

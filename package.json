@@ -14,11 +14,11 @@
     "qa": "node scripts/qa/gapcheck.mjs",
     "qa:crawl": "node scripts/qa/crawl.mjs",
     "qa:auth": "node scripts/qa/authguard.mjs",
-    "test:deploy-guards": "node --test scripts/deploy-guards.test.mjs lib/edge-sign.test.mjs"
+    "test:deploy-guards": "node --test scripts/deploy-guards.test.mjs lib/edge-sign.test.mjs lib/sentry-privacy.test.mjs"
   },
   "dependencies": {
     "@nangohq/frontend": "^0.69.46",
-    "@sentry/nextjs": "^10.78.0",
+    "@sentry/nextjs": "11.12.0",
     "class-variance-authority": "0.7.0",
     "clsx": "2.1.1",
     "lucide-react": "0.446.0",
