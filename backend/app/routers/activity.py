@@ -24,7 +24,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from .. import email as mail, repo, seed
+from .. import email as mail, repo, seed, disclosure
 from ..auth import current_user, require_owner
 from ..config import get_settings as app_settings
 from .. import security, session as sessions
@@ -80,6 +80,8 @@ async def update_settings(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(422, "Invalid settings fields.")
     if _SERVER_OWNED_SETTINGS & body.keys():
         raise HTTPException(422, "Some settings can only be changed through their own connection flow.")
+    if "aiDisclosure" in body and not disclosure.valid(body["aiDisclosure"]):
+        raise HTTPException(422, "The disclosure line must say the message was drafted with AI assistance (3 to 200 characters).")
     hook = body.get("salesWebhook")
     if hook and urlparse(str(hook)).scheme != "https":
         raise HTTPException(422, "The sales webhook must be an https:// URL.")

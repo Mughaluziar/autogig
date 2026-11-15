@@ -2,6 +2,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { ShieldCheck, ShieldOff, Save, Bot, Cpu, Sliders, Bell, User, KeyRound, Mail } from "lucide-react";
+import { DisclosureSettings } from "@/components/account/disclosure-settings";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -92,6 +93,8 @@ export default function SettingsPage() {
 
         {/* Agents */}
         <TabsContent value="agents" className="mt-6 grid gap-6 lg:grid-cols-2">
+          <DisclosureSettings />
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Sliders className="size-5" /> Agent Thresholds</CardTitle>

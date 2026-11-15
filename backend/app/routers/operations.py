@@ -6,7 +6,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import llm
+from .. import disclosure, llm
 from ..store import DB, audit, get_by_id
 
 router = APIRouter(tags=["operations"])
@@ -137,16 +137,18 @@ def send_message(conversation_id: str, body: SendMessage):
     convo = get_by_id("conversations", conversation_id)
     if not convo:
         raise HTTPException(404, "Conversation not found")
+    text = disclosure.append(body.text, disclosure.DEFAULT)      # an AI persona's message always carries the disclosure
     msg = {
         "id": f"msg{len(DB['chat_messages']) + 1}",
         "from": "ai",
         "author": body.persona,
-        "text": body.text,
+        "aiAssisted": True,
+        "text": text,
         "time": time.strftime("%H:%M", time.gmtime()),
         "delay": 18,
     }
     DB["chat_messages"].append(msg)
-    convo["last"] = body.text
+    convo["last"] = text
     convo["time"] = _now()
     return msg
 
@@ -174,7 +176,7 @@ def auto_reply(conversation_id: str, body: AutoReplyBody):
     generated = llm.chat(
         [
             {"role": "system", "content": (
-                "You draft short, human-sounding replies for a freelancer/agency. "
+                "You draft short, natural replies for a freelancer/agency to review and edit. "
                 "Match the thread's tone and language. 1-3 sentences max, answer the "
                 "client's actual question, move the deal forward (next step, timeline, "
                 "or one clarifying question). No greetings, no sign-offs, no emojis."
@@ -192,7 +194,7 @@ def auto_reply(conversation_id: str, body: AutoReplyBody):
         "I'll come back to you with next steps today."
     )
     audit("Unified Inbox", f"AI reply drafted for {contact} ({channel})")
-    return {"reply": reply, "aiGenerated": bool(generated), "sent": False}
+    return {"reply": reply, "aiGenerated": bool(generated), "aiAssisted": True, "disclosure": disclosure.DEFAULT, "sent": False}
 
 
 class AutoReplyToggle(BaseModel):

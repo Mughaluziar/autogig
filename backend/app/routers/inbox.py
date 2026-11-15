@@ -19,7 +19,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
-from .. import repo, seed
+from .. import repo, seed, disclosure
 from ..auth import current_user
 from ..config import get_settings
 from .. import llm
@@ -402,7 +402,7 @@ async def conversations(user: dict = Depends(current_user)):
             "deepLink": latest.get("deep_link", ""),
             "thread": [{"id": m["id"], "from": "contact", "author": m.get("sender", "Contact"),
                         "text": m.get("body", m.get("preview", "")), "time": m.get("received_at", ""),
-                        "unread": bool(m.get("unread")), "replyDraft": m.get("reply_draft", "")}
+                        "unread": bool(m.get("unread")), "replyDraft": m.get("reply_draft", ""), "replyDraftAi": bool(m.get("reply_draft_ai"))}
                        for m in thread],
         })
     return sorted(result, key=lambda item: item["time"], reverse=True)
@@ -450,6 +450,8 @@ async def reply_draft(body: ReplyDraftBody, user: dict = Depends(current_user)):
     reply = reply.strip()
     saved = await repo.update("messages", user["id"], body.message_id, {
         "reply_draft": reply,
+        "reply_draft_ai": True,                 # AI wrote (or started) this draft: the disclosure line applies when it is copied out
         "reply_draft_updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     })
-    return {"reply": saved.get("reply_draft", reply), "aiGenerated": bool(generated)}
+    return {"reply": saved.get("reply_draft", reply), "aiGenerated": bool(generated), "aiAssisted": True,
+            "disclosure": await disclosure.line_for(user["id"])}

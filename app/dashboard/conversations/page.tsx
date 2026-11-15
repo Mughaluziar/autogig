@@ -26,6 +26,9 @@ export default function ConversationsPage() {
   const [readIds, setReadIds] = React.useState<Set<string>>(new Set());
   const [platformFilter, setPlatformFilter] = React.useState("All");
   const [drafting, setDrafting] = React.useState(false);
+  // AI wrote (or started) this reply: a disclosure line is added when it is copied, and the user sees and can reword it.
+  const [aiDraft, setAiDraft] = React.useState(false);
+  const [disclosure, setDisclosure] = React.useState("Drafted with AI assistance and reviewed by the sender.");
   const [inboundAddress, setInboundAddress] = React.useState<{ configured: boolean; address?: string | null } | null>(null);
   const [outlookSync, setOutlookSync] = React.useState<{ configured: boolean; canConnect: boolean; connected: boolean; ready: boolean; lastSyncAt?: string; reason: string } | null>(null);
   const [syncingOutlook, setSyncingOutlook] = React.useState(false);
@@ -43,6 +46,7 @@ export default function ConversationsPage() {
 
   React.useEffect(() => {
     setDraft(latestMessage?.replyDraft ?? "");
+    setAiDraft(Boolean(latestMessage?.replyDraftAi));
   }, [active?.id]);
 
   const select = (id: string) => {
@@ -55,8 +59,10 @@ export default function ConversationsPage() {
   };
 
   const copyDraft = async () => {
-    const text = draft.trim();
-    if (!text || !active) return;
+    const body = draft.trim();
+    if (!body || !active) return;
+    // An AI-assisted reply always leaves with the disclosure line (shown under the box before you copy).
+    const text = aiDraft && !body.includes(disclosure) ? `${body}\n\n${disclosure}` : body;
     try {
       await navigator.clipboard.writeText(text);
       toast({ title: "Reply copied", description: "Open the original thread and paste it there." });
@@ -98,6 +104,8 @@ export default function ConversationsPage() {
     setDrafting(false);
     if (res?.data?.reply) {
       setDraft(res.data.reply);
+      setAiDraft(true);
+      if ((res.data as { disclosure?: string }).disclosure) setDisclosure((res.data as { disclosure?: string }).disclosure!);
       if (!res.data.aiGenerated) toast({ title: "Draft ready", description: "AI offline — used a template. Edit freely." });
     } else {
       toast({ title: "Couldn't draft a reply", description: res?.data?.detail ?? "The inbox message or backend is unavailable." });
@@ -230,6 +238,7 @@ export default function ConversationsPage() {
                     <p>{m.text}</p>
                     <div className={cn("mt-1 flex items-center gap-2 text-[10px]", m.from === "ai" ? "text-primary-foreground/70" : "text-muted-foreground")}>
                       <span>{m.author} · {m.time}</span>
+                      {m.from === "ai" && <span className="opacity-80">· AI-assisted</span>}
                       {m.delay && <span className="opacity-70">· {m.delay}s delay</span>}
                       {m.upsell && (
                         <Badge variant="secondary" className="gap-1 border-primary-foreground/30 bg-white/20 text-[10px] text-inherit">
@@ -243,7 +252,10 @@ export default function ConversationsPage() {
             </div>
 
             <div className="border-t p-4">
-              <div className="mb-3"><Badge variant="outline" className="text-xs">Review before pasting · no message is sent here</Badge></div>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="text-xs">Review and edit before pasting · Autopilot sends nothing</Badge>
+                {aiDraft && <Badge variant="secondary" className="text-xs" data-testid="ai-draft-badge">AI-assisted draft</Badge>}
+              </div>
               <div className="flex gap-2">
                 <Input
                   placeholder="Draft a reply to copy into the platform..."
@@ -259,6 +271,11 @@ export default function ConversationsPage() {
                   <Copy className="size-4" /> Copy reply
                 </Button>
               </div>
+              {aiDraft && (
+                <p className="mt-2 text-xs text-muted-foreground" data-testid="ai-disclosure-line">
+                  Added when you copy: <em>{disclosure}</em> You can reword it in Settings (it must still say AI was used).
+                </p>
+              )}
             </div>
           </CardContent>
           </>
