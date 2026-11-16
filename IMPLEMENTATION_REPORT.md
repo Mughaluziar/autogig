@@ -367,3 +367,24 @@ declared: real staging verification, integrations, Atlas and the lawyer's review
 ## Not verified (needs accounts, staging or professional approval)
 Vercel passing middleware headers and overwriting visitor forwarded headers; Render hop count; proxy timeout for AI drafts; Sentry events with a real DSN and source-map upload;
 email delivery; Groq output; real Upwork alert emails; Atlas backups/restore; GitHub Actions first run; every legal text and the retention/grace decisions.
+
+
+## Fourth pass: final regression and handover (2026-11-16)
+Starting point `1a69bf4`. Exact results on the final tree (all local; nothing pushed or deployed):
+
+| Check | Result |
+|---|---|
+| Backend, in-memory (`pytest -q`) | 600 passed, 8 skipped, 0 failed (run before the route-sweep test was added; that file passes alone, 22 tests, so 622 would be expected) |
+| Backend, real MongoDB 7 (`TEST_MONGODB_URI=mongodb://127.0.0.1:27018 pytest -q`) | **624 passed, 6 skipped, 0 failed** (55 min). First complete Mongo run after the edge-proof test correction |
+| Chromium e2e, real MongoDB + API, edge proof enforced | First run 269/270: `[demo] a forged session cookie is rejected ... lands on login` failed. The same check passed in isolation (landed on `/login` at 800 ms and 3 s) and the whole suite then passed **270/270** on a clean re-run. Cause not proven; treated as startup timing on the first load after a fresh server start, not as a fix |
+| Frontend | `typecheck` pass; `lint` 0 errors, 1 existing warning (`conversations/page.tsx` hook dependencies); `npm run qa` 24 pass / 3 warn / 0 fail; `test:deploy-guards` 12 pass; production `next build` compiled |
+| Dependencies and CI | `npm audit --omit=dev` 0 vulnerabilities; `npm audit` 6 moderate (dev tooling); `pip-audit -r backend/requirements.txt` none; `actionlint` (Docker image) no findings |
+
+Skipped tests (none skipped to obtain a pass): memory mode, 8: Mongo-only (`test_data_map_complete`, `test_mongo` x2, `test_ratelimit` x4) and the chain end-to-end that needs `contracts/scripts/e2e-local.sh`;
+Mongo mode, 6: five tests that inspect in-memory storage directly (covered in memory mode) and the chain end-to-end.
+The 3 QA warnings are the existing ones (see `npm run qa` output). The first e2e failure above is the only unexplained failure.
+
+New in this pass: `tests/test_route_auth_sweep.py` (security regression), `docs/crypto-token-feasibility.md` (research only), the insurance verification below.
+**Insurance:** the "protection fund" is a simulated ledger feature, explicitly "not insurance". Its workflows are tested (`test_capital.py`, 16 tests) and pass; this does not verify any real insurance, insurer, premium collection or payout.
+
+Security review notes (no new defects found; nothing weakened): API-key edge exemption is safe (any `apk_` credential is fully authenticated by `ApiKeyMiddleware`, an invalid one is a 401 even with a valid cookie; `test_edge.py` line 118); edge nonce store fails open if MongoDB errors (logged, residual risk already listed); `/health` and the reviewed public list are the only anonymous routes.

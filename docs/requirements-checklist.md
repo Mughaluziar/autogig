@@ -70,3 +70,10 @@ is about a real third party: those rows are PARTIAL or BLOCKED. Test commands an
 | Retention period for kept records, grace period, processor deletion, acceptance evidence | **BLOCKED** | lawyer decision (placeholder 7 years / 14 days in config) |
 | Licensing for any real money, investment, lending or insurance feature | **BLOCKED** | lawyer; the modules stay simulated and invitation-only meanwhile |
 | Confirmation that Upwork's/Fiverr's terms allow forwarding your own alert emails to a drafting tool | **BLOCKED** | your decision / lawyer |
+
+## G. Final verification pass (2026-11-16)
+| Item | Status | Evidence / gap |
+|---|---|---|
+| "Insurance": the platform's **protection fund** (not insurance): automatic cover on advances, optional 24-hour cover purchase, platform-reported-loss claims, claim cap at fund balance, claims hold off write-offs | **COMPLETED as a simulation** | `tests/test_capital.py` (16 tests, all passed in memory and real-MongoDB modes); `tests/test_modules_gate.py` (6) for invitation-only access. It moves ledger entries only: **no real money, no licensed insurer, no regulated insurance product.** Real insurance is BLOCKED on legal/licensing decisions (`docs/legal-review-questions.md`) |
+| Every API route refuses anonymous callers except a reviewed public list | **COMPLETED** | `tests/test_route_auth_sweep.py` (22): walks the OpenAPI route list; stale allowlist entries also fail |
+| Real ecosystem token / token-funded insurance | **BLOCKED (out of scope, research only)** | `docs/crypto-token-feasibility.md`; needs a separate contract, counsel, professional tokenomics review and an independent audit. Nothing deployed |

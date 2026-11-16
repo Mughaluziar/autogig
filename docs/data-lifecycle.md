@@ -120,3 +120,6 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 Retention period and legal basis for financial and contract records; whether keeping shared business text is acceptable;
 whether the 14-day grace period is acceptable; whether to log IP or user agent with Terms acceptance; whether a processor
 deletion flow is needed; response-time promises in the Privacy Policy.
+
+## Verification status (2026-11-16)
+Export, deletion (grace period, blockers, tombstone, pseudonym), retention purge, Terms recording and the data-map completeness check pass in the backend suite on real MongoDB (624 passed) and in the Chromium run (`datarights` group). Not verified: processor-side deletion (email/AI/Sentry providers), Atlas backup expiry of deleted data, and the 7-year/14-day placeholders, which need a lawyer.

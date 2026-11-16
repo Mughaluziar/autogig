@@ -85,3 +85,7 @@ website, `REQUIRE_EDGE_PROOF`, `RATE_LIMIT_BACKEND`, `SINGLE_INSTANCE`, `SIMULAT
 `ENABLE_DIAG_SLEEP` (staging only), `ALLOW_NO_EDGE_PROOF` (website build). **Database changes:** new collections `terms_acceptances`,
 `data_requests`, `deleted_accounts`, `rate_limits` and indexes on `users.id`, created at startup; user documents may gain
 `terms_accepted`, `deletion_scheduled_for`, `simulated_access`. No collection is dropped or rewritten; existing documents keep working.
+
+
+## Addendum 2026-11-16: final regression results
+Backend 624 passed / 6 skipped / 0 failed against real MongoDB; 600 passed / 8 skipped in memory mode (before one added test file, 22 tests, which passes alone); Chromium e2e 270/270 on the second run (first run 269/270, one timing-sensitive check that passed in isolation); typecheck, lint (0 errors), QA, deploy-guard tests, production build, `npm audit --omit=dev` (0), `pip-audit`, `actionlint` all clean. This is local evidence only. **The platform is not production-ready**: staging verification (Vercel/Render edge proof, client IP, timeouts), email delivery, Sentry DSN, Atlas backups, GitHub CI first run and legal review have not been done. Details: `docs/requirements-checklist.md`.

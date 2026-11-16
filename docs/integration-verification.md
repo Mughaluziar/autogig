@@ -93,3 +93,6 @@ Tested with synthetic data and stand-ins (see IMPLEMENTATION_REPORT.md): the app
 leads, drafts via a stand-in HTTP provider, reset-link/verification code issuance outside production, webhook signature
 checks in unit tests). **Not testable without your accounts:** anything that talks to Resend/SMTP, Groq, an inbound-email
 provider, Stripe, the social providers, Sentry, Nango/Microsoft, DNS (SPF/DKIM/MX) and real Upwork emails.
+
+## Status (2026-11-16)
+No external integration has been verified with a real service (email provider, Groq, inbound Upwork alerts, Stripe, social sign-in, Sentry, Nango). Everything above is tested against stubs and synthetic data only. See the BLOCKED rows in `docs/requirements-checklist.md` section E.
