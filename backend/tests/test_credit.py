@@ -309,3 +309,15 @@ def test_credit_is_gated_like_the_other_simulated_modules(client, owner, monkeyp
     ann = bearer(signup(client, email="ann@example.com", role="freelancer")["token"])
     assert client.get("/api/credit/overview", headers=ann).status_code == 403
     assert client.get("/api/credit/overview", headers=owner).status_code == 200
+
+
+def test_the_database_guard_stops_two_simultaneous_open_applications(client, owner):
+    """The pre-check can race; the unique open-application guard in the store is the real protection."""
+    pool(client, owner)
+    fl = freelancer(client, owner)
+    user = run(client, db.find_user, "fl@example.com")
+    fields = {"title": "Site", "description": "x" * 30, "requested_cents": 100_000, "installments": 3, "documents": []}
+    run(client, service._insert_application, user, 100_000, fields)
+    with pytest.raises(cstore.Conflict):
+        run(client, service._insert_application, user, 100_000, fields)
+    assert len(client.get("/api/credit/applications", headers=fl).json()) == 1

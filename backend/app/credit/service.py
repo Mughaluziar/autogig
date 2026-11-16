@@ -212,13 +212,20 @@ async def apply(user: dict, fields: dict) -> dict:
     open_agr = [a for a in await store.find("credit_agreements", {"user_id": user["id"]}, limit=50) if a["status"] in OPEN_AGREEMENT]
     if open_apps or open_agr:
         raise CreditError("You already have an open application or an unpaid credit agreement.", 409)
-    rec = await store.insert("credit_applications", user["id"], {
-        "title": fields["title"], "description": fields["description"], "requested_cents": amount,
-        "preferred_installments": fields["installments"], "documents": validate_documents(fields.get("documents")),
-        "status": "submitted", "offer": None, "decision": None, "settlement": "simulated",
-        "applicant_name": user.get("name", ""), "applicant_email": user.get("email", "")})
+    try:
+        rec = await _insert_application(user, amount, fields)
+    except store.Conflict:
+        raise CreditError("You already have an open application or an unpaid credit agreement.", 409)
     await audit(user, "application_submitted", "credit_application", rec["id"], {"requested_cents": amount})
     return rec
+
+
+async def _insert_application(user: dict, amount: int, fields: dict) -> dict:
+    return await store.insert("credit_applications", user["id"], {
+        "title": fields["title"], "description": fields["description"], "requested_cents": amount,
+        "preferred_installments": fields["installments"], "documents": validate_documents(fields.get("documents")),
+        "status": "submitted", "open": True, "offer": None, "decision": None, "settlement": "simulated",
+        "applicant_name": user.get("name", ""), "applicant_email": user.get("email", "")})
 
 
 async def history_signals(user_id: str) -> dict:
@@ -247,7 +254,7 @@ async def decide(owner: dict, app_id: str, *, approve: bool, grade: str = "", fe
     if app["status"] != "submitted":
         raise CreditError(f"This application is already {app['status']}.", 409)
     if not approve:
-        out = await _cas("credit_applications", app, {"status": "declined", "decision": {"by": owner["id"], "note": note[:500], "at": now()}})
+        out = await _cas("credit_applications", app, {"status": "declined", "open": False, "decision": {"by": owner["id"], "note": note[:500], "at": now()}})
         await audit(owner, "application_declined", "credit_application", app_id, {})
         return out
     if grade not in GRADES or not (MIN_FEE_BPS <= fee_bps <= MAX_FEE_BPS) or not (1 <= installments <= MAX_INSTALLMENTS):
@@ -275,7 +282,7 @@ async def reject_offer(user: dict, app_id: str) -> dict:
     app = await store.get("credit_applications", app_id, user_id=user["id"])
     if not app or app["status"] != "offered":
         raise CreditError("There is no open offer to reject.", 404)
-    out = await _cas("credit_applications", app, {"status": "rejected"})
+    out = await _cas("credit_applications", app, {"status": "rejected", "open": False})
     await audit(user, "offer_rejected", "credit_application", app_id, {})
     return out
 
@@ -284,7 +291,7 @@ async def withdraw(user: dict, app_id: str) -> dict:
     app = await store.get("credit_applications", app_id, user_id=user["id"])
     if not app or app["status"] not in OPEN_APPLICATION:
         raise CreditError("There is no open application to withdraw.", 404)
-    out = await _cas("credit_applications", app, {"status": "withdrawn"})
+    out = await _cas("credit_applications", app, {"status": "withdrawn", "open": False})
     await audit(user, "application_withdrawn", "credit_application", app_id, {})
     return out
 
@@ -297,12 +304,12 @@ async def accept_offer(user: dict, app_id: str, accept_terms: bool) -> dict:
         raise CreditError("There is no open offer to accept.", 404)
     offer = app["offer"]
     if store.aware(offer["expires_at"]) <= now():
-        await _cas("credit_applications", app, {"status": "expired"})
+        await _cas("credit_applications", app, {"status": "expired", "open": False})
         raise CreditError("This offer has expired.", 409)
     if ledger.usd(await balances(), CASH) < offer["principal_cents"]:
         raise CreditError("The simulated pool cannot fund this offer right now.", 409)
     started = now()
-    app = await _cas("credit_applications", app, {"status": "accepted"})     # only one concurrent accept wins this step
+    app = await _cas("credit_applications", app, {"status": "accepted", "open": False})     # only one concurrent accept wins this step
     try:
         agr = await store.insert("credit_agreements", user["id"], {
             "application_id": app_id, "title": app["title"], "grade": offer["grade"], "principal_cents": offer["principal_cents"],
@@ -310,7 +317,7 @@ async def accept_offer(user: dict, app_id: str, accept_terms: bool) -> dict:
             "schedule": build_schedule(offer["principal_cents"], offer["fee_bps"], offer["installments"], started),
             "repayments": [], "disbursed": False, "written_off_cents": 0, "accepted_at": started, "settlement": "simulated"})
     except Exception:
-        await store.update("credit_applications", app["id"], {"status": "offered"}, expect_version=app["version"])
+        await store.update("credit_applications", app["id"], {"status": "offered", "open": True}, expect_version=app["version"])
         raise
     agr = await _disburse(agr)
     await audit(user, "offer_accepted", "credit_agreement", agr["id"], {"principal_cents": agr["principal_cents"]})
@@ -329,7 +336,7 @@ async def _disburse(agr: dict) -> dict:
         await _cas("credit_agreements", agr, {"status": "cancelled"})
         app = await store.get("credit_applications", agr["application_id"])
         if app:
-            await store.update("credit_applications", app["id"], {"status": "offered"}, expect_version=app["version"])
+            await store.update("credit_applications", app["id"], {"status": "offered", "open": True}, expect_version=app["version"])
         raise CreditError("The simulated pool could not fund this offer; the offer is open again.", 409)
     return await _cas("credit_agreements", agr, {"disbursed": True})
 
@@ -381,7 +388,7 @@ async def run_jobs(actor: dict | None = None, at=None) -> dict:
     summary = {"late": 0, "defaulted": 0, "expiredOffers": 0, "repaired": 0}
     for app in await store.find("credit_applications", {"status": "offered"}, limit=2000):
         if store.aware(app["offer"]["expires_at"]) <= at:
-            await store.update("credit_applications", app["id"], {"status": "expired"}, expect_version=app["version"])
+            await store.update("credit_applications", app["id"], {"status": "expired", "open": False}, expect_version=app["version"])
             summary["expiredOffers"] += 1
     for agr in await store.find("credit_agreements", {"status": {"$in": list(OPEN_AGREEMENT)}}, limit=5000):
         if not agr["disbursed"]:

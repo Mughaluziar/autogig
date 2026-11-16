@@ -103,6 +103,8 @@ async def ensure_indexes() -> None:
     await mdb.credit_contributions.create_index([("user_id", ASCENDING), ("idem", ASCENDING)], unique=True)
     await mdb.credit_applications.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
     await mdb.credit_applications.create_index([("status", ASCENDING), ("created_at", DESCENDING)])
+    await mdb.credit_applications.create_index("user_id", unique=True, name="one_open_credit_application_per_user",
+                                               partialFilterExpression={"open": True})
     await mdb.credit_agreements.create_index("application_id", unique=True)
     await mdb.credit_agreements.create_index([("user_id", ASCENDING), ("status", ASCENDING)])
     await mdb.credit_audit.create_index([("created_at", DESCENDING)])
@@ -127,6 +129,8 @@ async def insert(coll: str, user_id: str, fields: dict) -> dict:
             raise Conflict("This investment was already submitted.")
         if coll == "credit_contributions" and any(r["user_id"] == user_id and r.get("idem") == doc.get("idem") for r in rows):
             raise Conflict("This contribution was already submitted.")
+        if coll == "credit_applications" and doc.get("open") and any(r["user_id"] == user_id and r.get("open") for r in rows):
+            raise Conflict("You already have an open application.")
         if coll == "credit_agreements" and any(r.get("application_id") == doc.get("application_id") for r in rows):
             raise Conflict("This application already has an agreement.")
         if coll == "market_agreements" and any(r.get("listing_id") == doc.get("listing_id") for r in rows):

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { apiCall } from "@/lib/api";
 import { newIdempotencyKey, toCents, usd } from "@/lib/capital";
@@ -13,6 +14,7 @@ import {
   SUBSCRIPTION_LABELS, WALLET_LABELS, explorerLink, formatTokens, formatUsdc, requestAccount, shortAddress, signMessage,
   type Subscription, type TokenMe,
 } from "@/lib/token";
+import { useWallets } from "@/lib/wallets";
 import { formatRelative } from "@/lib/utils";
 
 type Detail = { detail?: string; reasons?: string[] };
@@ -37,14 +39,17 @@ export function WalletCard({ me, onChanged }: { me: TokenMe; onChanged: () => vo
   const { toast } = useToast();
   const [busy, setBusy] = React.useState(false);
   const wallet = me.wallet;
+  const { wallets } = useWallets();
+  const [chosenId, setChosenId] = React.useState("");
+  const chosen = wallets.find((w) => w.id === (chosenId || wallets[0]?.id)) ?? null;
 
   const link = async () => {
     setBusy(true);
     try {
-      const address = await requestAccount();
+      const address = await requestAccount(chosen?.provider);
       const challenge = await apiCall<Detail & { message?: string }>("/api/token/wallets/challenge", { address });
       if (!challenge || challenge.status >= 400 || !challenge.data.message) throw new Error(describe(challenge));
-      const signature = await signMessage(address, challenge.data.message);
+      const signature = await signMessage(address, challenge.data.message, chosen?.provider);
       const res = await apiCall<Detail>("/api/token/wallets", { address, signature });
       if (!res || res.status >= 400) throw new Error(describe(res));
       toast({ title: "Wallet linked", variant: "success" });
@@ -78,6 +83,14 @@ export function WalletCard({ me, onChanged }: { me: TokenMe; onChanged: () => vo
           </>
         ) : (
           <p className="text-muted-foreground">No wallet linked yet.</p>
+        )}
+        {(!wallet || wallet.status === "linked") && wallets.length > 1 && (
+          <div className="space-y-1.5">
+            <Label htmlFor="wallet-choice">Wallet</Label>
+            <Select id="wallet-choice" value={chosen?.id ?? ""} onChange={(e) => setChosenId(e.target.value)}>
+              {wallets.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </Select>
+          </div>
         )}
         {(!wallet || wallet.status === "linked") && (
           <Button size="sm" variant={wallet ? "outline" : "default"} disabled={busy} onClick={() => void link()}>

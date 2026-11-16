@@ -40,6 +40,7 @@ import {
   PackageCheck,
   Landmark,
   Coins,
+  HandCoins,
 } from "lucide-react";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string; soon?: boolean; simulated?: boolean };
@@ -89,6 +90,7 @@ export const adminNav: NavSection[] = [
       { href: "/dashboard/banking", label: "Banking", icon: Wallet, simulated: true },
       { href: "/dashboard/marketplace", label: "Marketplace", icon: Coins, simulated: true },
       { href: "/dashboard/capital", label: "Capital", icon: Landmark, simulated: true },
+      { href: "/dashboard/credit", label: "Project credit", icon: HandCoins, simulated: true },
     ],
   },
   {
@@ -137,6 +139,7 @@ export const freelancerNav: NavSection[] = [
     title: "Account",
     items: [
       { href: "/freelancer/earnings", label: "Earnings", icon: Wallet },
+      { href: "/freelancer/credit", label: "Project credit", icon: HandCoins, simulated: true },
       { href: "/freelancer/profile", label: "My Profile", icon: User },
       { href: "/freelancer/your-data", label: "Account & data", icon: ShieldCheck },
     ],
@@ -158,6 +161,7 @@ export const investorNav: NavSection[] = [
     items: [
       { href: "/investor", label: "Portfolio", icon: Landmark, simulated: true },
       { href: "/investor/marketplace", label: "Marketplace", icon: TrendingUp, simulated: true },
+      { href: "/investor/credit", label: "Funding pool", icon: HandCoins, simulated: true },
       { href: "/investor/banking", label: "Banking", icon: Wallet, simulated: true },
       { href: "/investor/token", label: "Pool token", icon: Coins, simulated: true },
     ],

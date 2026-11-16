@@ -873,6 +873,94 @@ await guard("disclosure", "AI disclosure wording: editable, cannot be made untru
   await ip.close();
 });
 
+// ====================================================================== AUTOGIG CREDIT PROTOTYPE (simulated)
+await guard("credit", "contribution, application, offer, acceptance, repayment, treasury (UI end to end)", async () => {
+  const idOf = async (ctx) => (await api(ctx, "GET", "/api/auth/me")).body?.user?.id;
+  const verify = async (ctx, roles) => {
+    await api(ctx, "POST", "/api/capital/verification", { legalName: "Qa Person", country: "US", roles });
+    return api(ctxs.owner, "POST", `/api/capital/admin/verifications/${await idOf(ctx)}`, { approve: true });
+  };
+  check("credit", "(setup) the freelancer's simulated identity is approved by the owner", (await verify(ctxs.ann, ["freelancer"])).status === 200);
+
+  // investor: wallet discovery with two announced wallets, then a demo contribution
+  const ip = await newPage(ctxs.investor);
+  await ip.addInitScript(() => {
+    const mk = (uuid, name, address) => ({ info: { uuid, name, icon: "data:image/svg+xml;base64,PHN2Zy8+", rdns: "test." + uuid }, provider: { request: async ({ method }) => method === "eth_requestAccounts" ? [address] : method === "eth_chainId" ? "0x2105" : null } });
+    const wallets = [mk("w-1", "Alpha Wallet", "0x1111111111111111111111111111111111111111"), mk("w-2", "Beta Wallet", "0x2222222222222222222222222222222222222222")];
+    window.addEventListener("eip6963:requestProvider", () => wallets.forEach((w) => window.dispatchEvent(new CustomEvent("eip6963:announceProvider", { detail: Object.freeze(w) }))));
+  });
+  await ip.goto("/investor/credit", { waitUntil: "networkidle" }); await ip.waitForTimeout(1200);
+  const body0 = await text(ip);
+  check("credit", "investor page states it is a simulation and that the AutoGig token is not issued", /AutoGig credit is a simulation/.test(body0) && /not issued/i.test(body0), body0.slice(0, 160));
+  check("credit", "both announced wallets are offered (EIP-6963), read-only", (await ip.locator("#wallet-pick option").allInnerTexts()).join(",") === "Alpha Wallet,Beta Wallet");
+  await ip.selectOption("#wallet-pick", "w-2"); await ip.getByRole("button", { name: /Connect Beta Wallet/ }).click(); await ip.waitForTimeout(500);
+  const addr = await ip.getByTestId("wallet-address").innerText().catch(() => "");
+  check("credit", "connecting shows the shortened address and the network name, nothing is sent to the server", /0x2222…2222/.test(addr) && /Base/.test(addr), addr);
+  await ip.fill("#contrib-amount", "5"); await ip.waitForTimeout(200);
+  check("credit", "an amount below the minimum shows an error and keeps the button disabled", (await text(ip)).includes("Enter an amount between") && await ip.getByRole("button", { name: "Record contribution" }).isDisabled());
+  await ip.fill("#contrib-amount", "2,000.00");
+  check("credit", "the contribution button stays disabled until the risk statement is ticked", await ip.getByRole("button", { name: "Record contribution" }).isDisabled());
+  await ip.getByRole("checkbox").first().click(); await ip.getByRole("button", { name: "Record contribution" }).click(); await ip.waitForTimeout(1500);
+  const afterC = await text(ip);
+  check("credit", "the demo contribution appears in the pool, the history and the simulated statement", /\$2,000\.00/.test(afterC) && /Demo contribution/.test(afterC) && /Simulated net result/.test(afterC), afterC.slice(0, 200));
+  await ip.close();
+
+  // freelancer: unverified account sees why it cannot apply; verified one applies through the form
+  const bobPage = await newPage(ctxs.bob);
+  await bobPage.goto("/freelancer/credit", { waitUntil: "networkidle" }); await bobPage.waitForTimeout(1000);
+  check("credit", "an unverified freelancer is told verification is needed and gets no application form", /Identity verification/.test(await text(bobPage)) && !(await bobPage.locator("#credit-title").count()), (await text(bobPage)).slice(0, 160));
+  await bobPage.close();
+  const ap = await newPage(ctxs.ann);
+  await ap.goto("/freelancer/credit", { waitUntil: "networkidle" }); await ap.waitForTimeout(1000);
+  await ap.fill("#credit-title", "Website for a local bakery");
+  await ap.fill("#credit-desc", "Fixed-price site with ordering. I need licences and stock photos before the client pays.");
+  await ap.fill("#credit-amount", "12"); await ap.waitForTimeout(200);
+  check("credit", "an out-of-range amount is flagged and blocks sending", (await text(ap)).includes("Enter an amount between") && await ap.getByRole("button", { name: "Send application" }).isDisabled());
+  await ap.fill("#credit-amount", "1000");
+  await ap.getByRole("button", { name: "Add a link" }).click();
+  await ap.getByLabel("Document 1 label").fill("Signed brief"); await ap.getByLabel("Document 1 link").fill("http://insecure.example/brief");
+  check("credit", "a non-https document link is refused before sending", (await text(ap)).includes("must start with https://") && await ap.getByRole("button", { name: "Send application" }).isDisabled());
+  await ap.getByLabel("Document 1 link").fill("https://example.com/brief.pdf");
+  await ap.getByRole("button", { name: "Send application" }).click(); await ap.waitForTimeout(1500);
+  check("credit", "the application is listed as 'In review'", /Website for a local bakery/.test(await text(ap)) && /In review/.test(await text(ap)), (await text(ap)).slice(0, 200));
+
+  // owner: review and offer
+  const op = await newPage(ctxs.owner);
+  await op.goto("/dashboard/credit/admin", { waitUntil: "networkidle" }); await op.waitForTimeout(1200);
+  check("credit", "the treasury shows the contribution and a balanced ledger check", /\$2,000\.00/.test(await text(op)) && /Balanced/.test(await text(op)), (await text(op)).slice(0, 200));
+  await op.getByRole("button", { name: "Review" }).first().click(); await op.waitForTimeout(500);
+  check("credit", "the review dialog shows the application text, the document link and the applicant's verification", /ordering/.test(await text(op)) && /example\.com\/brief\.pdf/.test(await text(op)) && /Verification: verified/.test(await text(op)));
+  await op.fill("#rv-amount", "1000"); await op.fill("#rv-fee", "10");
+  await op.getByRole("button", { name: "Send offer" }).click(); await op.waitForTimeout(1500);
+  check("credit", "the offer is sent and the $1,000 is shown as committed", /Offer ready/.test(await text(op)) && /\$1,000\.00 committed/.test(await text(op)), (await text(op)).slice(0, 220));
+
+  // freelancer: accept, repay, schedule
+  await ap.reload({ waitUntil: "networkidle" }); await ap.waitForTimeout(1000);
+  await ap.getByRole("button", { name: "View offer" }).click(); await ap.waitForTimeout(400);
+  const offerText = await text(ap);
+  check("credit", "the offer states a flat fee, the total to repay and that nothing is really lent", /Flat fee \(10%\)/.test(offerText) && /\$1,100\.00/.test(offerText) && /nothing is lent/.test(offerText));
+  check("credit", "accepting is disabled until the terms checkbox is ticked", await ap.getByRole("button", { name: "Accept offer" }).isDisabled());
+  await ap.getByRole("checkbox").last().click(); await ap.getByRole("button", { name: "Accept offer" }).click(); await ap.waitForTimeout(1500);
+  check("credit", "the agreement shows a 3-line repayment schedule that adds up to $1,100.00", (await ap.locator("table tbody tr").count()) === 3 && /still owed \$1,100\.00/.test(await text(ap)), (await text(ap)).slice(0, 200));
+  await ap.getByRole("button", { name: "Record repayment" }).first().click(); await ap.waitForTimeout(300);
+  await ap.fill("#credit-repay", "400"); await ap.getByRole("button", { name: "Record repayment" }).last().click(); await ap.waitForTimeout(1500);
+  check("credit", "a partial repayment lowers what is still owed to $700.00", /still owed \$700\.00/.test(await text(ap)), (await text(ap)).slice(0, 200));
+  await ap.close();
+
+  // isolation: another freelancer cannot see or repay it; the investor cannot use the owner area
+  const aid = (await api(ctxs.ann, "GET", "/api/credit/agreements")).body?.[0]?.id;
+  check("credit", "another freelancer sees no agreement and cannot repay it", (await api(ctxs.bob, "GET", "/api/credit/agreements")).body?.length === 0 && (await api(ctxs.bob, "POST", `/api/credit/agreements/${aid}/repay`, { amountCents: 100, idempotencyKey: "abcdefgh12345" })).status === 404);
+  check("credit", "the owner-only treasury API refuses the investor and the freelancer", (await api(ctxs.investor, "GET", "/api/credit/admin/treasury")).status === 403 && (await api(ctxs.ann, "GET", "/api/credit/admin/audit")).status === 403);
+  const t = (await api(ctxs.owner, "GET", "/api/credit/admin/treasury")).body;
+  check("credit", "treasury arithmetic: cash $1,400 = 2,000 - 1,000 + 400; outstanding $600; ledger check true", t?.cashCents === 140000 && t?.outstandingCents === 60000 && t?.ledgerCheck === true, JSON.stringify(t));
+  // responsive: no horizontal scroll on a phone
+  const mctx = await newCtx({ width: 390, height: 780 });
+  await mctx.addCookies(await ctxs.investor.cookies());
+  const mp = await newPage(mctx); await mp.goto(`${BASE}/investor/credit`, { waitUntil: "networkidle" }); await mp.waitForTimeout(1200);
+  check("credit", "the investor page has no horizontal page scroll on a 390px phone", await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), await mp.evaluate(() => document.documentElement.scrollWidth));
+  await mctx.close();
+});
+
 // ---------------------------------------------------------------- console / network summary
 const summary = {};
 for (const [k, c] of Object.entries({ ann: ctxs.ann, agency: ctxs.agency, bob: ctxs.bob, uma: uwCtx, owner: ctxs.owner, investor: ctxs.investor, agency2: ctxs.agency2 })) {

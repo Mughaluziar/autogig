@@ -110,8 +110,8 @@ export function browserWallet(): Eip1193 | null {
   return ((window as unknown as { ethereum?: Eip1193 }).ethereum) ?? null;
 }
 
-export async function requestAccount(): Promise<string> {
-  const wallet = browserWallet();
+export async function requestAccount(chosen?: Eip1193 | null): Promise<string> {
+  const wallet = chosen ?? browserWallet();
   if (!wallet) throw new Error("No browser wallet found. Install one (for example MetaMask or Coinbase Wallet) and reload.");
   const accounts = (await wallet.request({ method: "eth_requestAccounts" })) as string[];
   if (!accounts?.length) throw new Error("The wallet didn't share an account.");
@@ -119,8 +119,8 @@ export async function requestAccount(): Promise<string> {
 }
 
 /** personal_sign of a UTF-8 message (hex-encoded, as wallets expect). */
-export async function signMessage(address: string, message: string): Promise<string> {
-  const wallet = browserWallet();
+export async function signMessage(address: string, message: string, chosen?: Eip1193 | null): Promise<string> {
+  const wallet = chosen ?? browserWallet();
   if (!wallet) throw new Error("No browser wallet found.");
   const hex = "0x" + Array.from(new TextEncoder().encode(message)).map((b) => b.toString(16).padStart(2, "0")).join("");
   return (await wallet.request({ method: "personal_sign", params: [hex, address] })) as string;

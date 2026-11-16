@@ -39,7 +39,7 @@ def _deep(value):
 
 
 def _app_out(a: dict, *, admin: bool = False) -> dict:
-    out = _out(a, drop=("version", "user_id") if admin else ("version", "user_id", "applicant_email"))
+    out = _out(a, drop=("version", "open", "user_id") if admin else ("version", "open", "user_id", "applicant_email"))
     out["settlement"] = "simulated"
     out["offer"] = _deep(out.get("offer"))
     out["documents"] = _deep(out.get("documents"))
