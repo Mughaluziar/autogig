@@ -901,6 +901,7 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   check("credit", "the wallet was only ever asked for accounts and chain id: no signature, transaction, key or seed request", calls.length > 0 && calls.every((m) => m === "eth_requestAccounts" || m === "eth_chainId"), JSON.stringify(calls));
   check("credit", "the page has no input that asks for a seed phrase or private key", (await ip.locator("input,textarea").evaluateAll((els) => els.map((e) => (e.name + e.id + (e.placeholder || "")).toLowerCase()))).every((t) => !/seed|mnemonic|private|recovery/.test(t)));
   await ip.screenshot({ path: `${SHOTS}/credit-investor-desktop.png`, fullPage: true });
+  check("credit", "every figure card on the investor page carries a 'Demo' tag", (await ip.getByText("Demo", { exact: true }).count()) >= 6, String(await ip.getByText("Demo", { exact: true }).count()));
   await ip.fill("#contrib-amount", "5"); await ip.waitForTimeout(200);
   check("credit", "an amount below the minimum shows an error and keeps the button disabled", (await text(ip)).includes("Enter an amount between") && await ip.getByRole("button", { name: "Record contribution" }).isDisabled());
   await ip.fill("#contrib-amount", "2,000.00");

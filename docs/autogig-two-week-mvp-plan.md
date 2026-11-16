@@ -13,7 +13,7 @@ repayment tracking and a treasury view, on top of the existing platform. It is *
 | 4 | Investor dashboard (demo data labelled) | COMPLETED |
 | 5 | Simulated contribution and allocation flow | COMPLETED |
 | 6 | Freelancer credit application | COMPLETED |
-| 7 | Admin verification and approval workflow | COMPLETED (verification from the existing capital module; grading by hand) |
+| 7 | Admin verification and approval workflow | COMPLETED (verification from the existing capital module; grading by hand; private document upload without malware scanning) |
 | 8 | Credit offer interface | COMPLETED |
 | 9 | Simulated repayment ledger | COMPLETED |
 | 10 | Treasury dashboard | COMPLETED |

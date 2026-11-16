@@ -30,7 +30,7 @@ permissioned token layer for Base Sepolia (testnet only, mainnet blocked in code
 
 ## 3. Out of scope for this phase (DEFERRED)
 Real payments or custody; real lending/credit disbursement; deposit/withdrawal of contributions; revenue-share agreements; any
-insurance product; a token contract or sale; DEX/CEX listing; file uploads for supporting documents (links only); a separate fintech
+insurance product; a token contract or sale; DEX/CEX listing; scanning/encryption/retention for uploaded documents; a separate fintech
 brand/visual redesign; mobile-wallet (QR) connection; automatic credit scoring (the owner assigns the grade by hand).
 
 ## 4. The client's wording (for the record)

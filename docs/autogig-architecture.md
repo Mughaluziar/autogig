@@ -15,8 +15,8 @@ testnet-only and what is future/blocked. Nothing is deployed and no real money, 
 | Real settlement, custody, KYC vendor, lending/insurance partner | **Future, blocked** | external accounts and legal approval |
 
 ### Isolation rules (kept by the code)
-* The credit prototype has its **own ledger accounts** (`credit:cash`, `credit:capital`, `credit:receivable`, `credit:income`,
-  `credit:losses`) and its own collections (`credit_*`). It posts to the shared append-only journal with `settlement: "simulated"`,
+* The credit prototype has its **own ledger accounts** (`credit:cash`, `credit:reserved`, `credit:capital`, `credit:receivable`,
+  `credit:income`, `credit:losses`) and its own collections (`credit_*`). It posts to the shared append-only journal with `settlement: "simulated"`,
   but never touches `wallet:`/`usdc:`/`pool:` accounts, so demo balances cannot mix with real company funds (there are none).
 * Blockchain logic is **not** spread through the app: the credit module has no chain code; the token layer is a separate package
   (`backend/app/token`, `contracts/`) behind its own flags (`TOKEN_PROGRAM_ENABLED`, `TOKEN_MAINNET_ENABLED`, both off).
@@ -41,12 +41,15 @@ countries, the settlement partner's supported chains, and the stablecoin used (U
 * **Money:** integer cents and basis points only. `build_schedule` splits principal and fee with a largest-remainder rule so the parts
   always sum exactly; the property is tested over 500 random cases. There is no floating-point arithmetic in any balance.
 * **Ledger entries** (all balanced, idempotent by key, tagged `simulated`):
-  contribution `credit:cash +A / credit:capital -A`; disbursement `credit:receivable +P / credit:cash -P` (rejected if cash would go negative);
+  contribution `credit:cash +A / credit:capital -A`; offer reservation `credit:reserved +P / credit:cash -P` (rejected if cash would go negative; the ledger checks inside its serialised write section, which is what makes concurrent offers safe); release `credit:cash +P / credit:reserved -P`; disbursement `credit:receivable +P / credit:reserved -P`;
   repayment `credit:cash +X / credit:receivable -principal / credit:income -fee`; write-off `credit:losses +R / credit:receivable -R`.
 * **State changes** are compare-and-set on a `version` field; money steps are intent, then idempotent ledger post, then mark done, and
-  `run_jobs` repairs an interrupted step. A unique "one open application per user" index stops duplicate applications from racing.
+  `run_jobs` repairs an interrupted step. A unique "one open application per user" index stops duplicate applications from racing. A background pass (`scheduler_loop`, hourly, idempotent) expires offers, finishes interrupted steps and marks late/default.
 * **Treasury** is derived from the ledger and records, and carries a `ledgerCheck` that cash and outstanding credit agree with both.
 * **Audit** (`credit_audit`) is append-only with no update or delete route; each action records the actor id and role.
+
+### 3.1b Private documents
+`credit_documents` holds file bytes in the database behind owner/applicant-only routes (`docs/autogig-credit-workflow.md` section 6). The storage interface is small (`add_document`, `get_document`, `delete_document` in `credit/service.py`) so it can be pointed at encrypted object storage with malware scanning without touching the routes or screens.
 
 ### 3.2 API (`routers/credit.py`, behind the simulated-modules gate)
 See the file header for the route list. Owner-only: review/decision, treasury, audit, agreements, jobs. Everything else is scoped to the caller.

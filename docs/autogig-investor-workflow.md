@@ -13,7 +13,7 @@ AutoGig token is not issued. Real investor access is a regulated activity and is
 | Allocations | Every credit funded from the pool, anonymised: reference, date, grade, amount, principal repaid, status | Transparency without personal data |
 | Transaction history | Own contributions | |
 | Risk disclosures | Default, concentration, no insurance/guarantee, token not issued | |
-| Wallet (read-only) | Chooser of discovered browser wallets, shows shortened address and network name | No signing, no transaction, nothing stored or sent to the server |
+| Wallet (read-only) | Chooser of discovered browser wallets, shows shortened address and network name | The page only calls `eth_requestAccounts` and `eth_chainId`: no signing, no transaction, no key or seed input; nothing stored or sent to the server. Enforced by a build check and a browser test that records every call |
 
 ## Not provided on purpose
 No projected-return calculator or chart, no "APY", no revenue-share contract, no withdrawals, no secondary market, no token purchase, no

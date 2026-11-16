@@ -8,22 +8,26 @@ import { API_URL } from "@/lib/api";
 /** Shown on every credit screen: what this is and is not. */
 export function SimNotice({ children }: { children?: React.ReactNode }) {
   return (
-    <div role="note" data-testid="credit-sim-notice" className="mb-5 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
+    <div role="note" data-testid="credit-sim-notice" className="mb-5 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs sm:px-4 sm:py-3 sm:text-sm">
       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
       <div>
-        <strong>AutoGig credit is a simulation.</strong> No real money is received, lent, invested or insured, no returns are promised,
-        and amounts can go down as well as up. This prototype is not a bank, lender, investment or insurance product.
-        {children && <div className="mt-1 text-muted-foreground">{children}</div>}
+        <strong>AutoGig credit is a simulation.</strong> No real money is received, lent, invested or insured, no returns are promised, and
+        amounts can go down as well as up.
+        {children && <span className="text-muted-foreground"> {children}</span>}
       </div>
     </div>
   );
 }
 
+/** Every figure card carries its own "Demo" tag, so a screenshot of one card still cannot pass for a real balance. */
 export function Stat({ label, value, hint, tone }: { label: string; value: React.ReactNode; hint?: string; tone?: "bad" | "good" }) {
   return (
     <Card>
       <CardContent className="p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+          <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">Demo</span>
+        </div>
         <p className={`mt-1 text-2xl font-semibold tabular-nums ${tone === "bad" ? "text-destructive" : tone === "good" ? "text-success" : ""}`}>{value}</p>
         {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
       </CardContent>
