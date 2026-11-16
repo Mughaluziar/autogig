@@ -92,3 +92,6 @@ Backend 624 passed / 6 skipped / 0 failed against real MongoDB; 600 passed / 8 s
 
 ## Addendum 2026-11-16 (branch `w/requirements`): AutoGig prototype
 New simulated credit module added (`docs/autogig-*.md`). It changes nothing about readiness: the platform is **not production-ready**, and the AutoGig prototype must stay invitation-only (`SIMULATED_MODULES=invited`, enforced in production) because it is a demonstration. New external blockers: legal opinions on investing/lending/insurance/virtual assets, a licensed lending and settlement partner, KYC vendor, a client decision on chain/token structure, a WalletConnect-class integration (license and project id) for mobile wallets, and an independent audit before any token. Results: backend 646 passed on real MongoDB, 644 in memory, 292/292 browser checks.
+
+## Addendum 2026-11-16 (second): AutoGig demo hardening
+Reservation race fixed atomically, jobs scheduled, private uploads added (no malware scanning), wording and wallet read-only guards enforced by the build. Results: backend 675 passed on real MongoDB, 673 in memory, 301/301 browser checks. Readiness is unchanged: still a simulation, still not production-ready, no independent audit. See `docs/autogig-demo-checklist.md`.
