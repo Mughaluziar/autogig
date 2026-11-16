@@ -22,10 +22,26 @@ export type Offer = {
   installmentDays: number; expiresAt: string; grade: string;
   signals?: { kycStatus: string; agreementsRepaid: number; agreementsDefaulted: number; agreementsOpen: number };
 };
+export type CreditDocument = { id: string; label: string; mime: string; size: number; ext: string; slot: number };
+export const MAX_DOCS = 3;
+export const MAX_DOC_BYTES = 2 * 1024 * 1024;
+export const DOC_ACCEPT = "application/pdf,image/png,image/jpeg";
+/** Private download address (cookie-authenticated GET). The server forces a download and never renders the file. */
+export const documentUrl = (id: string) => `/api/credit/documents/${encodeURIComponent(id)}`;
+
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(new Error("The file could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export type AppStatus = "submitted" | "offered" | "declined" | "accepted" | "rejected" | "withdrawn" | "expired";
 export type CreditApplication = {
   id: string; title: string; description: string; requestedCents: number; preferredInstallments: number;
-  documents: { label: string; url: string }[]; status: AppStatus; offer: Offer | null; createdAt: string;
+  documents: CreditDocument[]; status: AppStatus; offer: Offer | null; createdAt: string;
   decision: { note?: string; at?: string } | null; applicantId?: string; applicantEmail?: string; applicantName?: string;
   signals?: NonNullable<Offer["signals"]>;
 };

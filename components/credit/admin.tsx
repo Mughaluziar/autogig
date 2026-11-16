@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { apiCall } from "@/lib/api";
 import { pct, toCents, usd } from "@/lib/capital";
-import { AGREEMENT_LABELS, APP_LABELS, useCredit, type CreditApplication } from "@/lib/credit";
+import { AGREEMENT_LABELS, APP_LABELS, documentUrl, useCredit, type CreditApplication } from "@/lib/credit";
+import { apiUrl } from "@/lib/api";
 import { Gate, SimNotice, Stat, dateOnly } from "@/components/credit/common";
 
 type Detail = { detail?: string };
@@ -135,7 +136,12 @@ function ReviewDialog({ app, available, onClose, onDone }: { app: CreditApplicat
       <div className="max-h-[50vh] space-y-3 overflow-y-auto text-sm">
         <p className="whitespace-pre-wrap rounded-lg border bg-muted/40 p-3">{app.description}</p>
         {app.documents.length > 0 && (
-          <ul className="list-disc pl-5">{app.documents.map((d) => <li key={d.url}>{d.label}: <a className="break-all text-primary underline" href={d.url} target="_blank" rel="noopener noreferrer nofollow">{d.url}</a></li>)}</ul>
+          <div>
+            <p className="mb-1 font-medium">Private documents</p>
+            <ul className="list-disc pl-5">{app.documents.map((d) => <li key={d.id}>{d.label} ({d.ext.toUpperCase()}, {Math.max(1, Math.round(d.size / 1024))} KB){" "}
+              <a className="text-primary underline" href={apiUrl(documentUrl(d.id))} download>Download</a></li>)}</ul>
+            <p className="mt-1 text-xs text-muted-foreground">Files are not scanned for malware in this prototype: open them only in a sandboxed viewer. Each download is logged.</p>
+          </div>
         )}
         <p className="text-muted-foreground">
           Verification: {app.signals?.kycStatus} · repaid before: {app.signals?.agreementsRepaid} · defaulted before: {app.signals?.agreementsDefaulted} · open now: {app.signals?.agreementsOpen}

@@ -150,13 +150,17 @@ async def startup() -> None:
         log.warning("MONGODB_URI not set — accounts and data are kept in memory only")
     if settings.deletion_runner and settings.environment != "test":
         app.state.housekeeping = asyncio.create_task(me.housekeeping_loop())
+    if settings.credit_jobs_runner and settings.environment != "test":
+        from .credit import service as credit_service
+        app.state.credit_jobs = asyncio.create_task(credit_service.scheduler_loop())
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
-    task = getattr(app.state, "housekeeping", None)
-    if task:
-        task.cancel()
+    for name in ("housekeeping", "credit_jobs"):
+        task = getattr(app.state, name, None)
+        if task:
+            task.cancel()
 
 
 @app.get("/health")

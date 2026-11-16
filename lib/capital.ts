@@ -119,7 +119,7 @@ export const ADVANCE_LABELS: Record<AdvanceStatus, { label: string; variant: "su
   active: { label: "Active", variant: "default" },
   overdue: { label: "Overdue", variant: "warning" },
   repaid: { label: "Repaid", variant: "success" },
-  covered: { label: "Covered by insurance", variant: "success" },
+  covered: { label: "Covered by protection", variant: "success" },
   defaulted: { label: "In default", variant: "destructive" },
   cancelled: { label: "Cancelled", variant: "secondary" },
 };

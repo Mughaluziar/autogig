@@ -64,7 +64,7 @@ export default function CapitalPage() {
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList className="mb-4">
                 <TabsTrigger value="early">Early payment</TabsTrigger>
-                <TabsTrigger value="protection">Insurance</TabsTrigger>
+                <TabsTrigger value="protection">Protection</TabsTrigger>
                 <TabsTrigger value="invest">Invest</TabsTrigger>
                 {user?.owner && <TabsTrigger value="operator">Operator</TabsTrigger>}
                 {user?.owner && <TabsTrigger value="token">Token</TabsTrigger>}

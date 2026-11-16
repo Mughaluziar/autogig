@@ -30,7 +30,7 @@ const usd0 = (n: number) => n.toLocaleString("en-US", { style: "currency", curre
 const painFix = [
   { pain: "Ten tabs, ten inboxes", fix: "One ranked feed for every platform", icon: Layers },
   { pain: "Proposals eat your evenings", fix: "AI drafts them, you approve", icon: Hourglass },
-  { pain: "Cancelled orders, lost income", fix: "Insure new orders for up to 80%", icon: ShieldCheck },
+  { pain: "Cancelled orders, lost income", fix: "Protect new orders for up to 80%", icon: ShieldCheck },
   { pain: "Paid in weeks, not days", fix: "Card, crypto and early pay", icon: Clock },
 ];
 
@@ -38,7 +38,7 @@ const faqs = [
   { q: "Will connecting my accounts get me banned?", a: "Autopilot uses each platform's official API where one exists, notification emails where it doesn't, and AI drafts you send yourself everywhere else. No bots, no scraping behind your login, and nothing is sent without your approval." },
   { q: "How does auto-finding jobs and gigs work?", a: `Job Radar and Gigs scan the sources you choose (${PLATFORM_COUNT} marketplaces, talent networks and job boards are supported) and score every listing against your skills, rate and history. New matches show up in your feed and in alerts, with a proposal draft ready when you want one.` },
   { q: "How do my clients pay me?", a: "Create an invoice, split it into milestones if you like, and share one secure pay link. Clients pay by debit card, credit card or crypto (USDC) without creating an account. Paid milestones show up in your Money dashboard automatically." },
-  { q: "Is freelancer insurance real insurance?", a: `It's order protection backed by the Autopilot protection fund, not a policy from a licensed insurer. You can add cover to a new order in its first ${COVER.windowHours} hours, for up to ${Math.round(COVER.maxPct * 100)}% of its value (up to ${usd0(COVER.maxCover)}), for a one-time ${Math.round(COVER.premiumPct * 100)}% premium. If the platform cancels or refunds the order, you're paid the covered amount. Settlement is simulated during beta.` },
+  { q: "Is freelancer protection real insurance?", a: `It's order protection backed by the Autopilot protection fund, not a policy from a licensed insurer. You can add cover to a new order in its first ${COVER.windowHours} hours, for up to ${Math.round(COVER.maxPct * 100)}% of its value (up to ${usd0(COVER.maxCover)}), for a one-time ${Math.round(COVER.premiumPct * 100)}% premium. If the platform cancels or refunds the order, you're paid the covered amount. Settlement is simulated during beta.` },
   { q: "When do Autopilot Cards launch?", a: "The countdown on this page runs to the planned launch date. Waitlist members get access first, plus founding-member perks. Cards will be issued by a partner bank, subject to approval." },
   { q: "Does joining a waitlist affect my credit?", a: "No. Waitlists only record your interest: there's no credit check and no application. Cards and financing will be offered through licensed partners, subject to approval." },
   { q: "Who can invest in the marketplace?", a: "Accredited or professional investors in eligible countries, after identity verification. You can back individual freelancers and agencies or the diversified Platform Index. Investing involves risk, including loss of principal, and settlement is simulated during beta." },
@@ -236,13 +236,13 @@ export default function HomePage() {
           <div className="container relative grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
             <Reveal>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-emerald-300">
-                <ShieldCheck className="size-3.5" /> Freelancer insurance · Beta
+                <ShieldCheck className="size-3.5" /> Order protection · Simulated beta
               </span>
               <h2 className="mt-5 text-[2.5rem] font-black leading-[1.02] tracking-tight sm:text-6xl lg:text-7xl">
-                Order cancelled? <span className="bg-gradient-to-r from-emerald-300 to-cyan-300 bg-clip-text text-transparent">You still get paid.</span>
+                Order cancelled? <span className="bg-gradient-to-r from-emerald-300 to-cyan-300 bg-clip-text text-transparent">The protection fund may cover it.</span>
               </h2>
               <p className="mt-5 max-w-xl text-lg text-white/80 md:text-xl">
-                Insure every new order in its first {COVER.windowHours} hours. If the marketplace cancels or refunds it, you&apos;re paid up to {Math.round(COVER.maxPct * 100)}% of its value.
+                Protect every new order in its first {COVER.windowHours} hours. If the marketplace cancels or refunds it, the protection fund may reimburse up to {Math.round(COVER.maxPct * 100)}% of its value after review, and never more than the fund holds. This is a simulated demonstration, not insurance.
               </p>
               <div className="mt-8 grid grid-cols-3 gap-3">
                 {[
@@ -460,7 +460,7 @@ export default function HomePage() {
               {[
                 { icon: Plug, title: "Connect your platforms", desc: "Link Upwork, Fiverr, Freelancer.com and the rest. Official APIs where they exist, email or guided setup where they don't." },
                 { icon: Sparkles, title: "Let Autopilot find the work", desc: "It scans for jobs and gigs, ranks them, and drafts proposals. You review, approve and send." },
-                { icon: Rocket, title: "Get paid, protected and funded", desc: "Invoice by milestone, collect by card or crypto, insure new orders and unlock capital as you grow." },
+                { icon: Rocket, title: "Get paid, protected and funded", desc: "Invoice by milestone, collect by card or crypto, protect new orders and unlock capital as you grow." },
               ].map((s, i) => (
                 <Reveal key={s.title} delay={i * 120}>
                   <div className="relative text-center">
@@ -545,7 +545,7 @@ export default function HomePage() {
                 <div className="flex flex-wrap justify-center gap-3 pt-2">
                   {[
                     { href: "#cards", icon: CreditCard, label: "Reserve a card" },
-                    { href: "#insurance", icon: ShieldCheck, label: "Insure orders" },
+                    { href: "#insurance", icon: ShieldCheck, label: "Protect orders" },
                     { href: "#funding", icon: Landmark, label: "Funding early access" },
                     { href: "#invest", icon: LineChart, label: "Invest" },
                   ].map((b) => (

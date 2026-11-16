@@ -14,11 +14,14 @@ GET  /api/credit/admin/applications                POST /api/credit/admin/applic
 GET  /api/credit/admin/treasury                    GET  /api/credit/admin/audit
 POST /api/credit/admin/run-jobs                    GET  /api/credit/admin/agreements
 """
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
+import base64
+import binascii
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from ..auth import current_user, require_owner
+from ..auth import current_user, is_owner, require_owner
 from ..capital import ledger, store
 from ..capital.ledger import LedgerRejected
 from ..credit import service
@@ -38,11 +41,12 @@ def _deep(value):
     return value
 
 
-def _app_out(a: dict, *, admin: bool = False) -> dict:
+async def _app_out(a: dict, *, admin: bool = False) -> dict:
     out = _out(a, drop=("version", "open", "user_id") if admin else ("version", "open", "user_id", "applicant_email"))
     out["settlement"] = "simulated"
     out["offer"] = _deep(out.get("offer"))
-    out["documents"] = _deep(out.get("documents"))
+    out["documents"] = [{"id": d["id"], "label": d["label"], "mime": d["mime"], "size": d["size"], "ext": d["ext"], "slot": d["slot"]}
+                        for d in await service.documents_for(a["id"])]
     if admin:
         out["applicantId"] = a["user_id"]
     return out
@@ -73,7 +77,7 @@ async def _call(coro):
 async def overview(user: dict = Depends(current_user)):
     bal = await service.balances()
     return {"settlement": "simulated", "notice": NOTE,
-            "pool": service.treasury_from(bal, await service.committed_cents()),
+            "pool": service.treasury_from(bal),
             "limits": {"minContributionCents": service.MIN_CONTRIBUTION, "maxContributionCents": service.MAX_CONTRIBUTION,
                        "minRequestCents": service.MIN_REQUEST, "maxRequestCents": service.MAX_REQUEST,
                        "maxInstallments": service.MAX_INSTALLMENTS, "installmentDays": service.INSTALLMENT_DAYS,
@@ -107,30 +111,23 @@ async def statement(user: dict = Depends(current_user)):
     return await service.statement(user["id"])
 
 
-class DocumentBody(BaseModel):
-    label: str = Field(max_length=80)
-    url: str = Field(max_length=500)
-
-
 class ApplicationBody(BaseModel):
     title: str = Field(min_length=3, max_length=120)
     description: str = Field(min_length=20, max_length=3000)
     requested_cents: int = Field(alias="requestedCents", gt=0)
     installments: int = Field(ge=1, le=service.MAX_INSTALLMENTS, default=3)
-    documents: list[DocumentBody] = Field(default_factory=list, max_length=5)
 
 
 @router.post("/applications")
 async def apply(body: ApplicationBody, user: dict = Depends(current_user)):
     result = await _call(service.apply(user, {"title": body.title.strip(), "description": body.description.strip(),
-                                              "requested_cents": body.requested_cents, "installments": body.installments,
-                                              "documents": [d.model_dump() for d in body.documents]}))
-    return result if isinstance(result, JSONResponse) else _app_out(result)
+                                              "requested_cents": body.requested_cents, "installments": body.installments}))
+    return result if isinstance(result, JSONResponse) else await _app_out(result)
 
 
 @router.get("/applications")
 async def my_applications(user: dict = Depends(current_user)):
-    return [_app_out(a) for a in await store.find("credit_applications", {"user_id": user["id"]}, limit=100)]
+    return [await _app_out(a) for a in await store.find("credit_applications", {"user_id": user["id"]}, limit=100)]
 
 
 class AcceptBody(BaseModel):
@@ -146,13 +143,13 @@ async def accept(app_id: str, body: AcceptBody, user: dict = Depends(current_use
 @router.post("/applications/{app_id}/reject")
 async def reject(app_id: str, user: dict = Depends(current_user)):
     result = await _call(service.reject_offer(user, app_id))
-    return result if isinstance(result, JSONResponse) else _app_out(result)
+    return result if isinstance(result, JSONResponse) else await _app_out(result)
 
 
 @router.post("/applications/{app_id}/withdraw")
 async def withdraw(app_id: str, user: dict = Depends(current_user)):
     result = await _call(service.withdraw(user, app_id))
-    return result if isinstance(result, JSONResponse) else _app_out(result)
+    return result if isinstance(result, JSONResponse) else await _app_out(result)
 
 
 @router.get("/agreements")
@@ -177,7 +174,7 @@ async def admin_applications(owner: dict = Depends(require_owner)):
     rows = await store.find("credit_applications", {}, limit=500)
     out = []
     for a in rows:
-        item = _app_out(a, admin=True)
+        item = await _app_out(a, admin=True)
         item["signals"] = await service.history_signals(a["user_id"])
         out.append(item)
     return out
@@ -196,7 +193,7 @@ class DecisionBody(BaseModel):
 async def admin_decide(app_id: str, body: DecisionBody, owner: dict = Depends(require_owner)):
     result = await _call(service.decide(owner, app_id, approve=body.approve, grade=body.grade, fee_bps=body.fee_bps,
                                         installments=body.installments, principal_cents=body.principal_cents, note=body.note))
-    return result if isinstance(result, JSONResponse) else _app_out(result, admin=True)
+    return result if isinstance(result, JSONResponse) else await _app_out(result, admin=True)
 
 
 @router.get("/admin/agreements")
@@ -217,3 +214,42 @@ async def admin_audit(owner: dict = Depends(require_owner)):
 @router.post("/admin/run-jobs")
 async def admin_run_jobs(owner: dict = Depends(require_owner)):
     return await service.run_jobs(owner)
+
+
+# ------------------------------------------------------------------------------------------------ private documents
+class DocumentBody(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+    content_base64: str = Field(alias="contentBase64", min_length=4, max_length=int(service.MAX_DOC_BYTES * 4 / 3) + 16)
+
+
+@router.post("/applications/{app_id}/documents")
+async def add_document(app_id: str, body: DocumentBody, request: Request, user: dict = Depends(current_user)):
+    if int(request.headers.get("content-length") or 0) > service.MAX_DOC_BYTES * 2:
+        return JSONResponse(status_code=413, content={"detail": "That file is too large."})
+    try:
+        data = base64.b64decode(body.content_base64, validate=True)
+    except (binascii.Error, ValueError):
+        return JSONResponse(status_code=422, content={"detail": "The file could not be read."})
+    result = await _call(service.add_document(user, app_id, body.label, data))
+    if isinstance(result, JSONResponse):
+        return result
+    return {"id": result["id"], "label": result["label"], "mime": result["mime"], "size": result["size"], "slot": result["slot"], "ext": result["ext"]}
+
+
+@router.delete("/applications/{app_id}/documents/{doc_id}")
+async def delete_document(app_id: str, doc_id: str, user: dict = Depends(current_user)):
+    result = await _call(service.delete_document(user, app_id, doc_id))
+    return result if isinstance(result, JSONResponse) else {"ok": True}
+
+
+@router.get("/documents/{doc_id}")
+async def download_document(doc_id: str, user: dict = Depends(current_user)):
+    """Private: only the applicant and platform owners. Always a download, never rendered by the browser, and every owner
+    view is written to the audit trail. The file name is generated; nothing the uploader typed reaches a header."""
+    result = await _call(service.get_document(user, doc_id, is_owner=is_owner(user)))
+    if isinstance(result, JSONResponse):
+        return result
+    return Response(content=result["data"], media_type=result["mime"], headers={
+        "Content-Disposition": f'attachment; filename="document-{result["slot"]}.{result["ext"]}"',
+        "Cache-Control": "private, no-store", "Content-Security-Policy": "default-src 'none'; sandbox",
+        "X-Content-Type-Options": "nosniff"})

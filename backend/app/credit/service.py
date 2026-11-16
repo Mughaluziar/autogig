@@ -13,7 +13,6 @@ Every amount is an integer number of cents and every rate is in basis points: no
 Every state change is a compare-and-set on `version`; money steps are intent -> idempotent ledger post -> mark done, so a
 crash between steps is repaired by `reconcile`."""
 from datetime import timedelta
-from urllib.parse import urlparse
 
 from ..capital import ledger, store
 from ..capital.ledger import LedgerRejected, line
@@ -24,6 +23,7 @@ MIN_CONTRIBUTION, MAX_CONTRIBUTION = 10_00, 10_000_00
 MIN_REQUEST, MAX_REQUEST = 100_00, 5_000_00
 MIN_FEE_BPS, MAX_FEE_BPS = 100, 2_000
 MAX_INSTALLMENTS = 6
+MAX_DOCS, MAX_DOC_BYTES = 3, 2 * 1024 * 1024
 INSTALLMENT_DAYS = 30
 OFFER_VALID_DAYS = 7
 DEFAULT_AFTER_DAYS = 60
@@ -32,6 +32,7 @@ BPS = 10_000
 GRADES = ("A", "B", "C", "D", "E")
 
 CASH, CAPITAL, RECEIVABLE, INCOME, LOSSES = "credit:cash", "credit:capital", "credit:receivable", "credit:income", "credit:losses"
+RESERVED = "credit:reserved"        # funds set aside for an open offer: moved out of cash atomically, so offers can never over-commit
 OPEN_APPLICATION = ("submitted", "offered")
 OPEN_AGREEMENT = ("active", "late")
 
@@ -98,15 +99,15 @@ def principal_open(schedule: list[dict]) -> int:
     return sum(i["principal_cents"] - i["principal_paid_cents"] for i in schedule)
 
 
-def validate_documents(docs) -> list[dict]:
-    out = []
-    for d in (docs or [])[:5]:
-        label, url = (d.get("label") or "").strip()[:80], (d.get("url") or "").strip()
-        parsed = urlparse(url)
-        if not label or parsed.scheme != "https" or not parsed.netloc or len(url) > 500:
-            raise CreditError("Each supporting document needs a label and an https link (files are not uploaded in this prototype).", 422)
-        out.append({"label": label, "url": url})
-    return out
+DOC_TYPES = ((b"%PDF-", "application/pdf", "pdf"), (b"\x89PNG\r\n\x1a\n", "image/png", "png"), (b"\xff\xd8\xff", "image/jpeg", "jpg"))
+
+
+def sniff_document(data: bytes) -> tuple[str, str]:
+    """(mime, extension) from the file's own first bytes: the claimed name or type is never trusted."""
+    for magic, mime, ext in DOC_TYPES:
+        if data.startswith(magic):
+            return mime, ext
+    raise CreditError("Only PDF, PNG or JPEG files are accepted.", 422)
 
 
 # -------------------------------------------------------------------------------------------------------------- reads
@@ -114,35 +115,34 @@ async def balances() -> dict:
     return await ledger.balances()
 
 
-def treasury_from(bal: dict, committed: int) -> dict:
-    cash = ledger.usd(bal, CASH)
+def treasury_from(bal: dict) -> dict:
+    free, reserved = ledger.usd(bal, CASH), ledger.usd(bal, RESERVED)
     return {
         "settlement": "simulated", "notice": SIM,
         "contributionsCents": -ledger.usd(bal, CAPITAL),
-        "cashCents": cash,
-        "committedCents": committed,
-        "availableCents": cash - committed,
+        "cashCents": free + reserved,            # everything the demo pool holds, including what is set aside
+        "committedCents": reserved,              # set aside for open offers (the ledger is the only source of truth)
+        "availableCents": free,
         "outstandingCents": ledger.usd(bal, RECEIVABLE),
         "feesCents": -ledger.usd(bal, INCOME),
         "lossesCents": ledger.usd(bal, LOSSES),
     }
 
 
-async def committed_cents() -> int:
-    apps = await store.find("credit_applications", {"status": "offered"}, limit=2000)
-    return sum(a["offer"]["principal_cents"] for a in apps if a.get("offer"))
-
-
 async def treasury() -> dict:
-    out = treasury_from(await balances(), await committed_cents())
+    bal = await balances()
+    out = treasury_from(bal)
     agreements = await store.find("credit_agreements", {}, limit=5000)
+    offered = await store.find("credit_applications", {"status": "offered"}, limit=5000)
     out["repaymentsCents"] = sum(r["amount_cents"] for a in agreements for r in a.get("repayments", []))
     out["agreements"] = {s: sum(1 for a in agreements if a["status"] == s) for s in ("active", "late", "repaid", "defaulted")}
     out["disbursedCents"] = sum(a["principal_cents"] for a in agreements if a.get("disbursed"))
     principal_repaid = sum(r["principal_cents"] for a in agreements for r in a.get("repayments", []))
     written_off = sum(a.get("written_off_cents", 0) for a in agreements)
+    held = sum(a["offer"]["principal_cents"] for a in offered if a.get("offer") and a.get("reservation") == "held")
     out["ledgerCheck"] = (out["cashCents"] == out["contributionsCents"] - out["disbursedCents"] + out["repaymentsCents"]
-                          and out["outstandingCents"] == out["disbursedCents"] - principal_repaid - written_off)
+                          and out["outstandingCents"] == out["disbursedCents"] - principal_repaid - written_off
+                          and out["committedCents"] == held)       # what the ledger set aside equals the open offers' amounts
     return out
 
 
@@ -223,8 +223,8 @@ async def apply(user: dict, fields: dict) -> dict:
 async def _insert_application(user: dict, amount: int, fields: dict) -> dict:
     return await store.insert("credit_applications", user["id"], {
         "title": fields["title"], "description": fields["description"], "requested_cents": amount,
-        "preferred_installments": fields["installments"], "documents": validate_documents(fields.get("documents")),
-        "status": "submitted", "open": True, "offer": None, "decision": None, "settlement": "simulated",
+        "preferred_installments": fields["installments"],
+        "status": "submitted", "open": True, "reservation": "none", "offer": None, "decision": None, "settlement": "simulated",
         "applicant_name": user.get("name", ""), "applicant_email": user.get("email", "")})
 
 
@@ -263,19 +263,60 @@ async def decide(owner: dict, app_id: str, *, approve: bool, grade: str = "", fe
         raise CreditError("The offered amount must be between the minimum and what was requested.", 422)
     if (await store.profile(app["user_id"]) or {}).get("kyc", {}).get("status") != "verified":
         raise CreditError("The applicant is no longer identity-verified.", 409)
-    bal = await balances()
-    available = ledger.usd(bal, CASH) - await committed_cents()
-    if principal_cents > available:
-        raise CreditError("The simulated pool does not have enough uncommitted funds for this offer.", 409)
     expires = now() + timedelta(days=OFFER_VALID_DAYS)
     fee_total = principal_cents * fee_bps // BPS
     offer = {"principal_cents": principal_cents, "fee_bps": fee_bps, "fee_total_cents": fee_total, "installments": installments,
              "total_repayable_cents": principal_cents + fee_total, "installment_days": INSTALLMENT_DAYS, "expires_at": expires, "grade": grade,
              "signals": await history_signals(app["user_id"])}
-    out = await _cas("credit_applications", app, {"status": "offered", "offer": offer,
-                                                  "decision": {"by": owner["id"], "note": note[:500], "at": now()}})
+    # 1) claim the application (only one decision on it can win), 2) reserve the money in the ledger. The ledger serialises
+    # its writers and checks the balance inside that section, so two offers can never reserve the same cash.
+    claimed = await _cas("credit_applications", app, {"status": "offered", "offer": offer, "reservation": "pending",
+                                                      "decision": {"by": owner["id"], "note": note[:500], "at": now()}})
+    out = await _reserve_or_revert(claimed)
     await audit(owner, "offer_made", "credit_application", app_id, {"principal_cents": principal_cents, "fee_bps": fee_bps, "grade": grade})
     return out
+
+
+async def _mark(coll: str, record_id: str, fields: dict) -> dict:
+    """Bookkeeping-only update: retries on a version clash because the fields never conflict with each other."""
+    for _ in range(8):
+        rec = await store.get(coll, record_id)
+        updated = await store.update(coll, record_id, fields, expect_version=rec["version"])
+        if updated is not None:
+            return updated
+    raise CreditError("This record is busy. Try again.", 409)
+
+
+async def _reserve_or_revert(app: dict) -> dict:
+    p = app["offer"]["principal_cents"]
+    try:
+        await ledger.post("credit_reserve", [line(CASH, -p), line(RESERVED, p)], memo="Simulated funds set aside for an offer",
+                          refs={"user_id": app["user_id"], "application_id": app["id"]}, idem=f"credit-reserve:{app['id']}",
+                          check=ledger.require_non_negative(CASH))
+    except LedgerRejected:
+        await _mark("credit_applications", app["id"], {"status": "submitted", "open": True, "offer": None, "reservation": "none"})
+        raise CreditError("The simulated pool does not have enough uncommitted funds for this offer.", 409)
+    return await _mark("credit_applications", app["id"], {"reservation": "held"})
+
+
+async def _release(app: dict) -> None:
+    """Give an offer's reserved funds back to the pool (rejected, withdrawn, expired). Idempotent."""
+    current = await store.get("credit_applications", app["id"])
+    if not current or current.get("reservation") in ("none", "released", "used") or not current.get("offer"):
+        return
+    p = current["offer"]["principal_cents"]
+    if current.get("reservation") == "pending":
+        try:                                    # make sure the reserve entry exists before reversing it (crash repair)
+            await ledger.post("credit_reserve", [line(CASH, -p), line(RESERVED, p)], memo="Simulated funds set aside for an offer",
+                              refs={"user_id": current["user_id"], "application_id": current["id"]}, idem=f"credit-reserve:{current['id']}",
+                              check=ledger.require_non_negative(CASH))
+        except LedgerRejected:
+            await _mark("credit_applications", current["id"], {"reservation": "released"})
+            return
+    await ledger.post("credit_release", [line(CASH, p), line(RESERVED, -p)], memo="Simulated reserved funds returned to the pool",
+                      refs={"user_id": current["user_id"], "application_id": current["id"]}, idem=f"credit-release:{current['id']}",
+                      check=ledger.require_non_negative(RESERVED))
+    await _mark("credit_applications", current["id"], {"reservation": "released"})
 
 
 async def reject_offer(user: dict, app_id: str) -> dict:
@@ -283,6 +324,7 @@ async def reject_offer(user: dict, app_id: str) -> dict:
     if not app or app["status"] != "offered":
         raise CreditError("There is no open offer to reject.", 404)
     out = await _cas("credit_applications", app, {"status": "rejected", "open": False})
+    await _release(out)
     await audit(user, "offer_rejected", "credit_application", app_id, {})
     return out
 
@@ -292,6 +334,7 @@ async def withdraw(user: dict, app_id: str) -> dict:
     if not app or app["status"] not in OPEN_APPLICATION:
         raise CreditError("There is no open application to withdraw.", 404)
     out = await _cas("credit_applications", app, {"status": "withdrawn", "open": False})
+    await _release(out)
     await audit(user, "application_withdrawn", "credit_application", app_id, {})
     return out
 
@@ -304,10 +347,11 @@ async def accept_offer(user: dict, app_id: str, accept_terms: bool) -> dict:
         raise CreditError("There is no open offer to accept.", 404)
     offer = app["offer"]
     if store.aware(offer["expires_at"]) <= now():
-        await _cas("credit_applications", app, {"status": "expired", "open": False})
+        expired = await _cas("credit_applications", app, {"status": "expired", "open": False})
+        await _release(expired)
         raise CreditError("This offer has expired.", 409)
-    if ledger.usd(await balances(), CASH) < offer["principal_cents"]:
-        raise CreditError("The simulated pool cannot fund this offer right now.", 409)
+    if app.get("reservation") == "pending":      # a crash left the money unreserved: reserve it now or give the offer back
+        app = await _reserve_or_revert(app)
     started = now()
     app = await _cas("credit_applications", app, {"status": "accepted", "open": False})     # only one concurrent accept wins this step
     try:
@@ -317,9 +361,10 @@ async def accept_offer(user: dict, app_id: str, accept_terms: bool) -> dict:
             "schedule": build_schedule(offer["principal_cents"], offer["fee_bps"], offer["installments"], started),
             "repayments": [], "disbursed": False, "written_off_cents": 0, "accepted_at": started, "settlement": "simulated"})
     except Exception:
-        await store.update("credit_applications", app["id"], {"status": "offered", "open": True}, expect_version=app["version"])
+        await _mark("credit_applications", app["id"], {"status": "offered", "open": True})
         raise
     agr = await _disburse(agr)
+    await _mark("credit_applications", app_id, {"reservation": "used"})
     await audit(user, "offer_accepted", "credit_agreement", agr["id"], {"principal_cents": agr["principal_cents"]})
     return agr
 
@@ -328,16 +373,14 @@ async def _disburse(agr: dict) -> dict:
     if agr["disbursed"]:
         return agr
     try:
-        await ledger.post("credit_disbursement", [line(RECEIVABLE, agr["principal_cents"]), line(CASH, -agr["principal_cents"])],
+        await ledger.post("credit_disbursement", [line(RECEIVABLE, agr["principal_cents"]), line(RESERVED, -agr["principal_cents"])],
                           memo="Simulated credit disbursement", refs={"user_id": agr["user_id"], "agreement_id": agr["id"]},
-                          idem=f"credit-disburse:{agr['id']}", check=ledger.require_non_negative(CASH))
+                          idem=f"credit-disburse:{agr['id']}", check=ledger.require_non_negative(RESERVED))
     except LedgerRejected:
-        # The pool cannot fund it after all: cancel the agreement and give the offer back.
+        # Should be impossible (the money was reserved with the offer); if the invariant is ever broken, undo cleanly.
         await _cas("credit_agreements", agr, {"status": "cancelled"})
-        app = await store.get("credit_applications", agr["application_id"])
-        if app:
-            await store.update("credit_applications", app["id"], {"status": "offered", "open": True}, expect_version=app["version"])
-        raise CreditError("The simulated pool could not fund this offer; the offer is open again.", 409)
+        await _mark("credit_applications", agr["application_id"], {"status": "offered", "open": True})
+        raise CreditError("The reserved funds were not found; the offer is open again.", 409)
     return await _cas("credit_agreements", agr, {"disbursed": True})
 
 
@@ -383,32 +426,128 @@ def overdue_days(agr: dict, at) -> int:
 
 
 async def run_jobs(actor: dict | None = None, at=None) -> dict:
-    """Mark late and defaulted agreements, expire old offers, and finish interrupted ledger steps."""
+    """Idempotent maintenance pass, safe to run from several processes at once: expire old offers and return their money, finish
+    interrupted ledger steps, then mark agreements late or defaulted. Every transition is a compare-and-set and every ledger
+    entry has a fixed key, so a second run (or a concurrent one) changes nothing that is already done."""
     at = at or now()
+    who = actor or {"id": "system", "role": "system"}
     summary = {"late": 0, "defaulted": 0, "expiredOffers": 0, "repaired": 0}
-    for app in await store.find("credit_applications", {"status": "offered"}, limit=2000):
+
+    async def attempt(label, coro):
+        try:
+            return await coro
+        except (CreditError, store.Conflict):
+            return None                          # another worker did it first, or the record changed: the next pass retries
+        except Exception:                        # noqa: BLE001 - one bad record must not stop the pass
+            import logging
+            logging.getLogger("autopilot.credit").exception("credit job failed for %s", label)
+            return None
+
+    for app in await store.find("credit_applications", {"status": "offered"}, limit=5000):
         if store.aware(app["offer"]["expires_at"]) <= at:
-            await store.update("credit_applications", app["id"], {"status": "expired", "open": False}, expect_version=app["version"])
-            summary["expiredOffers"] += 1
+            async def expire(a=app):
+                done = await _cas("credit_applications", a, {"status": "expired", "open": False})
+                await _release(done)
+                return True
+            if await attempt(f"expire {app['id']}", expire()):
+                summary["expiredOffers"] += 1
+        elif app.get("reservation") == "pending":
+            if await attempt(f"reserve {app['id']}", _reserve_or_revert(app)):
+                summary["repaired"] += 1
+    for app in await store.find("credit_applications", {"status": {"$in": ["rejected", "withdrawn", "expired", "declined"]}}, limit=5000):
+        if app.get("reservation") in ("held", "pending"):
+            await attempt(f"release {app['id']}", _release(app))
+            summary["repaired"] += 1
     for agr in await store.find("credit_agreements", {"status": {"$in": list(OPEN_AGREEMENT)}}, limit=5000):
-        if not agr["disbursed"]:
-            await _disburse(agr)
-            summary["repaired"] += 1
-            agr = await store.get("credit_agreements", agr["id"])
-        if any(not r["posted"] for r in agr["repayments"]):
-            agr = await _post_repayments(agr)
-            summary["repaired"] += 1
-        late_days = overdue_days(agr, at)
-        if late_days >= DEFAULT_AFTER_DAYS:
-            lost = principal_open(agr["schedule"])
-            agr = await _cas("credit_agreements", agr, {"status": "defaulted", "written_off_cents": lost})
-            if lost:
-                await ledger.post("credit_writeoff", [line(LOSSES, lost), line(RECEIVABLE, -lost)], memo="Simulated write-off of unpaid principal",
-                                  refs={"user_id": agr["user_id"], "agreement_id": agr["id"]}, idem=f"credit-writeoff:{agr['id']}")
-            summary["defaulted"] += 1
-            await audit(actor or {"id": "system", "role": "system"}, "agreement_defaulted", "credit_agreement", agr["id"], {"written_off_cents": lost})
-        elif late_days >= 0 and agr["status"] == "active":
-            await _cas("credit_agreements", agr, {"status": "late"})
-            summary["late"] += 1
-            await audit(actor or {"id": "system", "role": "system"}, "agreement_late", "credit_agreement", agr["id"], {})
+        async def process(a=agr):
+            counts = {"repaired": 0, "late": 0, "defaulted": 0}
+            if not a["disbursed"]:
+                a = await _disburse(a)
+                counts["repaired"] += 1
+            if any(not r["posted"] for r in a["repayments"]):
+                a = await _post_repayments(a)
+                counts["repaired"] += 1
+            late_days = overdue_days(a, at)
+            if late_days >= DEFAULT_AFTER_DAYS:
+                lost = principal_open(a["schedule"])
+                a = await _cas("credit_agreements", a, {"status": "defaulted", "written_off_cents": lost})
+                if lost:
+                    await ledger.post("credit_writeoff", [line(LOSSES, lost), line(RECEIVABLE, -lost)], memo="Simulated write-off of unpaid principal",
+                                      refs={"user_id": a["user_id"], "agreement_id": a["id"]}, idem=f"credit-writeoff:{a['id']}")
+                counts["defaulted"] += 1
+                await audit(who, "agreement_defaulted", "credit_agreement", a["id"], {"written_off_cents": lost})
+            elif late_days >= 0 and a["status"] == "active":
+                await _cas("credit_agreements", a, {"status": "late"})
+                counts["late"] += 1
+                await audit(who, "agreement_late", "credit_agreement", a["id"], {})
+            return counts
+        got = await attempt(f"agreement {agr['id']}", process())
+        for k, v in (got or {}).items():
+            summary[k] += v
     return summary
+
+
+async def scheduled_pass() -> dict | None:
+    """What the background scheduler runs. Never raises."""
+    try:
+        return await run_jobs()
+    except Exception:                            # noqa: BLE001
+        import logging
+        logging.getLogger("autopilot.credit").exception("scheduled credit pass failed")
+        return None
+
+
+async def scheduler_loop(interval_seconds: int = 3600) -> None:
+    import asyncio
+    while True:
+        await scheduled_pass()
+        await asyncio.sleep(interval_seconds)
+
+
+# ------------------------------------------------------------------------------------------------- private documents
+async def add_document(user: dict, app_id: str, label: str, data: bytes) -> dict:
+    app = await store.get("credit_applications", app_id, user_id=user["id"])
+    if not app or app["status"] != "submitted":
+        raise CreditError("Documents can be added only while your application is waiting for review.", 404)
+    label = label.strip()[:80]
+    if not label:
+        raise CreditError("Give the document a short label.", 422)
+    if not data or len(data) > MAX_DOC_BYTES:
+        raise CreditError(f"Each file must be between 1 byte and {MAX_DOC_BYTES // (1024 * 1024)} MB.", 422)
+    mime, ext = sniff_document(data)
+    import hashlib
+    existing = await store.find("credit_documents", {"application_id": app_id}, limit=20)
+    if len(existing) >= MAX_DOCS:
+        raise CreditError(f"At most {MAX_DOCS} documents per application.", 409)
+    slot = max((d["slot"] for d in existing), default=0) + 1
+    try:
+        rec = await store.insert("credit_documents", user["id"], {
+            "application_id": app_id, "slot": slot, "label": label, "mime": mime, "ext": ext, "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(), "data": data})
+    except store.Conflict:
+        raise CreditError("Another upload happened at the same moment. Try again.", 409)
+    await audit(user, "document_uploaded", "credit_document", rec["id"], {"size": len(data), "mime": mime})
+    return rec
+
+
+async def documents_for(app_id: str) -> list[dict]:
+    rows = await store.find("credit_documents", {"application_id": app_id}, limit=20)
+    return sorted(({k: v for k, v in r.items() if k != "data"} for r in rows), key=lambda r: r["slot"])
+
+
+async def get_document(user: dict, doc_id: str, *, is_owner: bool) -> dict:
+    doc = await store.get("credit_documents", doc_id, user_id=None if is_owner else user["id"])
+    if not doc:
+        raise CreditError("Document not found.", 404)
+    if is_owner and doc["user_id"] != user["id"]:
+        await audit(user, "document_viewed", "credit_document", doc_id, {"application_id": doc["application_id"]})
+    return doc
+
+
+async def delete_document(user: dict, app_id: str, doc_id: str) -> None:
+    app = await store.get("credit_applications", app_id, user_id=user["id"])
+    doc = await store.get("credit_documents", doc_id, user_id=user["id"])
+    if not app or app["status"] != "submitted" or not doc or doc["application_id"] != app_id:
+        raise CreditError("Document not found, or the application is no longer editable.", 404)
+    await store.delete("credit_documents", doc_id)
+    await audit(user, "document_deleted", "credit_document", doc_id, {})

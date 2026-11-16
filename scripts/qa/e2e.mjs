@@ -885,7 +885,8 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   // investor: wallet discovery with two announced wallets, then a demo contribution
   const ip = await newPage(ctxs.investor);
   await ip.addInitScript(() => {
-    const mk = (uuid, name, address) => ({ info: { uuid, name, icon: "data:image/svg+xml;base64,PHN2Zy8+", rdns: "test." + uuid }, provider: { request: async ({ method }) => method === "eth_requestAccounts" ? [address] : method === "eth_chainId" ? "0x2105" : null } });
+    window.__walletCalls = [];
+    const mk = (uuid, name, address) => ({ info: { uuid, name, icon: "data:image/svg+xml;base64,PHN2Zy8+", rdns: "test." + uuid }, provider: { request: async ({ method }) => { window.__walletCalls.push(method); return method === "eth_requestAccounts" ? [address] : method === "eth_chainId" ? "0x2105" : null; } } });
     const wallets = [mk("w-1", "Alpha Wallet", "0x1111111111111111111111111111111111111111"), mk("w-2", "Beta Wallet", "0x2222222222222222222222222222222222222222")];
     window.addEventListener("eip6963:requestProvider", () => wallets.forEach((w) => window.dispatchEvent(new CustomEvent("eip6963:announceProvider", { detail: Object.freeze(w) }))));
   });
@@ -895,7 +896,11 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   check("credit", "both announced wallets are offered (EIP-6963), read-only", (await ip.locator("#wallet-pick option").allInnerTexts()).join(",") === "Alpha Wallet,Beta Wallet");
   await ip.selectOption("#wallet-pick", "w-2"); await ip.getByRole("button", { name: /Connect Beta Wallet/ }).click(); await ip.waitForTimeout(500);
   const addr = await ip.getByTestId("wallet-address").innerText().catch(() => "");
-  check("credit", "connecting shows the shortened address and the network name, nothing is sent to the server", /0x2222…2222/.test(addr) && /Base/.test(addr), addr);
+  check("credit", "connecting shows the shortened address and the network name", /0x2222…2222/.test(addr) && /Base/.test(addr), addr);
+  const calls = await ip.evaluate(() => window.__walletCalls);
+  check("credit", "the wallet was only ever asked for accounts and chain id: no signature, transaction, key or seed request", calls.length > 0 && calls.every((m) => m === "eth_requestAccounts" || m === "eth_chainId"), JSON.stringify(calls));
+  check("credit", "the page has no input that asks for a seed phrase or private key", (await ip.locator("input,textarea").evaluateAll((els) => els.map((e) => (e.name + e.id + (e.placeholder || "")).toLowerCase()))).every((t) => !/seed|mnemonic|private|recovery/.test(t)));
+  await ip.screenshot({ path: `${SHOTS}/credit-investor-desktop.png`, fullPage: true });
   await ip.fill("#contrib-amount", "5"); await ip.waitForTimeout(200);
   check("credit", "an amount below the minimum shows an error and keeps the button disabled", (await text(ip)).includes("Enter an amount between") && await ip.getByRole("button", { name: "Record contribution" }).isDisabled());
   await ip.fill("#contrib-amount", "2,000.00");
@@ -917,19 +922,25 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   await ap.fill("#credit-amount", "12"); await ap.waitForTimeout(200);
   check("credit", "an out-of-range amount is flagged and blocks sending", (await text(ap)).includes("Enter an amount between") && await ap.getByRole("button", { name: "Send application" }).isDisabled());
   await ap.fill("#credit-amount", "1000");
-  await ap.getByRole("button", { name: "Add a link" }).click();
-  await ap.getByLabel("Document 1 label").fill("Signed brief"); await ap.getByLabel("Document 1 link").fill("http://insecure.example/brief");
-  check("credit", "a non-https document link is refused before sending", (await text(ap)).includes("must start with https://") && await ap.getByRole("button", { name: "Send application" }).isDisabled());
-  await ap.getByLabel("Document 1 link").fill("https://example.com/brief.pdf");
+  await ap.setInputFiles("#credit-files", [{ name: "page.html", mimeType: "text/html", buffer: Buffer.from("<script>alert(1)</script>") }]); await ap.waitForTimeout(200);
+  check("credit", "an HTML file is refused in the browser before sending", (await text(ap)).includes("use a PDF, PNG or JPEG") && await ap.getByRole("button", { name: "Send application" }).isDisabled());
+  await ap.setInputFiles("#credit-files", [{ name: "brief.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF") }]); await ap.waitForTimeout(200);
+  check("credit", "a PDF is listed with a remove button and enables sending", (await text(ap)).includes("brief.pdf") && await ap.getByRole("button", { name: "Remove brief.pdf" }).count() === 1 && !(await ap.getByRole("button", { name: "Send application" }).isDisabled()));
+  await ap.screenshot({ path: `${SHOTS}/credit-apply-desktop.png`, fullPage: true });
   await ap.getByRole("button", { name: "Send application" }).click(); await ap.waitForTimeout(1500);
-  check("credit", "the application is listed as 'In review'", /Website for a local bakery/.test(await text(ap)) && /In review/.test(await text(ap)), (await text(ap)).slice(0, 200));
+  check("credit", "the application is listed as 'In review' with its file attached", /Website for a local bakery/.test(await text(ap)) && /In review/.test(await text(ap)) && /1 file attached/.test(await text(ap)), (await text(ap)).slice(0, 200));
 
   // owner: review and offer
   const op = await newPage(ctxs.owner);
   await op.goto("/dashboard/credit/admin", { waitUntil: "networkidle" }); await op.waitForTimeout(1200);
   check("credit", "the treasury shows the contribution and a balanced ledger check", /\$2,000\.00/.test(await text(op)) && /Balanced/.test(await text(op)), (await text(op)).slice(0, 200));
   await op.getByRole("button", { name: "Review" }).first().click(); await op.waitForTimeout(500);
-  check("credit", "the review dialog shows the application text, the document link and the applicant's verification", /ordering/.test(await text(op)) && /example\.com\/brief\.pdf/.test(await text(op)) && /Verification: verified/.test(await text(op)));
+  check("credit", "the review dialog shows the application text, the private document and the applicant's verification", /ordering/.test(await text(op)) && /brief\.pdf \(PDF/.test(await text(op)) && /Verification: verified/.test(await text(op)));
+  await op.screenshot({ path: `${SHOTS}/credit-review-desktop.png` });
+  const docHref = await op.getByRole("link", { name: "Download" }).first().getAttribute("href");
+  const dl = await ctxs.owner.request.get(`${BASE}${docHref}`);
+  check("credit", "the owner downloads the file as an attachment with the right type; an anonymous request is refused", dl.status() === 200 && /attachment/.test(dl.headers()["content-disposition"] ?? "") && dl.headers()["content-type"] === "application/pdf" && (await rawApi("GET", docHref.replace(/^.*?\/api/, "/api"))).status === 401, `${dl.status()} ${dl.headers()["content-disposition"]}`);
+  check("credit", "another freelancer cannot download it", (await ctxs.bob.request.get(`${BASE}${docHref}`)).status() === 404);
   await op.fill("#rv-amount", "1000"); await op.fill("#rv-fee", "10");
   await op.getByRole("button", { name: "Send offer" }).click(); await op.waitForTimeout(1500);
   check("credit", "the offer is sent and the $1,000 is shown as committed", /Offer ready/.test(await text(op)) && /\$1,000\.00 committed/.test(await text(op)), (await text(op)).slice(0, 220));
@@ -945,6 +956,7 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   await ap.getByRole("button", { name: "Record repayment" }).first().click(); await ap.waitForTimeout(300);
   await ap.fill("#credit-repay", "400"); await ap.getByRole("button", { name: "Record repayment" }).last().click(); await ap.waitForTimeout(1500);
   check("credit", "a partial repayment lowers what is still owed to $700.00", /still owed \$700\.00/.test(await text(ap)), (await text(ap)).slice(0, 200));
+  await ap.screenshot({ path: `${SHOTS}/credit-borrower-desktop.png`, fullPage: true });
   await ap.close();
 
   // isolation: another freelancer cannot see or repay it; the investor cannot use the owner area
@@ -957,6 +969,19 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   const mctx = await newCtx({ width: 390, height: 780 });
   await mctx.addCookies(await ctxs.investor.cookies());
   const mp = await newPage(mctx); await mp.goto(`${BASE}/investor/credit`, { waitUntil: "networkidle" }); await mp.waitForTimeout(1200);
+  await mp.screenshot({ path: `${SHOTS}/credit-investor-mobile.png`, fullPage: true });
+  const mp2 = await newPage(await (async () => { const c = await newCtx({ width: 390, height: 780 }); await c.addCookies(await ctxs.ann.cookies()); return c; })());
+  await mp2.goto(`${BASE}/freelancer/credit`, { waitUntil: "networkidle" }); await mp2.waitForTimeout(1000);
+  await mp2.screenshot({ path: `${SHOTS}/credit-borrower-mobile.png`, fullPage: true });
+  check("credit", "the freelancer credit page has no horizontal page scroll on a 390px phone", await mp2.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), await mp2.evaluate(() => document.documentElement.scrollWidth));
+  const mop = await newPage(await (async () => { const c = await newCtx({ width: 390, height: 780 }); await c.addCookies(await ctxs.owner.cookies()); return c; })());
+  await mop.goto(`${BASE}/dashboard/credit/admin`, { waitUntil: "networkidle" }); await mop.waitForTimeout(1200);
+  await mop.screenshot({ path: `${SHOTS}/credit-admin-mobile.png`, fullPage: true });
+  check("credit", "the owner treasury page has no horizontal page scroll on a 390px phone", await mop.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), await mop.evaluate(() => document.documentElement.scrollWidth));
+  const lp = await newPage(await newCtx());
+  await lp.goto("/", { waitUntil: "networkidle" }); await lp.waitForTimeout(800);
+  const landing = await text(lp);
+  check("credit", "the public landing page no longer promises payment ('You still get paid') or says orders are 'insured'", !/You still get paid|Insure every|insured for up to/i.test(landing) && /Simulated/.test(landing), landing.match(/You still get paid|Insure every|insured for up to/i)?.[0] ?? "");
   check("credit", "the investor page has no horizontal page scroll on a 390px phone", await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), await mp.evaluate(() => document.documentElement.scrollWidth));
   await mctx.close();
 });

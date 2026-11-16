@@ -48,7 +48,7 @@ def pool(client, owner, cents=500_000):
 
 
 APP = {"title": "Brand site for a client", "description": "Fixed-price website project; need software licences up front.",
-       "requestedCents": 100_000, "installments": 3, "documents": [{"label": "Signed brief", "url": "https://example.com/brief.pdf"}]}
+       "requestedCents": 100_000, "installments": 3}
 
 
 def offer(client, owner, app_id, **kw):
@@ -123,9 +123,7 @@ def test_only_verified_freelancers_and_agencies_can_apply(client, owner):
 
 def test_application_validation(client, owner):
     fl = freelancer(client, owner)
-    for bad in ({"requestedCents": 5_000}, {"requestedCents": 10**8}, {"title": "x"}, {"description": "short"}, {"installments": 9},
-                {"documents": [{"label": "x", "url": "http://insecure.example/doc"}]},
-                {"documents": [{"label": "x", "url": "javascript:alert(1)"}]}):
+    for bad in ({"requestedCents": 5_000}, {"requestedCents": 10**8}, {"title": "x"}, {"description": "short"}, {"installments": 9}):
         res = client.post("/api/credit/applications", headers=fl, json={**APP, **bad})
         assert res.status_code in (422,), (bad, res.status_code)
     assert client.post("/api/credit/applications", headers=fl, json=APP).status_code == 200
@@ -278,7 +276,7 @@ def test_applicant_contact_details_stay_out_of_borrower_responses(client, owner)
     pool(client, owner)
     fl = freelancer(client, owner)
     mine = client.post("/api/credit/applications", headers=fl, json=APP).json()
-    assert "applicantEmail" not in mine and "applicantId" not in mine
+    assert "applicantEmail" not in mine and "applicantId" not in mine and "open" not in mine
     admin = client.get("/api/credit/admin/applications", headers=owner).json()[0]
     assert admin["applicantEmail"] == "fl@example.com" and admin["signals"]["kycStatus"] == "verified"
 
@@ -316,7 +314,7 @@ def test_the_database_guard_stops_two_simultaneous_open_applications(client, own
     pool(client, owner)
     fl = freelancer(client, owner)
     user = run(client, db.find_user, "fl@example.com")
-    fields = {"title": "Site", "description": "x" * 30, "requested_cents": 100_000, "installments": 3, "documents": []}
+    fields = {"title": "Site", "description": "x" * 30, "requested_cents": 100_000, "installments": 3, }
     run(client, service._insert_application, user, 100_000, fields)
     with pytest.raises(cstore.Conflict):
         run(client, service._insert_application, user, 100_000, fields)

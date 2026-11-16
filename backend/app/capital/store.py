@@ -17,7 +17,7 @@
   bank_accounts      linked bank accounts (last four digits only)
   bank_transfers     deposits, withdrawals, conversions, crypto sends
   financing_applications  business-financing applications for partner review
-  credit_*           AutoGig project-credit prototype (contributions, applications, agreements, append-only audit)
+  credit_*           AutoGig project-credit prototype (contributions, applications, agreements, private documents, append-only audit)
 
 Every update is compare-and-set on `version`, like the orders store.
 """
@@ -34,7 +34,7 @@ COLLECTIONS = ("capital_profiles", "capital_advances", "capital_coverages", "cap
                "token_wallets", "token_subscriptions", "token_proposals", "token_alerts",
                "market_listings", "market_investments", "market_agreements", "market_distributions",
                "bank_accounts", "bank_transfers", "financing_applications",
-               "credit_contributions", "credit_applications", "credit_agreements", "credit_audit")
+               "credit_contributions", "credit_applications", "credit_agreements", "credit_audit", "credit_documents")
 _mem: dict[str, list[dict]] = {c: [] for c in COLLECTIONS}
 
 
@@ -108,6 +108,8 @@ async def ensure_indexes() -> None:
     await mdb.credit_agreements.create_index("application_id", unique=True)
     await mdb.credit_agreements.create_index([("user_id", ASCENDING), ("status", ASCENDING)])
     await mdb.credit_audit.create_index([("created_at", DESCENDING)])
+    await mdb.credit_documents.create_index([("application_id", ASCENDING), ("slot", ASCENDING)], unique=True)
+    await mdb.credit_documents.create_index("user_id")
 
 
 async def insert(coll: str, user_id: str, fields: dict) -> dict:
@@ -131,6 +133,8 @@ async def insert(coll: str, user_id: str, fields: dict) -> dict:
             raise Conflict("This contribution was already submitted.")
         if coll == "credit_applications" and doc.get("open") and any(r["user_id"] == user_id and r.get("open") for r in rows):
             raise Conflict("You already have an open application.")
+        if coll == "credit_documents" and any(r.get("application_id") == doc.get("application_id") and r.get("slot") == doc.get("slot") for r in rows):
+            raise Conflict("That document slot is taken.")
         if coll == "credit_agreements" and any(r.get("application_id") == doc.get("application_id") for r in rows):
             raise Conflict("This application already has an agreement.")
         if coll == "market_agreements" and any(r.get("listing_id") == doc.get("listing_id") for r in rows):
@@ -201,6 +205,13 @@ async def update(coll: str, record_id: str, fields: dict, *, expect_version: int
     except DuplicateKeyError as exc:
         raise Conflict("A matching open record already exists.") from exc
     return _clean(doc)
+
+
+async def delete(coll: str, record_id: str) -> None:
+    if not db.enabled():
+        _mem[coll][:] = [r for r in _mem[coll] if r["id"] != record_id]
+        return
+    await db._get_db()[coll].delete_one({"_id": record_id})
 
 
 async def profile(user_id: str) -> dict | None:

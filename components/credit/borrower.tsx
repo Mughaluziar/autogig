@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Paperclip, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { apiCall } from "@/lib/api";
 import { newIdempotencyKey, pct, toCents, usd } from "@/lib/capital";
-import { AGREEMENT_LABELS, APP_LABELS, useCredit, type CreditAgreement, type CreditApplication, type CreditOverview } from "@/lib/credit";
+import { AGREEMENT_LABELS, APP_LABELS, DOC_ACCEPT, MAX_DOCS, MAX_DOC_BYTES, fileToBase64, useCredit, type CreditAgreement, type CreditApplication, type CreditOverview } from "@/lib/credit";
 import { Gate, SimNotice, Stat, dateOnly } from "@/components/credit/common";
 
 type Detail = { detail?: string };
@@ -50,25 +50,34 @@ function ApplyCard({ overview, applications, agreements, verifyHref, onDone }: {
   const [description, setDescription] = React.useState("");
   const [amount, setAmount] = React.useState("");
   const [installments, setInstallments] = React.useState("3");
-  const [docs, setDocs] = React.useState<{ label: string; url: string }[]>([]);
+  const [files, setFiles] = React.useState<File[]>([]);
   const [busy, setBusy] = React.useState(false);
   const cents = toCents(amount);
   const open = applications.some((a) => a.status === "submitted" || a.status === "offered") || agreements.some((a) => a.status === "active" || a.status === "late");
   const rangeOk = cents != null && cents >= limits.minRequestCents && cents <= limits.maxRequestCents;
-  const docsOk = docs.every((d) => d.label.trim() && /^https:\/\/\S+$/.test(d.url.trim()));
+  const fileProblem = files.find((f) => f.size > MAX_DOC_BYTES || f.size === 0 || !["application/pdf", "image/png", "image/jpeg"].includes(f.type));
+  const docsOk = !fileProblem && files.length <= MAX_DOCS;
   const valid = title.trim().length >= 3 && description.trim().length >= 20 && rangeOk && docsOk;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const res = await apiCall<Detail>("/api/credit/applications", {
+    const res = await apiCall<Detail & { id?: string }>("/api/credit/applications", {
       title: title.trim(), description: description.trim(), requestedCents: cents, installments: Number(installments),
-      documents: docs.map((d) => ({ label: d.label.trim(), url: d.url.trim() })),
     });
+    if (!res || res.status >= 400 || !res.data.id) { setBusy(false); return toast({ title: "Application not sent", description: message(res) }); }
+    const failed: string[] = [];
+    for (const file of files) {
+      try {
+        const up = await apiCall<Detail>(`/api/credit/applications/${encodeURIComponent(res.data.id)}/documents`, { label: file.name.slice(0, 80), contentBase64: await fileToBase64(file) });
+        if (!up || up.status >= 400) failed.push(`${file.name}: ${message(up)}`);
+      } catch { failed.push(`${file.name}: could not be read`); }
+    }
     setBusy(false);
-    if (!res || res.status >= 400) return toast({ title: "Application not sent", description: message(res) });
-    toast({ title: "Application sent for review (simulated)", variant: "success" });
-    setTitle(""); setDescription(""); setAmount(""); setDocs([]);
+    toast(failed.length
+      ? { title: "Application sent, but some files were not added", description: failed.join(" · ") }
+      : { title: "Application sent for review (simulated)", variant: "success" });
+    setTitle(""); setDescription(""); setAmount(""); setFiles([]);
     onDone();
   };
 
@@ -114,17 +123,24 @@ function ApplyCard({ overview, applications, agreements, verifyHref, onDone }: {
               </div>
             </div>
             <fieldset className="space-y-2">
-              <legend className="text-sm font-medium">Supporting documents (links, optional)</legend>
-              <p className="text-xs text-muted-foreground">This prototype stores links, not files. Use an https link you control (a signed brief, a contract, a portfolio).</p>
-              {docs.map((d, i) => (
-                <div key={i} className="grid gap-2 sm:grid-cols-[1fr_2fr_auto]">
-                  <Input aria-label={`Document ${i + 1} label`} placeholder="Label" value={d.label} maxLength={80} onChange={(e) => setDocs(docs.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} />
-                  <Input aria-label={`Document ${i + 1} link`} placeholder="https://…" value={d.url} maxLength={500} onChange={(e) => setDocs(docs.map((x, j) => j === i ? { ...x, url: e.target.value } : x))} />
-                  <Button type="button" variant="ghost" size="icon" aria-label={`Remove document ${i + 1}`} onClick={() => setDocs(docs.filter((_, j) => j !== i))}><Trash2 /></Button>
-                </div>
-              ))}
-              {docs.length < 5 && <Button type="button" variant="outline" size="sm" onClick={() => setDocs([...docs, { label: "", url: "" }])}><Plus /> Add a link</Button>}
-              {!docsOk && <p role="alert" className="text-xs text-destructive">Each link needs a label and must start with https://</p>}
+              <legend className="text-sm font-medium">Supporting documents (optional)</legend>
+              <p id="credit-files-hint" className="text-xs text-muted-foreground">
+                Up to {MAX_DOCS} files (PDF, PNG or JPEG, {MAX_DOC_BYTES / (1024 * 1024)} MB each). Only you and the platform owner can open them, and every owner view is logged.
+                This is a demo: do not upload real identity or bank documents.
+              </p>
+              <Input id="credit-files" type="file" multiple accept={DOC_ACCEPT} aria-describedby="credit-files-hint"
+                onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, MAX_DOCS + 1))} />
+              {files.length > 0 && (
+                <ul className="space-y-1 text-sm">
+                  {files.map((f, i) => (
+                    <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 rounded border px-2 py-1">
+                      <span className="flex min-w-0 items-center gap-1.5"><Paperclip className="size-3.5 shrink-0" /><span className="truncate">{f.name}</span><span className="text-xs text-muted-foreground">{Math.max(1, Math.round(f.size / 1024))} KB</span></span>
+                      <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}><Trash2 /></Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!docsOk && <p role="alert" className="text-xs text-destructive">{files.length > MAX_DOCS ? `At most ${MAX_DOCS} files.` : `${fileProblem?.name}: use a PDF, PNG or JPEG under ${MAX_DOC_BYTES / (1024 * 1024)} MB.`}</p>}
             </fieldset>
             <Button type="submit" disabled={busy || !valid}>{busy && <Loader2 className="animate-spin" />} Send application</Button>
           </form>
@@ -155,7 +171,7 @@ function ApplicationList({ apps, onChanged }: { apps: CreditApplication[]; onCha
                 <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{a.title}</p>
-                    <p className="text-muted-foreground">Requested {usd(a.requestedCents)} · {dateOnly(a.createdAt)}</p>
+                    <p className="text-muted-foreground">Requested {usd(a.requestedCents)} · {dateOnly(a.createdAt)}{a.documents.length > 0 && ` · ${a.documents.length} file${a.documents.length > 1 ? "s" : ""} attached`}</p>
                     {a.status === "declined" && a.decision?.note && <p className="text-muted-foreground">Reviewer note: {a.decision.note}</p>}
                   </div>
                   <div className="flex items-center gap-2">

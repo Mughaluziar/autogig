@@ -106,7 +106,7 @@ export function OperatorPanel({ onChanged }: { onChanged: () => void }) {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Insurance claims ({claims.length})</CardTitle>
+          <CardTitle className="text-base">Protection claims ({claims.length})</CardTitle>
           <CardDescription>Approval re-checks the platform-reported loss and pays up to the fund&apos;s balance.</CardDescription>
         </CardHeader>
         <CardContent>

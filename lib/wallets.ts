@@ -3,7 +3,8 @@
  * Browser-wallet discovery with EIP-6963 (multi-wallet discovery), so MetaMask, Coinbase Wallet, Rabby, Brave,
  * Trust, OKX and any other extension that follows the standard appear side by side instead of fighting over
  * `window.ethereum`. No dependency, no key handling: the wallet keeps the keys, this code only asks it for an address
- * and, when the token program is on, for a signature on a message. It never asks for a transaction.
+ * (`eth_requestAccounts`) and the chain id (`eth_chainId`). It has no code path that signs anything or sends a transaction;
+ * the optional token program has its own, separate message-signing step (lib/token.ts) and is off by default.
  * Wallets that connect through a QR code (WalletConnect) need a Reown project id: see docs/open-source-evaluation.md.
  */
 import * as React from "react";
@@ -71,12 +72,6 @@ export async function connect(wallet: DiscoveredWallet): Promise<{ address: stri
     chainId = Number.parseInt(hex, 16);
   } catch { /* the chain is informational only */ }
   return { address, chainId: Number.isFinite(chainId) ? chainId : null };
-}
-
-/** personal_sign of a UTF-8 message with the chosen wallet. Never a transaction. */
-export async function signWith(wallet: DiscoveredWallet, address: string, message: string): Promise<string> {
-  const hex = "0x" + Array.from(new TextEncoder().encode(message)).map((b) => b.toString(16).padStart(2, "0")).join("");
-  return (await wallet.provider.request({ method: "personal_sign", params: [hex, address] })) as string;
 }
 
 export const CHAIN_NAMES: Record<number, string> = { 1: "Ethereum", 56: "BNB Smart Chain", 137: "Polygon", 8453: "Base", 84532: "Base Sepolia", 11155111: "Sepolia" };

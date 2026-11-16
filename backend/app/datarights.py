@@ -175,6 +175,8 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
          lambda: capital_store._mem["credit_applications"], scrub=("applicant_name", "applicant_email", "description", "title")),
     Coll("credit_agreements", _uid(), "scrub", "Simulated credit agreements (ledger consistency).", True,
          lambda: capital_store._mem["credit_agreements"], scrub=("title",)),
+    Coll("credit_documents", _uid(), "delete", "Private supporting documents uploaded with a credit application (the file contents are never exported).", True,
+         lambda: capital_store._mem["credit_documents"], exclude=("data",)),
     Coll("credit_audit", _uid(), "keep", "Append-only audit trail of credit actions (ids and amounts, no personal text).", True,
          lambda: capital_store._mem["credit_audit"]),
     # --- records about the data rights themselves -----------------------------------------------------------

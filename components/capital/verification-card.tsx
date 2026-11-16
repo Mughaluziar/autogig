@@ -19,7 +19,7 @@ export function SimulatedBanner() {
       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
       <p>
         <span className="font-medium">Simulated settlement.</span> Deposits, early payments, repayments and payouts are
-        recorded in the ledger, but no real money moves and no escrow is provided until a licensed settlement partner is connected. Order insurance
+        recorded in the ledger, but no real money moves and no escrow is provided until a licensed settlement partner is connected. Order protection
         is backed by the platform&apos;s protection fund, <span className="font-medium">not a licensed insurer</span>: claims are
         reviewed and paid only up to the fund&apos;s balance.
       </p>
@@ -86,7 +86,7 @@ export function VerificationCard({
           Identity verification <Badge variant={status.variant}>{status.label}</Badge>
         </CardTitle>
         <CardDescription>
-          Required for early payments, insurance and investing. Reviewed by the platform operator; a regulated identity
+          Required for early payments, protection and investing. Reviewed by the platform operator; a regulated identity
           provider replaces this review before real money moves.
         </CardDescription>
       </CardHeader>
@@ -120,7 +120,7 @@ export function VerificationCard({
               <legend className="text-sm font-medium">I want to</legend>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={roles.includes("freelancer")} onCheckedChange={() => toggleRole("freelancer")} />
-                get early payment and insurance on my verified orders
+                get early payment and protection on my verified orders
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={investing} onCheckedChange={() => toggleRole("investor")} />
