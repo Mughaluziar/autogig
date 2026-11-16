@@ -169,6 +169,14 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
          lambda: capital_store._mem["bank_transfers"], scrub=("address", "note")),
     Coll("financing_applications", _uid(), "scrub", "Simulated financing applications.", True,
          lambda: capital_store._mem["financing_applications"], scrub=("email",)),
+    Coll("credit_contributions", _uid(), "scrub", "Simulated contributions to the demo credit pool.", True,
+         lambda: capital_store._mem["credit_contributions"]),
+    Coll("credit_applications", _uid(), "scrub", "Simulated project-credit applications.", True,
+         lambda: capital_store._mem["credit_applications"], scrub=("applicant_name", "applicant_email", "description", "title")),
+    Coll("credit_agreements", _uid(), "scrub", "Simulated credit agreements (ledger consistency).", True,
+         lambda: capital_store._mem["credit_agreements"], scrub=("title",)),
+    Coll("credit_audit", _uid(), "keep", "Append-only audit trail of credit actions (ids and amounts, no personal text).", True,
+         lambda: capital_store._mem["credit_audit"]),
     # --- records about the data rights themselves -----------------------------------------------------------
     Coll("terms_acceptances", _uid(), "keep", "Proof of which Terms/Privacy version was accepted and when "
          "(no personal content).", True, lambda: rights_store._mem["terms_acceptances"]),
@@ -341,9 +349,10 @@ async def blockers(user_doc: dict) -> list[str]:
     if active:
         out.append(f"{len(active)} contract(s) are still active. Finish or end them first so nobody is left unpaid.")
     for name, label in (("capital_advances", "advance"), ("capital_coverages", "cover"), ("market_investments", "investment"),
-                        ("market_listings", "listing"), ("financing_applications", "financing application")):
+                        ("market_listings", "listing"), ("financing_applications", "financing application"),
+                        ("credit_applications", "credit application"), ("credit_agreements", "credit agreement")):
         open_rows = [r for r in await rows(DATA_MAP[name], ctx)
-                     if r.get("status") in ("active", "open", "funding", "submitted", "in_review", "outstanding", "live")]
+                     if r.get("status") in ("active", "open", "funding", "submitted", "in_review", "outstanding", "live", "offered", "late")]
         if open_rows:
             out.append(f"{len(open_rows)} simulated {label}(s) are still open. Close or settle them first.")
     return out

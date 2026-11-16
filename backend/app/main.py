@@ -26,7 +26,7 @@ from .config import get_settings
 from .routers import (
     activity, admin, agents, auth, automation, billing, core, demo, freelancer, growth,
     capital, operations, orders, pipeline, portal, public, radar, revenue, studio, system, token, workspace,
-    inbox, payments, pool, upwork, upwork_leads, me,
+    inbox, payments, pool, upwork, upwork_leads, me, credit,
 )
 from .capital import ledger as capital_ledger, store as capital_store
 from .orders import store as order_store
@@ -200,6 +200,7 @@ app.include_router(marketplace_routes.router, prefix=settings.api_prefix, depend
 app.include_router(banking_routes.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 # Token program: the transparency report is public (no personal data); the
 # rest needs a session, and admin routes check for a platform owner.
+app.include_router(credit.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 app.include_router(token.public_router, prefix=settings.api_prefix)
 app.include_router(token.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 app.include_router(integrations.router, prefix=settings.api_prefix,

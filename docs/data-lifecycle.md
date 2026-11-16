@@ -95,6 +95,10 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `bank_accounts` | yes | **Deleted** | Simulated bank account details. |
 | `bank_transfers` | yes | **Kept, name removed** | Simulated transfers (ledger consistency). |
 | `financing_applications` | yes | **Kept, name removed** | Simulated financing applications. |
+| `credit_contributions` | yes | **Kept, name removed** | Simulated contributions to the AutoGig demo credit pool (ledger consistency). |
+| `credit_applications` | yes | **Kept, name removed** | Simulated project-credit applications; the title, description and applicant contact fields are replaced. |
+| `credit_agreements` | yes | **Kept, name removed** | Simulated credit agreements and their repayment schedule (ledger consistency). |
+| `credit_audit` | yes | **Kept** | Append-only audit trail of credit actions: ids and amounts only, no personal text. |
 | `terms_acceptances` | yes | Kept as is | Proof of which Terms/Privacy version was accepted and when (no personal content). |
 | `data_requests` | yes | Kept as is | Audit trail of export/deletion requests (counts, no content). |
 | `rate_limits` | no | Not personal data | Request counters keyed by network address, not by user; each expires about two minutes after its window. Not linkable to an account. |
