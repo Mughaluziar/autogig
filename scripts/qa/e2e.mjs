@@ -952,7 +952,7 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   check("credit", "another freelancer sees no agreement and cannot repay it", (await api(ctxs.bob, "GET", "/api/credit/agreements")).body?.length === 0 && (await api(ctxs.bob, "POST", `/api/credit/agreements/${aid}/repay`, { amountCents: 100, idempotencyKey: "abcdefgh12345" })).status === 404);
   check("credit", "the owner-only treasury API refuses the investor and the freelancer", (await api(ctxs.investor, "GET", "/api/credit/admin/treasury")).status === 403 && (await api(ctxs.ann, "GET", "/api/credit/admin/audit")).status === 403);
   const t = (await api(ctxs.owner, "GET", "/api/credit/admin/treasury")).body;
-  check("credit", "treasury arithmetic: cash $1,400 = 2,000 - 1,000 + 400; outstanding $600; ledger check true", t?.cashCents === 140000 && t?.outstandingCents === 60000 && t?.ledgerCheck === true, JSON.stringify(t));
+  check("credit", "treasury arithmetic: cash $1,400 = 2,000 - 1,000 + 400; the $400 repaid fee-first (3,334 + 3,332 fees, 33,334 principal) leaves $666.66 outstanding; ledger check true", t?.cashCents === 140000 && t?.feesCents === 6666 && t?.outstandingCents === 66666 && t?.ledgerCheck === true, JSON.stringify(t));
   // responsive: no horizontal scroll on a phone
   const mctx = await newCtx({ width: 390, height: 780 });
   await mctx.addCookies(await ctxs.investor.cookies());

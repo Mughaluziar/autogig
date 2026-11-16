@@ -77,3 +77,38 @@ is about a real third party: those rows are PARTIAL or BLOCKED. Test commands an
 | "Insurance": the platform's **protection fund** (not insurance): automatic cover on advances, optional 24-hour cover purchase, platform-reported-loss claims, claim cap at fund balance, claims hold off write-offs | **COMPLETED as a simulation** | `tests/test_capital.py` (16 tests, all passed in memory and real-MongoDB modes); `tests/test_modules_gate.py` (6) for invitation-only access. It moves ledger entries only: **no real money, no licensed insurer, no regulated insurance product.** Real insurance is BLOCKED on legal/licensing decisions (`docs/legal-review-questions.md`) |
 | Every API route refuses anonymous callers except a reviewed public list | **COMPLETED** | `tests/test_route_auth_sweep.py` (22): walks the OpenAPI route list; stale allowlist entries also fail |
 | Real ecosystem token / token-funded insurance | **BLOCKED (out of scope, research only)** | `docs/crypto-token-feasibility.md`; needs a separate contract, counsel, professional tokenomics review and an independent audit. Nothing deployed |
+
+## H. Re-verification and new scope (2026-11-16, branch `w/requirements`, based on `e774a37`)
+Statuses here use the five words COMPLETED / PARTIAL / BLOCKED / NOT STARTED / DEFERRED. "Verified" means a test in this repository
+passed in the final run of this branch (counts in `IMPLEMENTATION_REPORT.md`), not that an earlier report said so.
+
+### H1. Original platform
+| Requirement | Status | Verified by |
+|---|---|---|
+| Authentication, accounts, roles, permissions (agency, freelancer, investor; owner) | COMPLETED | `test_auth*.py`, `test_role_matrix.py`, `test_route_auth_sweep.py` (every route refuses anonymous callers except a reviewed list), e2e auth/roles groups |
+| Freelancer and agency profiles; editing; secure email change | COMPLETED | `test_profile.py`, e2e profile group |
+| Teams, invitations, personal API keys | COMPLETED | `test_team.py`, `test_api_keys.py` |
+| Upwork job discovery from forwarded alert emails, duplicate detection, AI-assisted proposals with manual submit | PARTIAL | Works on synthetic emails and a stub AI; **real alert samples and a real Groq key are BLOCKED**; no Upwork API/automation by rule |
+| Freelancer pool, blind bidding, award, contracts, milestones, delivery, rejection/approval, earnings, payout records | COMPLETED | `test_pool.py`, e2e pool group. Payouts are records, not real transfers |
+| Command Center and dashboards | PARTIAL | Live parts tested; many agency demo sections (Calendar, Agent Fleet and others) are shown as "Coming soon" by decision (NOT STARTED, DEFERRED) |
+| AI disclosure | COMPLETED | `test_ai_disclosure.py`, e2e disclosure group |
+| Terms, Privacy (draft), data export, account deletion, retention | COMPLETED as software; legal text and retention values BLOCKED on a lawyer | `test_terms.py`, `test_datarights*.py`, `test_data_map_complete.py` |
+| Security: tenant isolation, CSRF, CORS, rate limiting, edge proof and replay protection | COMPLETED locally; edge proof on Vercel/Render BLOCKED | `test_edge.py`, `test_ratelimit.py`, `test_session_cookies.py`, e2e with enforcement on |
+| Backups, restore, data lifecycle | COMPLETED locally; Atlas backups/restore drill BLOCKED | restore drill scripts, `docs/data-lifecycle.md` |
+| Sentry and logging privacy | PARTIAL | unit-tested config; needs a real DSN to see an event |
+| Protection fund ("insurance") | COMPLETED as a **simulation**; real insurance BLOCKED | `test_capital.py`; labelled "not insurance" |
+| Token module | COMPLETED as simulation plus testnet-only permissioned token code; mainnet BLOCKED in code | `test_token*.py` (chain end-to-end needs the local-chain script) |
+| Navigation, buttons, forms | COMPLETED / PARTIAL | `npm run qa` 24 pass / 3 warn (four `Button`s the static check cannot see handlers for in the shell, a "Payment received" toast string in the demo money provider, no og:image); crawl and e2e |
+
+### H2. AutoGig funding ecosystem (new scope; see `docs/autogig-funding-requirements.md`)
+| Item | Status |
+|---|---|
+| Network recommendation (Base) with comparison | COMPLETED (document; client decision needed) |
+| Token name/symbol, tokenomics and allocation proposal | COMPLETED (document, **not final, needs lawyer and client approval**) |
+| Investor dashboard, demo contribution, pool overview, allocations, statement, risk disclosures, history (simulated) | COMPLETED |
+| Freelancer credit application, owner review, grade, offer, accept/reject, schedule, repayments, late/default, audit (simulated) | COMPLETED |
+| Treasury dashboard with ledger check (simulated) | COMPLETED |
+| Wallet connection for common browser wallets (read-only) | COMPLETED; mobile/QR wallets BLOCKED (Reown license and project id) |
+| Testnet AutoGig token | NOT STARTED (deliberate: no structure decision) |
+| Real investor funds, real credit, revenue sharing, insurance product, DEX/CEX listing | BLOCKED (legal, licensed partners, audit) |
+| Open-source evaluation | COMPLETED (`docs/open-source-evaluation.md`) |
