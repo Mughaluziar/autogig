@@ -388,3 +388,22 @@ New in this pass: `tests/test_route_auth_sweep.py` (security regression), `docs/
 **Insurance:** the "protection fund" is a simulated ledger feature, explicitly "not insurance". Its workflows are tested (`test_capital.py`, 16 tests) and pass; this does not verify any real insurance, insurer, premium collection or payout.
 
 Security review notes (no new defects found; nothing weakened): API-key edge exemption is safe (any `apk_` credential is fully authenticated by `ApiKeyMiddleware`, an invalid one is a 401 even with a valid cookie; `test_edge.py` line 118); edge nonce store fails open if MongoDB errors (logged, residual risk already listed); `/health` and the reviewed public list are the only anonymous routes.
+
+## Fifth pass: AutoGig funding prototype and requirement re-audit (2026-11-16, branch `w/requirements`, from `e774a37`)
+Local only: nothing pushed, deployed, purchased or connected to a real service. **Everything financial here is simulated.** The platform is **not production-ready**.
+
+**Added:** `backend/app/credit/` + `routers/credit.py` (simulated project-credit workflow on the existing integer-cent ledger: demo contributions, applications, owner review and offers, acceptance, repayment schedule and repayments, late/default write-off, treasury with ledger check, append-only audit), `lib/wallets.ts` (EIP-6963 discovery, read-only), `lib/credit.ts`, `components/credit/*`, pages `/investor/credit`, `/freelancer/credit`, `/dashboard/credit`, `/dashboard/credit/admin`, data-map and deletion-blocker entries, `tests/test_credit.py` (24 tests), `tests/test_route_auth_sweep.py` (22), browser group `credit` (22 checks).
+**Documents:** `docs/autogig-funding-requirements.md`, `autogig-architecture.md`, `autogig-tokenomics-proposal.md`, `autogig-credit-workflow.md`, `autogig-investor-workflow.md`, `autogig-security-review.md`, `autogig-two-week-mvp-plan.md`, `open-source-evaluation.md`, `crypto-token-feasibility.md`; `requirements-checklist.md` section H.
+
+**Defects found and fixed in this pass:** offer/repay dialogs were rendered inside a blurred Card, so the card header covered them (found by the browser test, fixed by moving dialogs out of cards); two simultaneous applications could race past the "one open application" pre-check (now a unique partial index plus the same rule in memory mode); my own wrong expected values in a unit test and an e2e check (fee-first repayment) were corrected from hand arithmetic, not loosened.
+
+**Final results on this branch's tree**
+| Check | Result |
+|---|---|
+| Backend, memory mode (`pytest -q`) | **644 passed, 8 skipped, 0 failed** |
+| Backend, real MongoDB 7 (`TEST_MONGODB_URI=mongodb://127.0.0.1:27018 pytest -q`) | **646 passed, 6 skipped, 0 failed** (63 min) |
+| Chromium e2e (real MongoDB + API, edge proof enforced) | **292/292** on the final run. Earlier runs on this branch: 286/287 (dialog bug above), 291/292 (wrong expected value above) |
+| Frontend | typecheck pass; lint 0 errors, 1 existing warning; `npm run qa` 24 pass / 3 warn / 0 fail; `test:deploy-guards` 12 pass; production build compiled (before the final e2e-only and docs commits) |
+| Audits | `npm audit --omit=dev` 0; `npm audit` 6 moderate (dev tooling); `pip-audit` none; `actionlint` none |
+Skipped tests: memory mode 8 (Mongo-only tests and the local-chain test); Mongo mode 6 (five tests that inspect in-memory storage, and the local-chain test). Not run: the local-chain end-to-end (`contracts/scripts/e2e-local.sh`) because nothing in this pass changed contracts or token code.
+No dependency was added.
