@@ -10,11 +10,11 @@ from conftest import bearer, signup
 
 
 @pytest.mark.parametrize("outcome", ["success", "throttle", "timeout", "malformed"])
-@pytest.mark.parametrize(("path", "body"), [
-    ("/api/upwork/proposal/prepare", {"title": "Mongo migration"}),
-    ("/api/radar/proposal", {"jobTitle": "Mongo migration", "platform": "Upwork"}),
+@pytest.mark.parametrize(("path", "role", "body"), [
+    ("/api/upwork/proposal/prepare", "admin", {"title": "Mongo migration"}),
+    ("/api/radar/proposal", "freelancer", {"jobTitle": "Mongo migration", "platform": "Upwork"}),
 ])
-def test_proposal_routes_use_groq_or_fall_back(client, monkeypatch, outcome, path, body):
+def test_proposal_routes_use_groq_or_fall_back(client, monkeypatch, outcome, path, role, body):
     monkeypatch.setattr(get_settings(), "groq_api_key", "mock-groq-key")
     real_client = httpx.Client
     calls = []
@@ -34,7 +34,7 @@ def test_proposal_routes_use_groq_or_fall_back(client, monkeypatch, outcome, pat
         return httpx.Response(200, json={"choices": [{"message": {"content": draft}}]})
 
     monkeypatch.setattr(llm.httpx, "Client", lambda **kwargs: real_client(transport=httpx.MockTransport(respond), **kwargs))
-    account = signup(client, role="freelancer")
+    account = signup(client, role=role)
     result = client.post(path, headers=bearer(account["token"]), json={"jobId": "mock", **body})
     if path == "/api/radar/proposal":
         assert result.json()["manualSubmitOnly"] is True
