@@ -101,6 +101,8 @@ def test_contribution_rules_and_idempotency(client, owner):
     first = client.post("/api/credit/contributions", headers=inv, json=body)
     again = client.post("/api/credit/contributions", headers=inv, json=body)
     assert first.status_code == again.status_code == 200 and first.json()["contribution"]["id"] == again.json()["contribution"]["id"]
+    assert client.post("/api/credit/contributions", headers=inv,
+                       json={**body, "amountCents": 30_000}).status_code == 409
     assert first.json()["settlement"] == "simulated"
     assert treasury(client, owner)["contributionsCents"] == 20_000
     assert client.get("/api/credit/statement", headers=inv).json()["contributedCents"] == 20_000

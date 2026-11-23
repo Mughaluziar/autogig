@@ -19,7 +19,7 @@ import binascii
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ..auth import current_user, is_owner, require_owner
 from ..capital import ledger, store
@@ -53,7 +53,7 @@ async def _app_out(a: dict, *, admin: bool = False) -> dict:
 
 
 def _agr_out(a: dict) -> dict:
-    out = _out(a, drop=("version", "user_id"))
+    out = _out(a, drop=("version", "user_id", "ledger_reconciled"))
     out["schedule"] = _deep(out["schedule"])
     out["repayments"] = _deep(out["repayments"])
     out["openCents"] = service.total_open(a["schedule"])
@@ -222,14 +222,24 @@ class DocumentBody(BaseModel):
     content_base64: str = Field(alias="contentBase64", min_length=4, max_length=int(service.MAX_DOC_BYTES * 4 / 3) + 16)
 
 
-@router.post("/applications/{app_id}/documents")
-async def add_document(app_id: str, body: DocumentBody, request: Request, user: dict = Depends(current_user)):
-    if int(request.headers.get("content-length") or 0) > service.MAX_DOC_BYTES * 2:
-        return JSONResponse(status_code=413, content={"detail": "That file is too large."})
+@router.post("/applications/{app_id}/documents", openapi_extra={
+    "requestBody": {"required": True, "content": {"application/json": {"schema": DocumentBody.model_json_schema()}}},
+})
+async def add_document(app_id: str, request: Request, user: dict = Depends(current_user)):
+    limit = service.MAX_DOC_BYTES * 2
+    length = request.headers.get("content-length", "")
+    if length.isdecimal() and int(length) > limit:
+        raise HTTPException(413, "That file is too large.")
+    payload = bytearray()
+    async for chunk in request.stream():
+        if len(payload) + len(chunk) > limit:
+            raise HTTPException(413, "That file is too large.")
+        payload.extend(chunk)
     try:
+        body = DocumentBody.model_validate_json(payload)
         data = base64.b64decode(body.content_base64, validate=True)
-    except (binascii.Error, ValueError):
-        return JSONResponse(status_code=422, content={"detail": "The file could not be read."})
+    except (binascii.Error, ValueError, ValidationError):
+        raise HTTPException(422, "The file could not be read.") from None
     result = await _call(service.add_document(user, app_id, body.label, data))
     if isinstance(result, JSONResponse):
         return result

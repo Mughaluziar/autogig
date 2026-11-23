@@ -19,7 +19,7 @@ import { Gate, SimNotice, Stat, dateOnly } from "@/components/credit/common";
 type Detail = { detail?: string };
 
 export function CreditAdmin() {
-  const { treasury: t, adminApps, adminAgreements, audit, loaded, denied, refresh } = useCredit({ admin: true });
+  const { treasury: t, adminApps, adminAgreements, audit, loaded, denied, failed, refresh } = useCredit({ admin: true });
   const { toast } = useToast();
   const [reviewing, setReviewing] = React.useState<CreditApplication | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -32,7 +32,7 @@ export function CreditAdmin() {
     refresh();
   };
   return (
-    <Gate loaded={loaded} denied={denied || !t}>
+    <Gate loaded={loaded} denied={denied} failed={failed} retry={refresh}>
       {t && (
         <div className="space-y-6">
           <SimNotice>Treasury figures are demo-ledger balances. They are kept apart from any real company account and must never be reported as real funds.</SimNotice>

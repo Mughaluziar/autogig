@@ -22,7 +22,10 @@ needs a licensed lender or partner, a legal opinion and the controls listed in `
 8. **Audit:** every action appends a row (actor id and role, action, subject, amounts). No edit or delete route exists.
 
 ## 3. Fees and money rules
-Fee = floor(principal x fee_bps / 10,000), flat, not an annual rate; the UI says so and shows total repayable. No compounding, no late fees in this prototype. All values are integer cents. A simulated pool cannot go negative: a disbursement that would overdraw cash is rejected and the offer reopens.
+Fee = floor(principal x fee_bps / 10,000), flat, not an annual rate; the UI says so and shows total repayable. No compounding, no late fees in this prototype. All values are integer cents. The ledger rejects any disbursement that would overdraw the reservation. The acceptance stays pending for the maintenance pass or operator review.
+
+The maintenance pass resumes an interrupted acceptance, final repayment, or default write-off from MongoDB. It uses the
+original ledger keys so retries cannot move the same demo funds twice.
 
 ## 4. Statuses
 Application: `submitted`, `offered`, `declined`, `accepted`, `rejected`, `withdrawn`, `expired`. Agreement: `active`, `late`, `repaid`, `defaulted`, `cancelled`.

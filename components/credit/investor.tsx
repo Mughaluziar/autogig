@@ -16,9 +16,9 @@ import { CHAIN_NAMES, connect, useWallets } from "@/lib/wallets";
 import { Gate, SimNotice, Stat, dateOnly } from "@/components/credit/common";
 
 export function CreditInvestor() {
-  const { overview, statement, allocations, loaded, denied, refresh } = useCredit({ investor: true });
+  const { overview, statement, allocations, loaded, denied, failed, refresh } = useCredit({ investor: true });
   return (
-    <Gate loaded={loaded} denied={denied}>
+    <Gate loaded={loaded} denied={denied} failed={failed} retry={refresh}>
       {overview && (
         <div className="space-y-6">
           <SimNotice>Contributions here are demo records. Statements show how the pool&apos;s simulated results would be shared, not what anyone will earn.</SimNotice>

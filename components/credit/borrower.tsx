@@ -12,18 +12,25 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { apiCall } from "@/lib/api";
+import { apiCall, apiUrl } from "@/lib/api";
 import { newIdempotencyKey, pct, toCents, usd } from "@/lib/capital";
-import { AGREEMENT_LABELS, APP_LABELS, DOC_ACCEPT, MAX_DOCS, MAX_DOC_BYTES, fileToBase64, useCredit, type CreditAgreement, type CreditApplication, type CreditOverview } from "@/lib/credit";
+import { AGREEMENT_LABELS, APP_LABELS, DOC_ACCEPT, MAX_DOCS, MAX_DOC_BYTES, documentUrl, fileToBase64, useCredit, type CreditAgreement, type CreditApplication, type CreditOverview } from "@/lib/credit";
 import { Gate, SimNotice, Stat, dateOnly } from "@/components/credit/common";
 
 type Detail = { detail?: string };
 const message = (res: { data?: unknown } | null) => (res?.data as Detail | undefined)?.detail || "Can't reach the server.";
 
+async function uploadDocument(applicationId: string, file: File) {
+  return apiCall<Detail>(`/api/credit/applications/${encodeURIComponent(applicationId)}/documents`, {
+    label: file.name.slice(0, 80),
+    contentBase64: await fileToBase64(file),
+  });
+}
+
 export function CreditBorrower({ verifyHref }: { verifyHref: string }) {
-  const { overview, applications, agreements, loaded, denied, refresh } = useCredit({ borrower: true });
+  const { overview, applications, agreements, loaded, denied, failed, refresh } = useCredit({ borrower: true });
   return (
-    <Gate loaded={loaded} denied={denied}>
+    <Gate loaded={loaded} denied={denied} failed={failed} retry={refresh}>
       {overview && (
         <div className="space-y-6">
           <SimNotice>Credit offers here are examples reviewed by hand. Repayments are records in a demo ledger.</SimNotice>
@@ -69,7 +76,7 @@ function ApplyCard({ overview, applications, agreements, verifyHref, onDone }: {
     const failed: string[] = [];
     for (const file of files) {
       try {
-        const up = await apiCall<Detail>(`/api/credit/applications/${encodeURIComponent(res.data.id)}/documents`, { label: file.name.slice(0, 80), contentBase64: await fileToBase64(file) });
+        const up = await uploadDocument(res.data.id, file);
         if (!up || up.status >= 400) failed.push(`${file.name}: ${message(up)}`);
       } catch { failed.push(`${file.name}: could not be read`); }
     }
@@ -150,6 +157,60 @@ function ApplyCard({ overview, applications, agreements, verifyHref, onDone }: {
   );
 }
 
+function ApplicationDocuments({ application, onChanged }: { application: CreditApplication; onChanged: () => void }) {
+  const { toast } = useToast();
+  const [busy, setBusy] = React.useState(false);
+  const inputId = React.useId();
+  const editable = application.status === "submitted";
+  const base = `/api/credit/applications/${encodeURIComponent(application.id)}/documents`;
+  const add = async (file: File) => {
+    if (!file.size || file.size > MAX_DOC_BYTES) {
+      toast({ title: "File not added", description: "Use a non-empty PDF, PNG or JPEG up to 2 MB." });
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await uploadDocument(application.id, file);
+      if (!result || result.status >= 400) toast({ title: "File not added", description: message(result) });
+      else onChanged();
+    } catch {
+      toast({ title: "File not added", description: "The file could not be read." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (id: string) => {
+    setBusy(true);
+    const result = await apiCall<Detail>(`${base}/${encodeURIComponent(id)}`, undefined, "DELETE");
+    setBusy(false);
+    if (!result || result.status >= 400) toast({ title: "File not removed", description: message(result) });
+    else onChanged();
+  };
+  if (!editable && !application.documents.length) return null;
+  return (
+    <div className="mt-2 space-y-1.5">
+      {application.documents.map((doc) => (
+        <div key={doc.id} className="flex min-w-0 items-center gap-2">
+          <a className="min-w-0 truncate text-primary underline" href={apiUrl(documentUrl(doc.id))} download>{doc.label}</a>
+          {editable && <Button type="button" size="icon" variant="ghost" disabled={busy}
+            aria-label={`Remove ${doc.label}`} onClick={() => void remove(doc.id)}><Trash2 /></Button>}
+        </div>
+      ))}
+      {editable && application.documents.length < MAX_DOCS && (
+        <div className="space-y-1">
+          <Label htmlFor={inputId}>Add supporting file</Label>
+          <Input id={inputId} type="file" accept={DOC_ACCEPT} disabled={busy} onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void add(file);
+          }} />
+          <p className="text-xs text-muted-foreground">Use demo files only. PDF, PNG or JPEG up to 2 MB.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ApplicationList({ apps, onChanged }: { apps: CreditApplication[]; onChanged: () => void }) {
   const [offerFor, setOfferFor] = React.useState<CreditApplication | null>(null);
   const { toast } = useToast();
@@ -172,6 +233,7 @@ function ApplicationList({ apps, onChanged }: { apps: CreditApplication[]; onCha
                   <div className="min-w-0">
                     <p className="truncate font-medium">{a.title}</p>
                     <p className="text-muted-foreground">Requested {usd(a.requestedCents)} · {dateOnly(a.createdAt)}{a.documents.length > 0 && ` · ${a.documents.length} file${a.documents.length > 1 ? "s" : ""} attached`}</p>
+                    <ApplicationDocuments application={a} onChanged={onChanged} />
                     {a.status === "declined" && a.decision?.note && <p className="text-muted-foreground">Reviewer note: {a.decision.note}</p>}
                   </div>
                   <div className="flex items-center gap-2">

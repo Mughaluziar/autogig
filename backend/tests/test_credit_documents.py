@@ -97,3 +97,15 @@ def test_documents_are_deleted_with_the_account_data_map_and_never_exported_as_b
     from app import datarights
     coll = datarights.DATA_MAP["credit_documents"]
     assert coll.action == "delete" and "data" in coll.exclude
+
+
+def test_upload_rejects_oversized_chunked_body(setup, client, monkeypatch):
+    from app.credit import service
+
+    fl, app_id = setup
+    monkeypatch.setattr(service, "MAX_DOC_BYTES", 1024)
+    chunks = (b" " * 512 for _ in range(5))
+    result = client.post(f"/api/credit/applications/{app_id}/documents",
+                         headers={**fl, "Content-Type": "application/json"}, content=chunks)
+    assert result.status_code == 413
+    assert client.get("/api/credit/applications", headers=fl).json()[0]["documents"] == []

@@ -4,7 +4,7 @@
  * rates are basis points. Nothing here is a real loan, deposit, investment or insurance product.
  */
 import * as React from "react";
-import { API_URL, apiGet } from "@/lib/api";
+import { API_URL, apiFetch } from "@/lib/api";
 
 export type Pool = {
   settlement: "simulated"; notice: string; contributionsCents: number; cashCents: number; committedCents: number; availableCents: number;
@@ -70,31 +70,47 @@ export const AGREEMENT_LABELS: Record<AgreementStatus, { label: string; variant:
   defaulted: { label: "Defaulted", variant: "destructive" }, cancelled: { label: "Cancelled", variant: "secondary" },
 };
 
+async function readCredit<T>(path: string): Promise<{ status: number; data: T | null }> {
+  try {
+    const response = await apiFetch(path);
+    return { status: response.status, data: response.ok ? await response.json() as T : null };
+  } catch {
+    return { status: 0, data: null };
+  }
+}
+
 /** Loads credit data for a page; `admin` adds the owner-only sections. */
 export function useCredit(opts: { borrower?: boolean; investor?: boolean; admin?: boolean }) {
   const [tick, setTick] = React.useState(0);
   const [state, setState] = React.useState<{
     overview: CreditOverview | null; applications: CreditApplication[]; agreements: CreditAgreement[]; statement: Statement | null;
-    allocations: Allocation[]; adminApps: CreditApplication[]; adminAgreements: CreditAgreement[]; treasury: Pool | null; audit: AuditRow[]; loaded: boolean; denied: boolean;
-  }>({ overview: null, applications: [], agreements: [], statement: null, allocations: [], adminApps: [], adminAgreements: [], treasury: null, audit: [], loaded: !API_URL, denied: false });
+    allocations: Allocation[]; adminApps: CreditApplication[]; adminAgreements: CreditAgreement[]; treasury: Pool | null; audit: AuditRow[]; loaded: boolean; denied: boolean; failed: boolean;
+  }>({ overview: null, applications: [], agreements: [], statement: null, allocations: [], adminApps: [], adminAgreements: [], treasury: null, audit: [], loaded: !API_URL, denied: false, failed: false });
   const { borrower, investor, admin } = opts;
   React.useEffect(() => {
     if (!API_URL) return;
     let cancelled = false;
     void Promise.all([
-      apiGet<CreditOverview>("/api/credit/overview"),
-      borrower ? apiGet<CreditApplication[]>("/api/credit/applications") : Promise.resolve(null),
-      borrower ? apiGet<CreditAgreement[]>("/api/credit/agreements") : Promise.resolve(null),
-      investor ? apiGet<Statement>("/api/credit/statement") : Promise.resolve(null),
-      investor ? apiGet<{ allocations: Allocation[] }>("/api/credit/pool/allocations") : Promise.resolve(null),
-      admin ? apiGet<CreditApplication[]>("/api/credit/admin/applications") : Promise.resolve(null),
-      admin ? apiGet<CreditAgreement[]>("/api/credit/admin/agreements") : Promise.resolve(null),
-      admin ? apiGet<Pool>("/api/credit/admin/treasury") : Promise.resolve(null),
-      admin ? apiGet<AuditRow[]>("/api/credit/admin/audit") : Promise.resolve(null),
+      readCredit<CreditOverview>("/api/credit/overview"),
+      borrower ? readCredit<CreditApplication[]>("/api/credit/applications") : Promise.resolve(null),
+      borrower ? readCredit<CreditAgreement[]>("/api/credit/agreements") : Promise.resolve(null),
+      investor ? readCredit<Statement>("/api/credit/statement") : Promise.resolve(null),
+      investor ? readCredit<{ allocations: Allocation[] }>("/api/credit/pool/allocations") : Promise.resolve(null),
+      admin ? readCredit<CreditApplication[]>("/api/credit/admin/applications") : Promise.resolve(null),
+      admin ? readCredit<CreditAgreement[]>("/api/credit/admin/agreements") : Promise.resolve(null),
+      admin ? readCredit<Pool>("/api/credit/admin/treasury") : Promise.resolve(null),
+      admin ? readCredit<AuditRow[]>("/api/credit/admin/audit") : Promise.resolve(null),
     ]).then(([overview, applications, agreements, statement, allocations, adminApps, adminAgreements, treasury, audit]) => {
       if (cancelled) return;
-      setState({ overview, applications: applications ?? [], agreements: agreements ?? [], statement, allocations: allocations?.allocations ?? [],
-        adminApps: adminApps ?? [], adminAgreements: adminAgreements ?? [], treasury, audit: audit ?? [], loaded: true, denied: overview == null });
+      const required = [overview, applications, agreements, statement, allocations, adminApps, adminAgreements, treasury, audit]
+        .filter((result) => result !== null);
+      setState({
+        overview: overview.data,
+        applications: applications?.data ?? [], agreements: agreements?.data ?? [], statement: statement?.data ?? null,
+        allocations: allocations?.data?.allocations ?? [], adminApps: adminApps?.data ?? [], adminAgreements: adminAgreements?.data ?? [],
+        treasury: treasury?.data ?? null, audit: audit?.data ?? [],
+        loaded: true, denied: required.some((result) => result.status === 403), failed: required.some((result) => result.data === null),
+      });
     });
     return () => { cancelled = true; };
   }, [tick, borrower, investor, admin]);

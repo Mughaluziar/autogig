@@ -1,6 +1,7 @@
 "use client";
 import * as React from "react";
 import { AlertTriangle, ShieldAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { API_URL } from "@/lib/api";
@@ -36,7 +37,9 @@ export function Stat({ label, value, hint, tone }: { label: string; value: React
 }
 
 /** Frontend-only demo, loading and "not invited" states, so no page ever shows an empty broken shell. */
-export function Gate({ loaded, denied, children }: { loaded: boolean; denied: boolean; children: React.ReactNode }) {
+export function Gate({ loaded, denied, failed, retry, children }: {
+  loaded: boolean; denied: boolean; failed: boolean; retry: () => void; children: React.ReactNode;
+}) {
   if (!API_URL) {
     return <EmptyState icon={<ShieldAlert className="size-6" />} title="Needs the backend"
       description="AutoGig credit keeps its records on the server, so it isn't available in the frontend-only demo." />;
@@ -44,7 +47,13 @@ export function Gate({ loaded, denied, children }: { loaded: boolean; denied: bo
   if (!loaded) return <p role="status" className="py-10 text-center text-sm text-muted-foreground">Loading…</p>;
   if (denied) {
     return <EmptyState icon={<ShieldAlert className="size-6" />} title="Not available for this account"
-      description="The simulated funding modules are shown only to accounts the platform owner has invited." />;
+      description="Your account does not have permission to view this credit page." />;
+  }
+  if (failed) {
+    return <div role="alert" className="space-y-3 rounded-lg border p-4">
+      <p>Credit data could not be loaded. Try again.</p>
+      <Button onClick={retry} size="sm">Retry</Button>
+    </div>;
   }
   return <>{children}</>;
 }

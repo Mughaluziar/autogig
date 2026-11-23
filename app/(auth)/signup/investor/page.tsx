@@ -8,7 +8,7 @@ export default function InvestorSignupPage() {
     <SignupShell
       role="investor"
       title="Create your investor account"
-      subtitle="Fund early payments for verified freelancers. Identity verification and accredited status are checked before you can invest."
+      subtitle="Explore simulated funding for verified freelancers. Demo contributions move no real money."
     >
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1.5">
@@ -27,7 +27,7 @@ export default function InvestorSignupPage() {
       <div className="space-y-1.5">
         <Label htmlFor="country">Country / Region</Label>
         <CountrySelect />
-        <p className="text-xs text-muted-foreground">Where you live for tax purposes. Investing is open in some countries only.</p>
+        <p className="text-xs text-muted-foreground">Used for your demo account profile.</p>
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="company">Fund or company (optional)</Label>
