@@ -141,6 +141,7 @@ async def startup() -> None:
             await oauth.ensure_indexes()
             await session_store.ensure_indexes()
             await pool_store.ensure_indexes()
+            await pool.recover_pending()
             await access_store.ensure_indexes()
             await rights_store.ensure_indexes()
             await ratelimit.ensure_indexes()

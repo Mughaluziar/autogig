@@ -52,7 +52,8 @@ def test_roles_are_enforced_on_every_pool_route(client, people):
 
 def test_spec_validation(client, people):
     agency = people[0]
-    bad = [{"title": "ab"}, {"estHours": 0}, {"deadline": "2020-01-01"}, {"deadline": "not-a-date"}, {"maxRate": -1}, {"estHours": 99999}]
+    bad = [{"title": "ab"}, {"estHours": 0}, {"deadline": "2020-01-01"}, {"deadline": "not-a-date"},
+           {"maxRate": -1}, {"maxRate": 0.001}, {"maxRate": 1.005}, {"estHours": 99999}]
     for over in bad:
         body = {"title": "Valid title", "estHours": 10, "deadline": FUTURE, **over}
         assert client.post("/api/pool/admin/specs", headers=agency, json=body).status_code in (422,), over
@@ -80,6 +81,8 @@ def test_bid_rules_update_withdraw_and_max_rate(client, people):
     assert bid(client, ann, s["id"], rate=55).status_code == 422                       # above the cap
     assert bid(client, ann, s["id"], hours=0).status_code == 422
     assert bid(client, ann, s["id"], rate=0).status_code == 422
+    assert bid(client, ann, s["id"], rate=0.001).status_code == 422
+    assert bid(client, ann, s["id"], rate=1.005).status_code == 422
     first = bid(client, ann, s["id"], 40, 30).json()
     again = bid(client, ann, s["id"], 45, 31).json()                                    # edit, not duplicate
     assert again["id"] == first["id"] and again["updated"] is True and again["hours"] == 45
@@ -116,9 +119,82 @@ def test_award_with_milestones_must_add_up(client, people):
     wrong = client.post(f"/api/pool/admin/specs/{s['id']}/award", headers=agency,
                         json={"bidId": a["id"], "milestones": [{"title": "A", "amount": 400}, {"title": "B", "amount": 500}]})
     assert wrong.status_code == 422
+    assert client.post(f"/api/pool/admin/specs/{s['id']}/award", headers=agency,
+                       json={"bidId": a["id"], "milestones": [
+                           {"title": "A", "amount": 400.005}, {"title": "B", "amount": 599.995}]}).status_code == 422
     ok = client.post(f"/api/pool/admin/specs/{s['id']}/award", headers=agency,
                      json={"bidId": a["id"], "milestones": [{"title": "A", "amount": 400}, {"title": "B", "amount": 600}]})
     assert ok.status_code == 200 and ok.json()["milestonesTotal"] == 2
+
+
+def test_interrupted_award_recovers_one_contract_with_original_terms(client, people, monkeypatch):
+    from app.pool import store
+
+    agency, _, ann, bob, _ = people
+    posted = spec(client, agency)
+    chosen = bid(client, ann, posted["id"], 10, 100).json()
+    bid(client, bob, posted["id"], 10, 90)
+    original_insert = store.insert
+    failed = False
+
+    async def interrupted(coll, fields):
+        nonlocal failed
+        if coll == "contracts" and not failed:
+            failed = True
+            raise RuntimeError("simulated process interruption")
+        return await original_insert(coll, fields)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "insert", interrupted)
+        failed_response = client.post(f"/api/pool/admin/specs/{posted['id']}/award", headers=agency,
+                                      json={"bidId": chosen["id"], "milestones": [
+                                          {"title": "First", "amount": 400}, {"title": "Second", "amount": 600}]})
+        assert failed_response.status_code == 500
+
+    recovered = client.post(f"/api/pool/admin/specs/{posted['id']}/award", headers=agency,
+                            json={"bidId": chosen["id"], "milestones": []})
+    assert recovered.status_code == 200, recovered.text
+    assert [m["amount"] for m in recovered.json()["milestones"]] == [400, 600]
+    assert len(client.get("/api/pool/admin/contracts", headers=agency).json()) == 1
+    assert client.get("/api/pool/my-bids", headers=bob).json()[0]["status"] == "rejected"
+    assert client.post(f"/api/pool/admin/specs/{posted['id']}/award", headers=agency,
+                       json={"bidId": chosen["id"]}).status_code == 409
+
+
+def test_interrupted_earning_is_repaired_without_duplicate_or_paid_reset(client, people, monkeypatch):
+    from app.pool import store
+
+    agency, _, ann, _, _ = people
+    posted = spec(client, agency)
+    chosen = bid(client, ann, posted["id"], 10, 100).json()
+    contract = client.post(f"/api/pool/admin/specs/{posted['id']}/award", headers=agency,
+                           json={"bidId": chosen["id"]}).json()
+    milestone = contract["milestones"][0]["id"]
+    assert client.post(f"/api/pool/contracts/{contract['id']}/milestones/{milestone}/deliver",
+                       headers=ann, json={}).status_code == 200
+    original_insert = store.insert
+    failed = False
+
+    async def interrupted(coll, fields):
+        nonlocal failed
+        if coll == "earnings" and not failed:
+            failed = True
+            raise RuntimeError("simulated process interruption")
+        return await original_insert(coll, fields)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "insert", interrupted)
+        failed_response = client.post(f"/api/pool/admin/contracts/{contract['id']}/milestones/{milestone}/approve",
+                                      headers=agency)
+        assert failed_response.status_code == 500
+    # Listing the agency's specs repairs missing records if a process stopped after approval.
+    assert client.get("/api/pool/admin/specs", headers=agency).status_code == 200
+    entries = client.get("/api/pool/admin/earnings", headers=agency).json()["entries"]
+    assert len(entries) == 1 and entries[0]["amount"] == 1000
+    assert client.post(f"/api/pool/admin/earnings/{entries[0]['id']}/mark-paid", headers=agency).status_code == 200
+    assert client.get("/api/pool/admin/specs", headers=agency).status_code == 200
+    entries = client.get("/api/pool/admin/earnings", headers=agency).json()["entries"]
+    assert len(entries) == 1 and entries[0]["status"] == "paid"
 
 
 def test_agencies_cannot_touch_each_others_specs_contracts_or_earnings(client, people):

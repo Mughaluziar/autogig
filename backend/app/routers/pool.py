@@ -15,6 +15,7 @@ caller; every freelancer action checks the bid/contract is theirs. A freelancer
 cannot see another freelancer's bid.
 """
 import logging
+from decimal import Decimal
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -37,7 +38,10 @@ def _usd(cents: int | None) -> float | None:
 
 
 def _cents(amount: float) -> int:
-    return int(round(amount * 100))
+    cents = Decimal(str(amount)) * 100
+    if not cents.is_finite() or cents < 1 or cents != cents.to_integral_value():
+        raise HTTPException(422, "Enter an amount of at least $0.01 in whole cents.")
+    return int(cents)
 
 
 # --------------------------------------------------------------------------- #
@@ -260,6 +264,7 @@ async def _own_spec(spec_id: str, user: dict) -> dict:
 
 @router.get("/pool/admin/specs")
 async def agency_specs(user: dict = Depends(agency_only)):
+    await recover_pending(owner_id=user["id"])
     out = []
     for spec in await store.find("specs", {"owner_id": user["id"]}):
         bids = [b for b in await store.find("bids", {"spec_id": spec["id"]}) if b["status"] != "withdrawn"]
@@ -277,9 +282,70 @@ class AwardBody(BaseModel):
     milestones: list[AwardMilestone] = Field(default_factory=list, max_length=MAX_MILESTONES)
 
 
+async def _finish_award(spec: dict) -> dict:
+    """Complete an atomically claimed award after a request or process failure."""
+    bid = await store.get("bids", spec["awarded_bid_id"])
+    if not bid or bid["spec_id"] != spec["id"]:
+        raise RuntimeError("Claimed pool award has no matching bid")
+    contract = next(iter(await store.find("contracts", {"spec_id": spec["id"]}, limit=1)), None)
+    if not contract:
+        contract = await store.insert("contracts", {
+            "spec_id": spec["id"], "bid_id": bid["id"], "owner_id": spec["owner_id"],
+            "freelancer_id": bid["freelancer_id"], "freelancer_name": bid.get("freelancer_name", ""),
+            "title": spec["title"], "hours": bid["hours"], "rate_cents": bid["rate_cents"],
+            "total_cents": spec["award_total_cents"], "status": "active",
+            "milestones": spec["award_milestones"], "version": 0,
+        })
+        if not contract:  # Another request won the unique spec_id insert.
+            contract = next(iter(await store.find("contracts", {"spec_id": spec["id"]}, limit=1)), None)
+    if not contract:
+        raise RuntimeError("Claimed pool award could not create its contract")
+    await store.update("bids", bid["id"], {"status": "awarded"}, expect={"status": "submitted"})
+    async for other in store.iter_records("bids", {"spec_id": spec["id"]}):
+        if other["id"] != bid["id"] and other["status"] == "submitted":
+            await store.update("bids", other["id"], {"status": "rejected"}, expect={"status": "submitted"})
+    await store.update("specs", spec["id"], {"status": "awarded", "contract_id": contract["id"]},
+                       expect={"status": "awarding"})
+    return contract
+
+
+async def _ensure_earning(contract: dict, milestone: dict) -> None:
+    if milestone["status"] != "approved":
+        return
+    await store.insert("earnings", {
+        "contract_id": contract["id"], "owner_id": contract["owner_id"],
+        "freelancer_id": contract["freelancer_id"],
+        "freelancer_name": contract.get("freelancer_name", ""),
+        "contract_title": contract["title"], "milestone_id": milestone["id"],
+        "milestone_title": milestone["title"], "amount_cents": milestone["amount_cents"],
+        "status": "approved",
+    })
+
+
+async def recover_pending(*, owner_id: str | None = None) -> dict:
+    """Idempotently repair interrupted awards and approved earnings."""
+    awards = earnings = 0
+    scope = {"owner_id": owner_id} if owner_id else {}
+    async for spec in store.iter_records("specs", {**scope, "status": "awarding"}):
+        await _finish_award(spec)
+        awards += 1
+    async for contract in store.iter_records("contracts", scope):
+        for milestone in contract.get("milestones", []):
+            if milestone["status"] == "approved":
+                await _ensure_earning(contract, milestone)
+                earnings += 1
+    return {"awards_checked": awards, "approved_milestones_checked": earnings}
+
+
 @router.post("/pool/admin/specs/{spec_id}/award")
 async def award(spec_id: str, body: AwardBody, user: dict = Depends(agency_only)):
     spec = await _own_spec(spec_id, user)
+    if spec["status"] == "awarding":
+        if spec.get("awarded_bid_id") != body.bidId:
+            raise HTTPException(409, "This spec is being awarded to another bid.")
+        return contract_out(await _finish_award(spec))
+    if spec["status"] != "open":
+        raise HTTPException(409, f"This spec is already {spec['status']}.")
     bid = await store.get("bids", body.bidId)
     if not bid or bid["spec_id"] != spec["id"] or bid["status"] != "submitted":
         raise HTTPException(404, "That bid isn't available to award.")
@@ -292,20 +358,15 @@ async def award(spec_id: str, body: AwardBody, user: dict = Depends(agency_only)
                       for i, (m, a) in enumerate(zip(body.milestones, amounts))]
     else:
         milestones = [{"id": "m1", "title": "Delivery", "amount_cents": total, "status": "pending"}]
-    # Claim the spec atomically: only one award can win.
-    claimed = await store.update("specs", spec["id"], {"status": "awarded", "awarded_bid_id": bid["id"]},
+    # Persist the chosen terms in the atomic claim so an interrupted award can resume.
+    claimed = await store.update("specs", spec["id"], {
+        "status": "awarding", "awarded_bid_id": bid["id"], "award_total_cents": total,
+        "award_milestones": milestones,
+    },
                                  expect={"status": "open"})
     if not claimed:
         raise HTTPException(409, f"This spec is already {spec['status']}.")
-    contract = await store.insert("contracts", {
-        "spec_id": spec["id"], "bid_id": bid["id"], "owner_id": user["id"], "freelancer_id": bid["freelancer_id"],
-        "freelancer_name": bid.get("freelancer_name", ""), "title": spec["title"], "hours": bid["hours"],
-        "rate_cents": bid["rate_cents"], "total_cents": total, "status": "active", "milestones": milestones, "version": 0})
-    await store.update("bids", bid["id"], {"status": "awarded"})
-    for other in await store.find("bids", {"spec_id": spec["id"]}):
-        if other["id"] != bid["id"] and other["status"] == "submitted":
-            await store.update("bids", other["id"], {"status": "rejected"})
-    await store.update("specs", spec["id"], {"contract_id": contract["id"]})
+    contract = await _finish_award(claimed)
     await repo.notify(bid["freelancer_id"], "You won a spec", f"Your bid on \"{spec['title']}\" was awarded.", "success")
     await repo.log_activity(user["id"], "Freelancer pool", f"Awarded \"{spec['title']}\"")
     return contract_out(contract)
@@ -350,11 +411,7 @@ async def approve_milestone(contract_id: str, milestone_id: str, user: dict = De
             fields["status"] = "completed"
         return fields
     saved = await _mutate_contract(contract_id, mutate)
-    await store.insert("earnings", {
-        "contract_id": saved["id"], "owner_id": saved["owner_id"], "freelancer_id": saved["freelancer_id"],
-        "freelancer_name": saved.get("freelancer_name", ""), "contract_title": saved["title"],
-        "milestone_id": milestone_id, "milestone_title": approved["title"], "amount_cents": approved["amount_cents"],
-        "status": "approved"})
+    await _ensure_earning(saved, approved)
     await repo.notify(saved["freelancer_id"], "Milestone approved", f"\"{saved['title']}\": {approved['title']} was approved.", "success")
     return contract_out(saved)
 

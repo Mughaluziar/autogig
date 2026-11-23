@@ -52,10 +52,12 @@ async def ensure_indexes() -> None:
     await mdb.pool_bids.create_index([("spec_id", ASCENDING), ("freelancer_id", ASCENDING)], unique=True)
     await mdb.pool_specs.create_index([("status", ASCENDING), ("created_at", ASCENDING)])
     await mdb.pool_specs.create_index("owner_id")
+    await mdb.pool_contracts.create_index("spec_id", unique=True)
     await mdb.pool_contracts.create_index("freelancer_id")
     await mdb.pool_contracts.create_index("owner_id")
     await mdb.pool_earnings.create_index("freelancer_id")
     await mdb.pool_earnings.create_index("owner_id")
+    await mdb.pool_earnings.create_index([("contract_id", ASCENDING), ("milestone_id", ASCENDING)], unique=True)
 
 
 async def insert(coll: str, fields: dict) -> dict | None:
@@ -65,6 +67,11 @@ async def insert(coll: str, fields: dict) -> dict | None:
     if not db.enabled():
         if coll == "bids" and any(b["spec_id"] == doc["spec_id"] and b["freelancer_id"] == doc["freelancer_id"]
                                   for b in _mem["bids"].values()):
+            return None
+        if coll == "contracts" and any(c["spec_id"] == doc["spec_id"] for c in _mem["contracts"].values()):
+            return None
+        if coll == "earnings" and any(e["contract_id"] == doc["contract_id"] and e["milestone_id"] == doc["milestone_id"]
+                                       for e in _mem["earnings"].values()):
             return None
         _mem[coll][doc["id"]] = deepcopy(doc)
         return _clean(doc)
@@ -95,6 +102,18 @@ async def count(coll: str, query: dict) -> int:
     if not db.enabled():
         return sum(1 for d in _mem[coll].values() if all(d.get(k) == v for k, v in query.items()))
     return await db._get_db()[_name(coll)].count_documents(query)
+
+
+async def iter_records(coll: str, query: dict | None = None):
+    """Stream records for bounded startup recovery without a 500-row page limit."""
+    query = query or {}
+    if not db.enabled():
+        for doc in list(_mem[coll].values()):
+            if all(doc.get(k) == v for k, v in query.items()):
+                yield _clean(doc)
+        return
+    async for doc in db._get_db()[_name(coll)].find(query):
+        yield _clean(doc)
 
 
 async def update(coll: str, item_id: str, fields: dict, *, expect: dict | None = None) -> dict | None:
