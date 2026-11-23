@@ -7,7 +7,9 @@ what actually changes the plan or adds credits. The browser never does.
 
 GET  /api/user-monetization      -> {plan, bidCredits, profileCredits, purchases}
 GET  /api/billing-history        -> purchases, newest first
-GET  /api/billing/checkout-config -> what the checkout page can offer right now
+GET  /api/billing/checkout-config -> what the checkout page can offer right now (plans and packs
+                                 described for the caller's account type)
+GET  /api/billing/receipts/{id}  -> a receipt for one of the caller's purchases
 POST /api/billing/checkout       {plan: "plus"|"pro"} or {pack: "bids"|"profiles", method?}
                                  -> {url} of Stripe's hosted checkout; 503 when Stripe isn't set up
 POST /api/billing/portal         -> {url} of Stripe's billing portal (card, invoices, cancel)
@@ -21,7 +23,12 @@ tried end to end. They're refused once Stripe is configured (use checkout)
 and in production (no free upgrades by API call).
 
 Bid credits are spent by the server itself when a real bid goes out (see
-routers/freelancer.py and routers/automation.py), never by the browser.
+routers/freelancer.py and routers/automation.py, and for freelancer accounts their
+bids in the freelancer pool, pool/credits.py), never by the browser.
+
+Account types: the plans are the same for everyone, but a freelancer account uses
+them for bids in the freelancer pool, so the catalog describes them that way, and
+profile slots (agency marketplace profiles) aren't sold to freelancers.
 """
 import logging
 import time
@@ -32,7 +39,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, model_validator
 
-from .. import repo
+from .. import db, repo
 from ..auth import current_user
 from ..config import get_settings
 from ..payments import stripe_api, subscriptions
@@ -57,6 +64,31 @@ PLAN_GRANTS = {
 }
 PAID_PLANS = {p["id"]: p for p in SUBSCRIPTION_PLANS if p["id"] in PLAN_GRANTS}
 ENDED = ("canceled", "unpaid", "incomplete_expired")
+# What each plan does for a freelancer account (the plans and prices are the same; see pool/credits.py).
+FREELANCER_FEATURES = {
+    "free": ["10 spec bids included", "Message agencies about your specs and contracts", "Earnings and payout records"],
+    "plus": ["50 spec bids every month", "Unused bids carry over", "Everything in Basic", "Email support"],
+    "pro": ["Unlimited spec bids", "No bid packs needed", "Everything in Plus", "Priority support"],
+}
+FREELANCER_AUDIENCE = {"free": "Start bidding in the pool", "plus": "Freelancers bidding every week",
+                       "pro": "Full-time freelancers"}
+AGENCY_ONLY_PACKS = ("profiles",)
+
+
+def _is_freelancer(user: dict) -> bool:
+    return user.get("role") == "freelancer"
+
+
+def _plans_for(user: dict) -> list[dict]:
+    if not _is_freelancer(user):
+        return [{**p, "interval": "month"} for p in SUBSCRIPTION_PLANS]
+    return [{**p, "interval": "month", "features": FREELANCER_FEATURES[p["id"]], "audience": FREELANCER_AUDIENCE[p["id"]]}
+            for p in SUBSCRIPTION_PLANS]
+
+
+def _plan_page(user: dict) -> str:
+    """Where the account manages its plan (the Stripe billing portal returns here)."""
+    return "/freelancer/billing" if _is_freelancer(user) else "/dashboard/money/plan"
 
 
 def _now_iso() -> str:
@@ -106,6 +138,36 @@ async def billing_history(user: dict = Depends(current_user)):
     return (await repo.get_billing(user["id"]))["purchases"]
 
 
+_RECEIPT_NOTES = {
+    "Paid": "Paid through Stripe. Stripe's own receipt (with the card or wallet used) is under Manage billing.",
+    "Trial": "A free trial started. Nothing was charged.",
+    "Ended": "The plan ended. Nothing was charged.",
+    "Simulated": "Simulated purchase on a development server: no payment was taken and no money moved.",
+}
+
+
+@router.get("/billing/receipts/{purchase_id}")
+async def receipt(purchase_id: str, user: dict = Depends(current_user)):
+    """A receipt for one of the caller's own purchases, built from the server's record (never from the browser)."""
+    billing = await repo.get_billing(user["id"])
+    found = next((p for p in billing.get("purchases") or [] if p.get("id") == purchase_id[:64]), None)
+    if not found:
+        raise HTTPException(404, "Purchase not found.")
+    account = await db.find_user(user["email"]) or {}
+    status = str(found.get("status") or "")
+    return {
+        "number": "AP-" + str(found["id"]).removeprefix("po-").upper(),
+        "purchaseId": found["id"], "date": found.get("date"), "item": found.get("item") or found.get("description") or "",
+        "amount": round(float(found.get("amount") or 0), 2), "currency": "USD", "status": status,
+        "recurring": bool(found.get("recurring")), "charged": status == "Paid" and float(found.get("amount") or 0) > 0,
+        # The purchase record doesn't keep the card/crypto split, so say only what is known.
+        "paymentMethod": found.get("method") or ("Stripe" if status == "Paid" else None),
+        "billedTo": {"name": account.get("name", ""), "email": user["email"], "company": account.get("company", "")},
+        "issuer": "Autopilot",
+        "note": _RECEIPT_NOTES.get(status, ""),
+    }
+
+
 @router.get("/billing/checkout-config")
 async def checkout_config(user: dict = Depends(current_user)):
     settings = get_settings()
@@ -118,9 +180,11 @@ async def checkout_config(user: dict = Depends(current_user)):
         "trialDays": TRIAL_DAYS,
         "trialAvailable": not sub.get("trial_used"),
         "plan": billing.get("plan", "free"),
-        "plans": [{**p, "interval": "month"} for p in SUBSCRIPTION_PLANS],
-        "packs": [{"id": k, "label": v["label"], "price": v["price"], "credits": v["credits"]} for k, v in CREDIT_PACKS.items()],
+        "plans": _plans_for(user),
+        "packs": [{"id": k, "label": v["label"], "price": v["price"], "credits": v["credits"]} for k, v in CREDIT_PACKS.items()
+                  if not (_is_freelancer(user) and k in AGENCY_ONLY_PACKS)],
         "subscription": _sub_view(sub),
+        "planPage": _plan_page(user),
     }
 
 
@@ -141,6 +205,8 @@ class CheckoutBody(BaseModel):
 @router.post("/billing/checkout")
 async def start_checkout(body: CheckoutBody, user: dict = Depends(current_user)):
     settings = get_settings()
+    if body.pack in AGENCY_ONLY_PACKS and _is_freelancer(user):
+        raise HTTPException(422, "Profile slots are for agency accounts. Nothing was charged.")
     if not stripe_api.configured(settings):
         raise HTTPException(503, "Online checkout isn't switched on yet, so nothing was charged.")
     billing = await repo.get_billing(user["id"])
@@ -193,7 +259,7 @@ async def billing_portal(user: dict = Depends(current_user)):
         raise HTTPException(404, "There's no paid plan on this account yet.")
     try:
         url = await stripe_api.create_portal_session(settings, customer_id=sub["customer_id"],
-                                                     return_url=f"{settings.site_url}/dashboard/money/plan")
+                                                     return_url=f"{settings.site_url}{_plan_page(user)}")
     except stripe_api.StripeError:
         raise HTTPException(502, "The billing page couldn't be opened. Try again in a moment.")
     return {"url": url}
@@ -230,6 +296,8 @@ class CreditsBody(BaseModel):
 @router.post("/billing/credits")
 async def buy_credits(body: CreditsBody, user: dict = Depends(current_user)):
     _refuse_simulation()
+    if body.kind in AGENCY_ONLY_PACKS and _is_freelancer(user):
+        raise HTTPException(422, "Profile slots are for agency accounts.")
     pack = CREDIT_PACKS[body.kind]
     purchase = _purchase(pack["label"], pack["price"])
     billing = await repo.record_purchase(user["id"], purchase, add_credits={pack["field"]: pack["credits"]})

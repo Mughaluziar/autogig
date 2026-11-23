@@ -35,6 +35,7 @@ from .access import store as access_store
 from .pool import store as pool_store
 from .routers import api_keys as api_keys_router, team as team_router
 from .routers import fleet as fleet_router
+from .routers import pool_messages
 from . import session as session_store
 from .edge import EdgeProofMiddleware
 from .security import ApiKeyMiddleware, OriginMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
@@ -218,6 +219,8 @@ app.include_router(payments.router, prefix=settings.api_prefix, dependencies=[De
 app.include_router(upwork_leads.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Freelancer pool: specs, blind bids, contracts, earnings. Role checks are per route (agency vs freelancer).
 app.include_router(pool.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
+# Messages between a freelancer and an agency, one thread per spec. Each route checks the caller is a participant.
+app.include_router(pool_messages.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Agent Fleet Copilot: interprets free-form commands; the browser runs them.
 app.include_router(fleet_router.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Team & invites and personal API keys: the invite preview is public (the

@@ -73,6 +73,8 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `pool_bids` | yes | Awarded bids: kept, name removed; others deleted | Bids. Awarded bids are part of a contract and are kept; all others are deleted. |
 | `pool_contracts` | yes | **Kept, name removed** | Contracts and milestones are retained for the counterparty and for financial records. |
 | `pool_earnings` | yes | **Kept, name removed** | Recorded payouts (financial record). |
+| `pool_threads` | yes | **Kept, name and last-message preview removed** | Conversations between a freelancer and an agency, one per spec: the other person keeps the conversation. |
+| `pool_messages` | yes | Messages you wrote: **kept, text removed**; the other person's messages: kept as is | Messages in those conversations. The export holds both sides of your own conversations, as you see them in the app. |
 | `billing` | yes | Kept as is | Plan, credits, purchase history (financial record, no personal text). |
 | `subscriptions` | yes | Kept as is | Stripe subscription state (off until Stripe is configured). |
 | `pay_links` | yes | **Kept, name removed** | Invoice pay links (financial record). |

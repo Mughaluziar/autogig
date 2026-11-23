@@ -3,11 +3,16 @@ import * as React from "react";
 import { API_URL, apiCall, apiFetch } from "@/lib/api";
 
 /** What the pool endpoints return (backend/app/routers/pool.py). Money is in dollars. */
-export type PoolBid = { id: string; specId: string; spec: string; hours: number; rate: number; total: number; note: string; status: string; submitted?: string; freelancerName?: string };
+export type PoolBid = { id: string; specId: string; spec: string; hours: number; rate: number; total: number; note: string; status: string; submitted?: string; freelancerId?: string; freelancerName?: string };
 export type PoolSpec = { id: string; title: string; summary: string; stack: string[]; estHours: number; deadline: string; maxRate: number | null; status: string; bidsIn: number; myBid?: PoolBid; bids?: PoolBid[] };
 export type PoolMilestone = { id: string; title: string; amount: number; status: string; deliveryNote: string; rejectionNote: string };
-export type PoolContract = { id: string; specId: string; title: string; hours: number; rate: number; value: number; status: string; milestonesDone: number; milestonesTotal: number; freelancerName: string; milestones: PoolMilestone[] };
+export type PoolContract = { id: string; specId: string; title: string; hours: number; rate: number; value: number; status: string; milestonesDone: number; milestonesTotal: number; freelancerId?: string; freelancerName: string; milestones: PoolMilestone[] };
 export type PoolEarning = { id: string; contract: string; milestone: string; amount: number; status: string; approvedAt?: string; paidAt?: string; freelancerName?: string };
+
+export type BidCredits = {
+  enabled: boolean; plan: string; unlimited: boolean; left: number; rules: string;
+  used: { specId: string; spec: string; credit: "spent" | "plan" | "refunded"; status: string; at?: string }[];
+};
 
 export type PoolState<T> = { data: T | null; loading: boolean; error: string; reload: () => void };
 

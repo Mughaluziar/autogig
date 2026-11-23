@@ -14,6 +14,8 @@ export type Subscription = {
 export type BillingConfig = {
   live: boolean; cryptoLive: boolean; simulated: boolean; trialDays: number; trialAvailable: boolean;
   plan: string; plans: Plan[]; packs: Pack[]; subscription: Subscription | null;
+  /** Where this account manages its plan (the server decides by account type). */
+  planPage?: string;
 };
 
 /** Same catalog the server serves (backend/app/seed.py SUBSCRIPTION_PLANS);
@@ -71,4 +73,6 @@ export async function openBillingPortal(): Promise<string | null> {
 }
 
 export const planName = (id: string) => PLANS.find((p) => p.id === id)?.name ?? "Basic";
+/** The plan page for an account type: freelancers manage billing in their own workspace. */
+export const planPageFor = (role?: string | null) => (role === "freelancer" ? "/freelancer/billing" : "/dashboard/money/plan");
 export const PENDING_PLAN_KEY = "autopilot-pending-plan";

@@ -30,6 +30,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth, dashboardHomeFor, SIGNUP_WALL, type Role } from "@/lib/auth";
 import { notifications as notificationsSeed } from "@/lib/mock-data";
 import { useEntity } from "@/lib/use-entity";
+import { useUnreadMessages } from "@/lib/messages";
 import { EmptyState } from "@/components/shared/empty-state";
 import { CoverOfferPrompt } from "@/components/capital/cover-offer-prompt";
 import { isDemoOnlyRoute, type NavSection } from "./nav-config";
@@ -62,6 +63,16 @@ export function DashboardShell({
     [navItems, demoMode, hideSimulated]
   );
   const comingSoon = !demoMode && isDemoOnlyRoute(pathname);
+  // Live badges (unread messages) on the items that ask for one.
+  const wantsMessages = navItems.some((section) => section.items.some((item) => item.live === "messages"));
+  const unreadMessages = useUnreadMessages(!demoMode && wantsMessages && Boolean(user));
+  const navWithBadges = React.useMemo(
+    () => (unreadMessages > 0 ? nav.map((section) => ({
+      ...section,
+      items: section.items.map((item) => (item.live === "messages" ? { ...item, badge: unreadMessages > 99 ? "99+" : String(unreadMessages) } : item)),
+    })) : nav),
+    [nav, unreadMessages]
+  );
 
   // Every API request reports whether the server answered (lib/api.ts).
   const [serverDown, setServerDown] = React.useState(false);
@@ -103,7 +114,7 @@ export function DashboardShell({
         </Link>
       </div>
       <nav className="flex-1 space-y-5 overflow-y-auto p-4">
-        {nav.map((section: any) => (
+        {navWithBadges.map((section: any) => (
           <NavGroup
             key={section.title}
             section={section}
@@ -124,7 +135,7 @@ export function DashboardShell({
         </span>
       </Link>
       <nav className="mt-2 flex flex-1 flex-col items-center gap-1 overflow-y-auto">
-        {nav.map((section, si) => (
+        {navWithBadges.map((section, si) => (
           <div key={section.title} className="flex flex-col items-center gap-1">
             {si > 0 && <div className="my-2 h-px w-6 bg-border" />}
             {section.items.map((item: any) => {

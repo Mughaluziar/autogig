@@ -1,6 +1,7 @@
 "use client";
 import * as React from "react";
-import { CheckCircle2, FolderKanban, Send } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CheckCircle2, FolderKanban, MessageSquare, Send } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { LoadState } from "@/components/shared/load-state";
@@ -11,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
+import { StartConversationDialog } from "@/components/messages/inbox";
 import { freelancerContracts as demoContracts } from "@/lib/mock-data";
 import { API_URL } from "@/lib/api";
 import { poolAction, usePool, type PoolContract } from "@/lib/pool";
@@ -22,7 +24,9 @@ const demoRows = (demoContracts as any[]).map((c) => ({ id: c.id, title: c.title
 
 export default function FreelancerContractsPage() {
   const { toast } = useToast();
+  const router = useRouter();
   const pool = usePool<PoolContract[]>("/api/pool/my-contracts", demoRows);
+  const [ask, setAsk] = React.useState<{ specId: string; title: string; to: string } | null>(null);
   const contracts = pool.data ?? [];
   const [notes, setNotes] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState("");
@@ -55,7 +59,14 @@ export default function FreelancerContractsPage() {
           <Card key={c.id}>
             <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 pb-2">
               <CardTitle className="text-base">{c.title}</CardTitle>
-              <div className="flex items-center gap-3"><span className="font-semibold">{formatCurrency(c.value)}</span><StatusBadge status={c.status} /></div>
+              <div className="flex items-center gap-3">
+                <span className="font-semibold">{formatCurrency(c.value)}</span><StatusBadge status={c.status} />
+                {API_URL && c.specId && (
+                  <Button size="sm" variant="outline" onClick={() => setAsk({ specId: c.specId, title: c.title, to: "your agency" })}>
+                    <MessageSquare className="size-4" /> Message agency
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="max-w-xs">
@@ -88,6 +99,8 @@ export default function FreelancerContractsPage() {
           </Card>
         ))}
       </div>
+      <StartConversationDialog target={ask} onClose={() => setAsk(null)}
+        onStarted={(id) => { setAsk(null); router.push(`/freelancer/messages?thread=${encodeURIComponent(id)}`); }} />
     </>
   );
 }

@@ -10,6 +10,9 @@ What this does NOT do: move money. "Paid" is the agency recording that it paid
 the freelancer outside the app. There is no Stripe Connect transfer yet, and the
 UI says so.
 
+Bid credits (pool/credits.py): a freelancer's first bid on a spec spends one bid
+credit from their plan; Pro is unlimited. Closing a spec without hiring refunds them.
+
 Authorization: every agency action checks the spec/contract belongs to the
 caller; every freelancer action checks the bid/contract is theirs. A freelancer
 cannot see another freelancer's bid.
@@ -22,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from .. import db, repo
 from ..auth import current_user, require_roles
-from ..pool import store
+from ..pool import credits, store
 
 log = logging.getLogger("autopilot.pool")
 router = APIRouter(tags=["pool"])
@@ -125,6 +128,7 @@ async def place_bid(spec_id: str, body: BidBody, user: dict = Depends(freelancer
               "rate_cents": rate_cents, "note": body.note.strip(), "status": "submitted"}
     existing = next(iter(await store.find("bids", {"spec_id": spec["id"], "freelancer_id": user["id"]})), None)
     if existing:
+        # Editing, or bidding again after withdrawing: the spec's credit was already paid for.
         if existing["status"] not in ("submitted", "withdrawn"):
             raise HTTPException(409, "Your bid on this spec was already decided.")
         bid = await store.update("bids", existing["id"], {k: fields[k] for k in ("hours", "rate_cents", "note", "status")},
@@ -132,13 +136,22 @@ async def place_bid(spec_id: str, body: BidBody, user: dict = Depends(freelancer
         if not bid:
             raise HTTPException(409, "Your bid changed at the same time. Reload and try again.")
     else:
+        if credits.enabled():
+            billing = await repo.spend_credit(user["id"], "bid")
+            if billing is None:
+                raise HTTPException(402, "You're out of bid credits. Top up or upgrade in Billing & Plan to keep bidding.")
+            fields["credit"] = "plan" if billing.get("plan") == "pro" else "spent"
         bid = await store.insert("bids", fields)
         if not bid:
+            if fields.get("credit") == "spent":
+                await repo.refund_credit(user["id"], "bid")
             raise HTTPException(409, "You already have a bid on this spec.")
     # The spec may have been awarded while we wrote: the bid then stays 'submitted' for a closed spec, so recheck.
     fresh = await store.get("specs", spec["id"])
     if not fresh or fresh["status"] != "open":
         await store.update("bids", bid["id"], {"status": "rejected"})
+        if not existing:
+            await credits.refund(bid)
         raise HTTPException(409, "This spec was just closed. Your bid wasn't accepted.")
     await repo.notify(spec["owner_id"], "New bid", f"A bid arrived on \"{spec['title']}\".", "info")
     return {**bid_out(bid, spec["title"]), "updated": bool(existing)}
@@ -208,6 +221,19 @@ async def deliver_milestone(contract_id: str, milestone_id: str, body: DeliverBo
     saved = await _mutate_contract(contract_id, mutate)
     await repo.notify(saved["owner_id"], "Milestone delivered", f"\"{saved['title']}\": a milestone is ready for review.", "info")
     return contract_out(saved)
+
+
+@router.get("/pool/bid-credits")
+async def bid_credits(user: dict = Depends(freelancer_only)):
+    """What bidding costs this freelancer right now, and which bids used a credit (newest first)."""
+    billing = await repo.get_billing(user["id"])
+    used = [{"specId": b["spec_id"], "spec": b.get("spec_title", ""), "credit": b["credit"], "status": b["status"],
+             "at": b.get("created_at")}
+            for b in await store.find("bids", {"freelancer_id": user["id"]}) if b.get("credit")]
+    return {"enabled": credits.enabled(), "plan": billing.get("plan", "free"), "unlimited": billing.get("plan") == "pro",
+            "left": max(0, int(billing.get("bidCredits") or 0)), "used": used[:50],
+            "rules": "Your first bid on a spec uses one bid credit. Editing it, withdrawing it and bidding again on the "
+                     "same spec are free. If the agency closes the spec without hiring anyone, the credit comes back."}
 
 
 @router.get("/pool/earnings")
@@ -319,7 +345,9 @@ async def close_spec(spec_id: str, user: dict = Depends(agency_only)):
     for bid in await store.find("bids", {"spec_id": spec["id"]}):
         if bid["status"] == "submitted":
             await store.update("bids", bid["id"], {"status": "rejected"})
-    return {"ok": True}
+    # Nobody was hired, so nobody's bid had a chance: give the credits back.
+    refunded = await credits.refund_open_bids(spec["id"])
+    return {"ok": True, "creditsRefunded": refunded}
 
 
 @router.get("/pool/admin/contracts")
