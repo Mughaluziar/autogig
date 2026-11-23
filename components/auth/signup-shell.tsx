@@ -17,6 +17,7 @@ import { VERIFICATION_KEY } from "./verification";
 
 type SignupResponse = {
   ok?: boolean;
+  verificationPending?: boolean;
   token?: string;
   user?: Record<string, any>;
   detail?: string;
@@ -63,6 +64,7 @@ export function SignupShell({
   const { toast } = useToast();
   const [agree, setAgree] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  const [awaitingProof, setAwaitingProof] = React.useState(false);
   // ?next= — where to go once the account is ready (e.g. checkout).
   const [next, setNext] = React.useState("");
   React.useEffect(() => setNext(nextFromLocation()), []);
@@ -122,6 +124,7 @@ export function SignupShell({
             const legal = await apiGet<{ terms: string; privacy: string; required: boolean }>("/api/legal/versions");
             const res = await apiCall<SignupResponse>("/api/auth/signup", {
               name: name ?? "", email: email ?? "", password, role, company: company ?? "", profile,
+              ...(awaitingProof ? { signupProof: val("signupProof") } : {}),
               ...(legal?.required ? { acceptedTerms: { terms: legal.terms, privacy: legal.privacy } } : {}),
             });
             if (!res && !demoMode) {
@@ -130,9 +133,13 @@ export function SignupShell({
             }
             if (res && res.status >= 400) {
               toast({
-                title: res.status === 409 ? "Email already registered" : "Couldn't create account",
+                title: "Couldn't create account",
                 description: res.data.detail ?? "Please try again.",
               });
+              return;
+            }
+            if (res?.data.verificationPending) {
+              setAwaitingProof(true);
               return;
             }
             const user = res?.data?.user;
@@ -159,6 +166,20 @@ export function SignupShell({
         }}
       >
         {children}
+        {awaitingProof && (
+          <div className="space-y-2">
+            <Label htmlFor="signupProof">Email confirmation code</Label>
+            <input id="signupProof" autoComplete="one-time-code" required maxLength={200}
+              className="w-full rounded-md border bg-background px-3 py-2"
+              aria-describedby="signup-proof-help" />
+            <p id="signup-proof-help" className="text-sm text-muted-foreground">
+              Check your inbox and paste the code here. Codes expire after 15 minutes.
+            </p>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setAwaitingProof(false)}>
+              Start over
+            </Button>
+          </div>
+        )}
         <div className="flex items-start gap-2">
           <Checkbox id="agree" checked={agree} onCheckedChange={setAgree} />
           <Label htmlFor="agree" className="text-sm font-normal text-muted-foreground">
@@ -168,11 +189,11 @@ export function SignupShell({
           </Label>
         </div>
         <Button type="submit" variant="gradient" size="lg" className="w-full" disabled={!agree || loading}>
-          {loading ? "Creating account…" : "Create account"}
+          {loading ? "Please wait…" : awaitingProof ? "Confirm email and create account" : "Create account"}
         </Button>
         {!demoMode && (
           <p className="text-center text-xs text-muted-foreground">
-            We&apos;ll email you a 6-digit code to confirm your address.
+            We&apos;ll ask you to confirm your email address.
           </p>
         )}
       </form>

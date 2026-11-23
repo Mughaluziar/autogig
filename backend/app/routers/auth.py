@@ -1,6 +1,6 @@
 """Accounts — signup, email verification, login, social sign-in and the session.
 
-POST /api/auth/signup                 create an account -> {token, user, verification}
+POST /api/auth/signup                 email a signup proof, then redeem it for a session in production
 POST /api/auth/login                  verify credentials -> {token, user}
 GET  /api/auth/me                     the signed-in user (validates a stored token)
 POST /api/auth/verify-email {code}    confirm the emailed code -> fresh {token, user}
@@ -30,7 +30,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
-from .. import db, email as mail, oauth, repo, session as sessions, terms
+from .. import db, email as mail, oauth, ratelimit, repo, session as sessions, terms
 from ..modules_gate import allowed as simulated_allowed
 from ..auth import (
     MIN_PASSWORD_LENGTH, RETIRED_ROLES, SIGNUP_ROLES, check_login_allowed, clear_login_failures,
@@ -201,6 +201,7 @@ class SignupBody(BaseModel):
     name: str = Field(default="", max_length=120)
     email: str = Field(max_length=254)
     password: str = Field(max_length=200)
+    signupProof: str = Field(default="", max_length=200)
     role: str = "admin"
     company: str = Field(default="", max_length=120)
     profile: SignupProfile | None = None
@@ -232,8 +233,22 @@ def _profile_doc(profile: SignupProfile | None) -> dict:
     return out
 
 
+async def _email_signup_proof(email: str) -> None:
+    try:
+        email_key = _code_hash(email, "signup-proof")
+        allowed, _ = await ratelimit.allow("auth", f"signup-email:{email_key}", 1)
+        if not allowed:
+            return
+        code = await oauth.create_signup_proof(email_key)
+        await mail.send_email(email, "Confirm your AutoGig signup",
+                              f"<p>Paste this code into the AutoGig signup form within 15 minutes.</p><p><code>{code}</code></p>"
+                              "<p>If you did not request this code, you can ignore this email.</p>")
+    except Exception as exc:
+        log.error("Signup email failed (%s)", type(exc).__name__)
+
+
 @router.post("/signup")
-async def signup(body: SignupBody, request: Request, response: Response):
+async def signup(body: SignupBody, request: Request, response: Response, background_tasks: BackgroundTasks):
     email = body.email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(422, "Enter a valid email address.")
@@ -249,11 +264,19 @@ async def signup(body: SignupBody, request: Request, response: Response):
         if not terms.versions_match(body.acceptedTerms):
             raise HTTPException(409, "The Terms or Privacy Policy changed while this page was open. Reload and read the new version.")
     profile = _profile_doc(body.profile)
-    if verification_enforced() and get_settings().environment == "production" and not mail.enabled():
-        raise HTTPException(503, "Email verification is temporarily unavailable. Please try again.")
+    production = get_settings().environment == "production"
+    if production:
+        if not body.signupProof:
+            if not mail.enabled():
+                raise HTTPException(503, "Email verification is temporarily unavailable. Please try again.")
+            background_tasks.add_task(_email_signup_proof, email)
+            return {"verificationPending": True}
+        if not await oauth.take_signup_proof(body.signupProof, _code_hash(email, "signup-proof")):
+            raise HTTPException(400, "This signup code is invalid or expired. Request a new code.")
     try:
-        user = await db.create_user(body.name, email, hash_password(body.password), body.role, body.company or None,
-                                    extra={"email_verified": False, "profile": profile})
+        password_hash = await asyncio.to_thread(hash_password, body.password)
+        user = await db.create_user(body.name, email, password_hash, body.role, body.company or None,
+                                    extra={"email_verified": production, "profile": profile})
     except HTTPException:
         raise
     except Exception:
@@ -267,15 +290,15 @@ async def signup(body: SignupBody, request: Request, response: Response):
         if not existing or not db.is_pending_signup(existing) or await db.email_has_identity(email):
             raise HTTPException(409, "An account with this email already exists.")
         sent_at = [t for t in existing["verify"].get("sent_at", []) if time.time() - t < 3600]
-        if sent_at and time.time() - sent_at[-1] < RESEND_COOLDOWN_SECONDS:
+        if not production and sent_at and time.time() - sent_at[-1] < RESEND_COOLDOWN_SECONDS:
             wait = int(RESEND_COOLDOWN_SECONDS - (time.time() - sent_at[-1])) + 1
             raise HTTPException(429, f"A code was just sent to this email. Wait {wait} seconds and try again.",
                                 headers={"Retry-After": str(wait)})
-        if len(sent_at) >= RESENDS_PER_HOUR:
+        if not production and len(sent_at) >= RESENDS_PER_HOUR:
             raise HTTPException(429, "Too many codes were sent to this email. Try again in an hour.",
                                 headers={"Retry-After": "3600"})
-        user = await db.replace_pending_user(email, body.name, hash_password(body.password), body.role,
-                                             body.company or None, extra={"profile": profile})
+        user = await db.replace_pending_user(email, body.name, password_hash, body.role, body.company or None,
+                                             extra={"profile": profile}, verified=production)
         if not user:
             raise HTTPException(409, "An account with this email already exists.")
     await repo.log_activity(user["id"], "Operator", f"Account created ({body.role})")
@@ -283,7 +306,7 @@ async def signup(body: SignupBody, request: Request, response: Response):
     if terms.required():
         await terms.record(doc, "signup", terms.current())
         doc = await db.find_user(email) or doc
-    if verification_enforced():
+    if _needs_verification(doc):
         verification = await _issue_code(doc, sent_at)
     else:
         verification = {"required": False}

@@ -43,6 +43,8 @@ page after email verification goes straight to the dashboard.
 Accounts created before verification existed count as verified. Social
 sign-ins are verified by the provider when it vouches for the email (below).
 
+Production password signup first returns the same response for any address and emails a 15-minute, single-use code. The form exchanges that code to create a verified account. The signed-in verification flow still serves older pending accounts and social sign-ins.
+
 ### Delivery and environments
 
 | Situation | What happens |

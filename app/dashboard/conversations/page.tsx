@@ -44,10 +44,14 @@ export default function ConversationsPage() {
   const allMessages = baseThread;
   const latestMessage = (active as any)?.thread?.[(active as any)?.thread?.length - 1];
 
+  const draftConversationId = React.useRef<string | null>(null);
   React.useEffect(() => {
+    const id = active?.id ?? null;
+    if (draftConversationId.current === id) return;
+    draftConversationId.current = id;
     setDraft(latestMessage?.replyDraft ?? "");
     setAiDraft(Boolean(latestMessage?.replyDraftAi));
-  }, [active?.id]);
+  }, [active?.id, latestMessage?.replyDraft, latestMessage?.replyDraftAi]);
 
   const select = (id: string) => {
     setSelected(id);

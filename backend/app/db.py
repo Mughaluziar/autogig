@@ -168,7 +168,7 @@ def is_pending_signup(doc: dict) -> bool:
 
 
 async def replace_pending_user(email: str, name: str, password_hash: str, role: str, company: str | None,
-                               extra: dict | None = None) -> dict | None:
+                               extra: dict | None = None, *, verified: bool = False) -> dict | None:
     """Overwrite a pending signup (see is_pending_signup) with a new one, under
     a new user id so sessions issued to the old signup stop matching. Returns
     the new document, or None when the account isn't a pending signup."""
@@ -180,7 +180,7 @@ async def replace_pending_user(email: str, name: str, password_hash: str, role: 
         "role": role,
         "company": company or "",
         "password_hash": password_hash,
-        "email_verified": False,
+        "email_verified": verified,
         "created_at": _now(),
     }
     if not enabled():

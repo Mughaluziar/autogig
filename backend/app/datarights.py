@@ -191,6 +191,7 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
     Coll("revoked_sessions", (), "none", "Revoked session ids; expire on their own."),
     Coll("oauth_states", (), "none", "Single-use sign-in state; expires on its own."),
     Coll("oauth_handoffs", (), "none", "Single-use sign-in handoff; expires on its own."),
+    Coll("oauth_signup_proofs", (), "none", "Hashed email binding and single-use signup proof; expires on its own."),
     Coll("app_state", (), "none", "Legacy single shared document; archived at startup if present."),
     Coll("app_state_backup", (), "none", "Archive of the legacy shared document: mixed data of every user from before "
          "per-user storage. The owner must review and drop it (docs/data-lifecycle.md)."),
