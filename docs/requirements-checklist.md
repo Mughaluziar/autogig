@@ -128,3 +128,25 @@ Source material for this pass is the original platform checklist (A–H1) and th
 | Client funding scope 6–10 | Demo contribution, verified applicant flow, owner review, offers, repayments, treasury and investor statement. Existing responsive design system | Launch timing and regulated funding remain client/legal decisions. No promise of returns or withdrawals |
 | Frontend dashboards and navigation | Static route audit and local browser role/workflow checks. Credit has explicit retry when a required API fails | Previously deferred agency demo views remain outside launch scope. Fahim owns Freelancer Billing and Inbox/Messaging |
 | Security, stability, integrations, deployment and rollback | MongoDB startup guard and restart recovery, offline provider mocks, production live-finance guards, restore drill, signed proxy tests | Client Atlas, Groq and Resend credentials. Staging verification, monitoring/backup ownership, data preservation and release approval |
+
+## J. Code audit against the original blueprint and funding brief (2026-11-23)
+
+These statuses describe the **agreed demo scope**, not the full autonomous-agent blueprint in `README.md`.
+The original blueprint's unattended marketplace submissions, autonomous client conversation, real escrow and
+mass payout conflict with current owner restrictions, provider permissions, and regulated-product gates. They
+remain **requires client decision/legal approval**, not silently implemented demo features.
+
+| Requirement | Current status | Code evidence or remaining gate |
+|---|---|---|
+| Accounts, roles, consent, sessions, password recovery, email verification, self-service settings and rights | **Implemented and tested** | Auth, role matrix, cookie/CSRF, reset, profile and rights tests; real delivery **requires credentials** (`RESEND_API_KEY`, `RESEND_FROM`) |
+| Freelancer pool: specs, blind bids, awards, milestone review, earnings and payout records | **Implemented and tested; payout simulated/recorded** | `routers/pool.py`, `pool/store.py`, `test_pool.py`; unique contract/earning indexes and interrupted-step recovery added in this pass. No transfer is initiated |
+| Job Radar, watched boards, saved searches, Upwork alert import/deduplication, editable AI drafts and manual submission | **Implemented and tested locally** | `routers/radar.py`, `upwork_leads.py`, `upwork_alerts.py`; recent listing details now persist per user across MongoDB restarts. Live feeds/alerts and Groq output **require credentials and staging validation**. Automatic Upwork submission is disabled |
+| Investor dashboard, demo contributions and statements | **Simulated; implemented and tested** | Credit and capital routes/tests. Real deposits, distributions and return promises **require legal approval and licensed partners** |
+| Credit documents, manual grading, offers, repayments, overdue/default jobs | **Simulated; implemented and tested** | Credit route/service/job/document tests; no lending or real disbursement |
+| Treasury, protection fund, reconciliation and owner audit | **Simulated; implemented and tested** | Capital/credit ledger reconciliation and owner-only tests. Fund is explicitly **not insurance** |
+| Wallet connection and balance | **Read-only browser-wallet support; tested locally** | `lib/wallets.ts` and credit/investor screens; QR/mobile wallets **require client decision and Reown project/licence** |
+| Inbound mail, payment and KYC provider adapters | **Partially prepared; requires client decision/credentials** | Secret-checked inbound webhook and disabled Stripe integration exist; KYC is a simulation. No real provider contract, licensed KYC vendor or payment approval was supplied, so no speculative live adapter was added |
+| Dashboard navigation and responsive views | **Implemented and tested locally for active routes** | 145-route crawl, browser workflows and topbar page search. Demo-only agency views remain **deferred by prior owner decision**; Freelancer Billing and Inbox/Messaging are **assigned to Fahim** |
+| Database, backup, rollback and observability | **Implemented and tested locally; hosted validation requires credentials** | Atlas-ready MongoDB startup/index checks, disposable restore drill, health, signed-edge and Sentry privacy tests; Atlas backup policy and production volatile-data decision are external gates |
+
+No code in Fahim's Billing or Messaging modules was changed during this pass.

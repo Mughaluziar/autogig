@@ -1,5 +1,25 @@
 # Implementation report (live)
 
+## Final credential-free code pass (2026-11-23)
+
+- Recovered interrupted freelancer-pool awards and approved earnings with idempotent repair and unique MongoDB
+  indexes. Bid rates and milestones now reject fractional-cent amounts. Job Radar retains a private, expiring
+  recent-listing snapshot in MongoDB. The generic settings endpoint cannot overwrite Radar's validated fields.
+  The dashboard search now navigates to matching pages for the signed-in role.
+- Focused backend tests: pool **12 passed** in memory and **12 passed** on disposable MongoDB; pool/Radar/settings
+  **51 passed, 1 skipped** in memory and **52 passed** on disposable MongoDB. Each run emitted the same five
+  framework deprecation warnings, with no application warnings or failures. The final pool runs cover the last
+  fractional-cent change. Earlier complete suites remain **702 passed, 9 skipped** in memory and **700 passed,
+  6 skipped** on disposable MongoDB. Redundant full reruns were stopped at the owner's request, so those earlier
+  counts must not be represented as a complete run of this final tree.
+- Frontend typecheck, lint, and production build passed. Static QA: **26 pass, 3 warn, 0 fail** (handler heuristic,
+  confirmed-payment toast wording, missing social preview image). Deploy/privacy tests: **13 passed**. Production
+  dependency audit: **0 advisories**. The correctly configured signed-proxy Chromium auth/Upwork scope passed
+  **72/72**; a separate Chromium check passed role-scoped topbar search. The first browser attempt was invalid
+  because its frontend build lacked `BACKEND_API_URL`; it was rebuilt with the disposable API and rerun.
+- No hosted integration was exercised. Atlas, Resend, Groq and inbound email still need client credentials and
+  staging checks. Fahim's Billing and Inbox/Messaging files were not changed.
+
 Last updated: 2026-11-14. Git: `git log --oneline`; the untouched original is tag `baseline-as-received` (`git diff baseline-as-received` shows everything changed).
 Status words: **DONE** = implemented and verified as stated · **PARTIAL** = implemented, part not verified · **PENDING** = not started or not finished · **BLOCKED** = needs a decision, credentials or approval from outside.
 "Verified" always says how. Nothing here claims a real third-party service works unless it says it was tested with real credentials; **none were**.

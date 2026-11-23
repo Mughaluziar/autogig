@@ -133,7 +133,9 @@ then announce. Do not change DNS or deploy without approval.
    and sign-in and password recovery work through the frontend with a controlled mailbox. Run the signed-edge verification
    from [staging verification](staging-verification.md) before requiring edge proof.
 5. **Accept the demo.** With separate synthetic agency, freelancer, investor and owner accounts, run a blind bid through
-   award and delivery, draft a proposal from a synthetic Upwork alert and confirm `aiGenerated: true`, and walk a demo
+   award and delivery. Check that exactly one contract and one earning per approved milestone remain after an approved
+   staging restart. Reopen a Job Radar detail link after that restart to verify the per-user recent snapshot. Draft a
+   proposal from a synthetic Upwork alert and confirm `aiGenerated: true`, and walk a demo
    contribution through credit application, offer, documents, repayment and treasury reconciliation. Verify that a second
    freelancer cannot see or download the first one's records. Test desktop, tablet and mobile. Confirm Fahim's Billing
    and Inbox/Messaging acceptance separately. Provider failures should produce a clear retry or documented fallback.

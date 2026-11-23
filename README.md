@@ -1,5 +1,11 @@
 # Autonomous AI Agency & Career Ecosystem
 
+> **Scope note (2026-11-23):** This README retains the original architecture blueprint, including proposed
+> autonomous marketplace and financial workflows. It is not a claim that those workflows are deployed or approved.
+> The current code and release gates are tracked in [the requirements checklist](docs/requirements-checklist.md)
+> and [deployment runbook](docs/deployment-runbook.md). Upwork submissions remain manual; funding, credit,
+> banking and protection features in the current demo are simulated.
+
 > **Architecture Blueprint v2.0 → Engineering README**
 > A fully autonomous, closed-loop revenue-generation platform that automates the entire lifecycle of a
 > freelance/agency business **and** a personal job hunt — from lead acquisition and client conversation, to
