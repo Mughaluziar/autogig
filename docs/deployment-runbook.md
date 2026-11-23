@@ -111,3 +111,34 @@ then announce. Do not change DNS or deploy without approval.
 - In Render, set `GROQ_API_KEY` and optionally `GROQ_MODEL`. Verify Upwork and Job Radar drafts on staging. Inbound Upwork alerts additionally use `INBOUND_EMAIL_DOMAIN`, `INBOUND_EMAIL_WEBHOOK_SECRET` and `INBOUND_EMAIL_PLATFORMS=upwork`. Upwork submission stays manual.
 - On Vercel set the server-only `BACKEND_API_URL=https://autopilot-api-ybq7.onrender.com` and `EDGE_SHARED_SECRET` to the same secret configured on Render. The blueprint uses `CORS_ORIGINS` and `PUBLIC_SITE_URL` set to `https://autogig-pi.vercel.app`. On Render confirm `SECRET_KEY`, `OWNER_EMAILS`, and the demo settings `SIMULATED_MODULES=all` and `ALLOW_PUBLIC_SIMULATED_MODULES=true`. Set `REQUIRE_EDGE_PROOF=true` only after a successful signed request on staging. Dashboard values must be checked before deployment.
 - Use [Backup and monitoring](backup-and-monitoring.md) to test restoration into a disposable database. Alert on `/health` returning 503, review the Atlas backup policy, and configure `SENTRY_DSN` if error reporting is available.
+
+## Approval gates and client acceptance
+
+1. **Preserve production.** The running Render API reported in-memory storage during the audit. Inventory the data the
+   client needs to retain and agree on a supported export or a clean start before any restart. An Atlas URI cannot migrate
+   data held by the running process. Keep this cutover separate from code approval.
+2. **Prepare staging.** Use a separate Render service, Vercel environment, Atlas database, and provider keys.
+   In Atlas allow only the staging Render service's outbound CIDRs and grant a database user `readWrite` on
+   `autogig_staging`. Set `MONGODB_URI` to the Atlas `mongodb+srv://` URI and `MONGODB_DB=autogig_staging` on Render.
+   Verify an owned sending domain and create a sending-only key in Resend. Set `RESEND_API_KEY`, `RESEND_FROM` from that
+   domain, and `EMAIL_VERIFICATION=true`. Set `GROQ_API_KEY`. `GROQ_MODEL` defaults to `openai/gpt-oss-120b`.
+3. **Prepare the release configuration.** Use `ENVIRONMENT=production`, a staging-only `SECRET_KEY`,
+   `CORS_ORIGINS` and `PUBLIC_SITE_URL` set to the staging frontend's HTTPS origin, and staging `OWNER_EMAILS` on Render.
+   Set `BACKEND_API_URL` to the staging API's HTTPS origin and the same `EDGE_SHARED_SECRET` on both hosts.
+   Set `TOKEN_PROGRAM_ENABLED=false`, `TOKEN_MAINNET_ENABLED=false`, and `PAYMENTS_CRYPTO_ENABLED=false`. Leave
+   `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` unset. Keep provider secrets on Render and use **Save only** until approved.
+4. **After staging approval**, deploy matching frontend and API revisions. Verify `/health` returns `database: "ok"`.
+   Confirm a synthetic account survives an approved staging restart and run a backup and restore against a disposable
+   target. Confirm signup responds identically for new and registered addresses before mailbox proof, code replay is rejected,
+   and sign-in and password recovery work through the frontend with a controlled mailbox. Run the signed-edge verification
+   from [staging verification](staging-verification.md) before requiring edge proof.
+5. **Accept the demo.** With separate synthetic agency, freelancer, investor and owner accounts, run a blind bid through
+   award and delivery, draft a proposal from a synthetic Upwork alert and confirm `aiGenerated: true`, and walk a demo
+   contribution through credit application, offer, documents, repayment and treasury reconciliation. Verify that a second
+   freelancer cannot see or download the first one's records. Test desktop, tablet and mobile. Confirm Fahim's Billing
+   and Inbox/Messaging acceptance separately. Provider failures should produce a clear retry or documented fallback.
+6. **Approve production and rollback.** Get sign-off on the volatile-data decision, staging checks, and demo-only scope.
+   Set production values separately and take a verified archive of any existing persistent database before cutover.
+   Pin the last tested Atlas-compatible frontend/API pair and database name. If code must roll back, redeploy that pair
+   against the same Atlas database. For data recovery, restore into a fresh database, verify it, and approve switching
+   `MONGODB_DB`; keep the old database available. The volatile production build cannot serve as a data rollback.

@@ -62,20 +62,24 @@ real Atlas restore drill proves them.
    snapshot copy region, and run the first restore drill into a new cluster. I cannot do any of these steps without access, and
    I will not connect to, read, or modify any production database.
 
-## 4. Taking a backup and running a drill yourself
+## 4. Backup and restore
+
+Use MongoDB Database Tools and Python with PyMongo installed. Load `MONGODB_URI` from an approved secret store. Use a read-only
+account for backup, a separate restore account for the target, and an encrypted, access-controlled backup directory.
+
 ```bash
-export MONGODB_URI='mongodb+srv://<read-only-user>:<password>@<cluster>/'   # never commit this
-BACKUP_DIR=/var/backups/autopilot MONGODB_DB=autopilot scripts/backup/mongo-backup.sh
-# drill on a COPY or a disposable database (it reads every document of the source):
-MONGODB_DB=autopilot scripts/backup/restore-drill.sh
-# no mongodump installed? use the Docker image:
-MONGODUMP="docker run --rm --user $(id -u) --network host -v $PWD/backups:$PWD/backups mongo:7 mongodump" \
-MONGORESTORE="docker run --rm --user $(id -u) --network host -v $PWD/backups:$PWD/backups mongo:7 mongorestore" \
-BACKUP_DIR=$PWD/backups scripts/backup/restore-drill.sh
+MONGODB_DB=autogig_staging BACKUP_DIR=/secure/backups scripts/backup/mongo-backup.sh
+# Use a disposable copy and an account that can create and remove temporary databases.
+MONGODB_DB=autogig_staging BACKUP_DIR=/secure/backups scripts/backup/restore-drill.sh
+# If the tools run in a container, mount a private TMPDIR at the same absolute path.
+# MONGODUMP and MONGORESTORE can invoke that container with -i for archive streaming.
 ```
-Restoring over production is an incident-only action: stop the API, then
-`CONFIRM_OVERWRITE=yes scripts/backup/mongo-restore.sh <archive> autopilot`. It adds archived documents back (it does not drop
-collections), so resolve conflicts first or restore into a new database and switch `MONGODB_DB`.
+
+The dump is private and published only after successful completion. The MongoDB URI is passed through a temporary private
+config file. The drill creates a fresh randomly named database, verifies collection contents and indexes, and removes only
+that database after success. Set `DRILL_KEEP=yes` to inspect it afterwards. Failed restores leave a private diagnostic log.
+The restore command rejects populated destinations by default. For an incident, restore into a fresh database and verify it
+before changing `MONGODB_DB`. Keep the previous database available for rollback until sign-off.
 
 ## 5. Monitoring (needs you)
 1. **Uptime:** an external checker (UptimeRobot, Better Stack...) on `https://<api>/health` and the frontend home page every

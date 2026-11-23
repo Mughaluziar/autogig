@@ -112,3 +112,19 @@ passed in the final run of this branch (counts in `IMPLEMENTATION_REPORT.md`), n
 | Testnet AutoGig token | NOT STARTED (deliberate: no structure decision) |
 | Real investor funds, real credit, revenue sharing, insurance product, DEX/CEX listing | BLOCKED (legal, licensed partners, audit) |
 | Open-source evaluation | COMPLETED (`docs/open-source-evaluation.md`) |
+
+## I. Readiness branch audit
+
+Source material for this pass is the original platform checklist (A–H1) and the client wording in
+[AutoGig funding requirements](autogig-funding-requirements.md). This table updates their release status.
+
+| Requirements | Readiness evidence | Remaining gate |
+|---|---|---|
+| Platform roles, teams, auth, signup privacy, verification, password recovery, profile, consent, rights and tenant isolation | Route sweep, role, cookie/CSRF, reset, profile, data rights and terms tests. Production avoids account lookup until signup mailbox proof is redeemed | Live Resend, role-based staging acceptance, legal review of policy and retention |
+| Pool specifications, blind bids, awards, milestones, earnings and payout records | Pool API and browser workflows. Payout records are simulated | Live payout/custody partner and legal approval |
+| Job Radar and Upwork | Synthetic email import, deduplication, mocked Groq success/failure, editable manual-submit drafts | Groq key, inbound email provider and real sample alerts. No automatic Upwork submission |
+| Bank, Marketplace, Capital, protection fund, wallet and credit | Simulated balances; backend credit, treasury, indexed recovery, data-isolation and document-upload tests. Browser wallets are read-only | Any real transfer, licensed lending, custody, protection/insurance, or returns. WalletConnect requires client approval and a project ID |
+| Client funding scope 1–5 | Base recommendation and tokenomics proposals documented. AutoGig name is provisional. No AutoGig token issued | Chain/name/structure decisions, counsel, audit. Existing token integration stays disabled for the demo |
+| Client funding scope 6–10 | Demo contribution, verified applicant flow, owner review, offers, repayments, treasury and investor statement. Existing responsive design system | Launch timing and regulated funding remain client/legal decisions. No promise of returns or withdrawals |
+| Frontend dashboards and navigation | Static route audit and local browser role/workflow checks. Credit has explicit retry when a required API fails | Previously deferred agency demo views remain outside launch scope. Fahim owns Freelancer Billing and Inbox/Messaging |
+| Security, stability, integrations, deployment and rollback | MongoDB startup guard and restart recovery, offline provider mocks, production live-finance guards, restore drill, signed proxy tests | Client Atlas, Groq and Resend credentials. Staging verification, monitoring/backup ownership, data preservation and release approval |

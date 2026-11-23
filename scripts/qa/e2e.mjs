@@ -3,7 +3,7 @@
 //   npm i --no-save playwright  (+ a Chromium: set CHROME=/path/to/chrome if it isn't Playwright's own).
 // Synthetic accounts and emails only. Usage:
 //   BASE=http://localhost:3100 API=http://localhost:8010 HOOK=<inbound secret> OUT=qa.json node scripts/qa/e2e.mjs
-import { chromium } from "playwright";
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 import fs from "node:fs";
 
 const BASE = process.env.BASE || "http://localhost:3100";
@@ -82,10 +82,18 @@ const api = async (ctx, method, path, data, extra = {}) => {
   return { status: res.status(), body };
 };
 const rawApi = async (method, path, data, headers = {}) => {
-  const res = await fetch(`${API}${path}`, { method, headers: { "content-type": "application/json", ...headers }, body: data ? JSON.stringify(data) : undefined });
+  // Public inbound webhooks come directly from the provider. Browser endpoints use the signed frontend proxy.
+  const origin = path === "/api/inbox/inbound" ? API : BASE;
+  const res = await fetch(`${origin}${path}`, { method, headers: { "content-type": "application/json", ...headers }, body: data ? JSON.stringify(data) : undefined });
   let body = null; try { body = await res.json(); } catch { /* not json */ }
   return { status: res.status, body };
 };
+if (process.env.EXPECT_EDGE_PROOF === "true") {
+  const direct = await fetch(`${API}/api/legal/versions`);
+  const proxy = await fetch(`${BASE}/api/legal/versions`);
+  check("auth", "unsigned API access is refused while the signed frontend proxy works",
+    direct.status === 403 && proxy.status === 200, `${direct.status}/${proxy.status}`);
+}
 const text = async (page) => (await page.innerText("body")).replace(/\s+/g, " ");
 const guard = async (group, name, fn) => { try { await fn(); } catch (e) { check(group, name, false, `exception: ${e.message.split("\n")[0]}`); } };
 
@@ -131,6 +139,37 @@ await guard("auth", "setup", async () => {
     await annPage.goto(path); await annPage.waitForTimeout(900);
     check("auth", `protected page ${path} opens while signed in`, new URL(annPage.url()).pathname === path, annPage.url());
   }
+});
+
+await guard("auth", "email-first signup UI", async () => {
+  const ctx = await newCtx();
+  const page = await newPage(ctx);
+  let firstRequest;
+  let redeemed;
+  await page.route("**/api/auth/signup", async (route) => {
+    const posted = route.request().postDataJSON();
+    if (posted.signupProof) {
+      redeemed = posted.signupProof;
+      return route.continue();
+    }
+    firstRequest = posted;
+    return route.fulfill({ json: { verificationPending: true } });
+  });
+  const email = unique("proof");
+  await page.goto("/signup/investor");
+  await page.fill("#first", "Email"); await page.fill("#last", "Proof"); await page.fill("#email", email);
+  await pickCountry(page);
+  await page.fill("#password", PW); await page.getByRole("checkbox").first().check();
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  const input = page.getByLabel("Email confirmation code");
+  await input.waitFor();
+  check("auth", "signup stays on the form before proof and has no session cookie",
+    firstRequest?.email === email && !(await ctx.cookies()).some((c) => c.name === "autopilot_session"));
+  await input.fill("local-browser-test-confirmation");
+  await page.getByRole("button", { name: "Confirm email and create account" }).click();
+  await page.waitForURL("**/investor");
+  check("auth", "the form resubmits inbox proof and opens the signed-in portal", redeemed === "local-browser-test-confirmation");
+  await ctx.close();
 });
 
 await guard("auth", "unauthorized", async () => {
@@ -932,6 +971,13 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   check("credit", "the application is listed as 'In review' with its file attached", /Website for a local bakery/.test(await text(ap)) && /In review/.test(await text(ap)) && /1 file attached/.test(await text(ap)), (await text(ap)).slice(0, 200));
 
   // owner: review and offer
+  const supporting = ap.getByLabel("Add supporting file");
+  await supporting.setInputFiles({ name: "retry-proof.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 synthetic") });
+  await ap.getByRole("link", { name: "retry-proof.pdf" }).waitFor();
+  await ap.getByRole("button", { name: "Remove retry-proof.pdf" }).click();
+  await ap.getByRole("link", { name: "retry-proof.pdf" }).waitFor({ state: "detached" });
+  check("credit", "an applicant can retry and remove a supporting document while the application is in review", true);
+
   const op = await newPage(ctxs.owner);
   await op.goto("/dashboard/credit/admin", { waitUntil: "networkidle" }); await op.waitForTimeout(1200);
   check("credit", "the treasury shows the contribution and a balanced ledger check", /\$2,000\.00/.test(await text(op)) && /Balanced/.test(await text(op)), (await text(op)).slice(0, 200));
@@ -983,6 +1029,18 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   await lp.goto("/", { waitUntil: "networkidle" }); await lp.waitForTimeout(800);
   const landing = await text(lp);
   check("credit", "the public landing page no longer promises payment ('You still get paid') or says orders are 'insured'", !/You still get paid|Insure every|insured for up to/i.test(landing) && /Simulated/.test(landing), landing.match(/You still get paid|Insure every|insured for up to/i)?.[0] ?? "");
+  const tablet = await newCtx({ width: 768, height: 1024 });
+  await tablet.addCookies(await ctxs.investor.cookies());
+  const tabletPage = await newPage(tablet);
+  await tabletPage.route("**/api/credit/statement", (route) => route.fulfill({ status: 503, json: {} }));
+  await tabletPage.goto("/investor/credit");
+  await tabletPage.getByRole("alert").filter({ hasText: "Credit data could not be loaded" }).waitFor();
+  await tabletPage.unroute("**/api/credit/statement");
+  await tabletPage.getByRole("button", { name: "Retry" }).click();
+  await tabletPage.getByRole("heading", { name: "Simulated statement" }).waitFor();
+  check("credit", "tablet view recovers from a partial API outage and fits the viewport",
+    await tabletPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+  await tablet.close();
   check("credit", "the investor page has no horizontal page scroll on a 390px phone", await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), await mp.evaluate(() => document.documentElement.scrollWidth));
   await mctx.close();
 });
@@ -990,9 +1048,10 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
 // ---------------------------------------------------------------- console / network summary
 const summary = {};
 for (const [k, c] of Object.entries({ ann: ctxs.ann, agency: ctxs.agency, bob: ctxs.bob, uma: uwCtx, owner: ctxs.owner, investor: ctxs.investor, agency2: ctxs.agency2 })) {
-  summary[k] = { consoleErrors: [...new Set(c.errors)].slice(0, 12), badResponses: [...new Set(c.bad)].slice(0, 20) };
+  if (c) summary[k] = { consoleErrors: [...new Set(c.errors)].slice(0, 12), badResponses: [...new Set(c.bad)].slice(0, 20) };
 }
 fs.writeFileSync(OUT, JSON.stringify({ run: RUN, results, summary, upworkRequests }, null, 1));
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed; ${failed.length} failed`);
 await browser.close();
+process.exitCode = failed.length ? 1 : 0;
