@@ -313,3 +313,19 @@ async def relink_identities(old_email: str, new_email: str) -> None:
                 doc["email"] = new_email
         return
     await _get_db().oauth_identities.update_many({"email": old_email}, {"$set": {"email": new_email}})
+
+
+async def _check_connection() -> None:
+    """Check persistence before starting the optional production queue."""
+    if not enabled():
+        raise SystemExit("MONGODB_URI is required for the production queue.")
+    try:
+        await ping()
+    except Exception as exc:
+        raise SystemExit(f"MongoDB queue startup check failed ({type(exc).__name__}).") from None
+    finally:
+        close()
+
+
+if __name__ == "__main__":
+    asyncio.run(_check_connection())

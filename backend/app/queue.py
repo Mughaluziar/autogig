@@ -6,7 +6,6 @@ import logging
 from arq import cron
 from arq.connections import RedisSettings
 
-from . import db
 from .config import get_settings
 from .routers.radar import radar_jobs
 
@@ -14,20 +13,10 @@ log = logging.getLogger("autopilot.queue")
 
 
 async def startup(ctx: dict) -> None:
-    if db.enabled():
-        try:
-            await db.ping()
-        except Exception as exc:
-            db.close()
-            log.error("MongoDB queue startup check failed (%s)", type(exc).__name__)
-            raise RuntimeError("Queue cannot connect to MongoDB.") from None
-    elif get_settings().environment == "production":
-        raise RuntimeError("MONGODB_URI is required for the production queue.")
     log.info("queue worker started")
 
 
 async def shutdown(ctx: dict) -> None:
-    db.close()
     log.info("queue worker stopped")
 
 

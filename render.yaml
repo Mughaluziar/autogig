@@ -206,7 +206,7 @@ services:
   #   rootDir: backend
   #   plan: 0.5c-512mb
   #   buildCommand: pip install -r requirements.txt
-  #   startCommand: arq app.queue.WorkerSettings
+  #   startCommand: python -m app.db && arq app.queue.WorkerSettings
   #   autoDeploy: true
   #   envVars:
   #     - key: PYTHON_VERSION
