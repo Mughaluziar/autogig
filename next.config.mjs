@@ -3,7 +3,8 @@
 // Tailwind/Radix set inline styles; everything else is locked to this origin,
 // the configured API, Sentry and Nango's connect UI. Dev needs 'unsafe-eval'
 // for React Refresh.
-import { enforceDeployGuards } from "./scripts/deploy-guards.mjs";
+import { fileURLToPath } from "node:url";
+import { enforceDeployGuards, publicBackendUrl } from "./scripts/deploy-guards.mjs";
 
 enforceDeployGuards(process.env); // production deploys only: see scripts/deploy-guards.mjs
 
@@ -12,7 +13,7 @@ const isDev = process.env.NODE_ENV !== "production";
 // through this site (see rewrites below), so session cookies are first-party and
 // the CSP can stay at connect-src 'self'. NEXT_PUBLIC_API_URL is still honoured
 // as the proxy target for existing setups.
-const backend = (process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
+const backend = publicBackendUrl(process.env);
 const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
@@ -40,6 +41,7 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   poweredByHeader: false,
+  outputFileTracingRoot: fileURLToPath(new URL(".", import.meta.url)),
   async rewrites() {
     // Same-site proxy: /api/* -> backend. Empty = frontend-only demo.
     return backend ? [{ source: "/api/:path*", destination: `${backend}/api/:path*` }] : [];

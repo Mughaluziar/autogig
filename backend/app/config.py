@@ -1,8 +1,20 @@
 """Application settings — loaded from environment / .env file."""
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _is_https_origin(value: str) -> bool:
+    try:
+        url = urlsplit(value)
+        _ = url.port
+        return bool(url.scheme == "https" and url.hostname and not url.username and not url.password
+                    and url.path in ("", "/") and not any(c in value for c in "?#\\@*")
+                    and not any(c.isspace() for c in value))
+    except ValueError:
+        return False
 
 
 class Settings(BaseSettings):
@@ -234,7 +246,7 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return [o.strip().removesuffix("/") for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def site_url(self) -> str:
@@ -267,12 +279,10 @@ class Settings(BaseSettings):
             problems.append("CORS_ORIGINS must list the real frontend origin(s); '*' is not allowed with credentials.")
         elif all(o.startswith("http://localhost") or o.startswith("http://127.0.0.1") for o in origins):
             problems.append("CORS_ORIGINS only lists localhost; set the deployed frontend origin.")
-        else:
-            plain = [o for o in origins if not o.startswith("https://")]
-            if plain:
-                problems.append(f"CORS_ORIGINS must be https:// origins in production (found {', '.join(plain)}).")
-        if self.public_site_url.strip() and not self.public_site_url.strip().startswith("https://"):
-            problems.append("PUBLIC_SITE_URL must be an https:// URL in production.")
+        elif not all(_is_https_origin(origin) for origin in origins):
+            problems.append("CORS_ORIGINS must list https:// origins without credentials, path, query, or fragment.")
+        if self.public_site_url.strip() and not _is_https_origin(self.public_site_url.strip()):
+            problems.append("PUBLIC_SITE_URL must be an https:// origin without credentials, path, query, or fragment.")
         if self.seed_demo_data:
             problems.append("SEED_DEMO_DATA=true serves one shared set of demo data to every account; it must be off in production.")
         if self.cookie_secure_flag is False:
@@ -291,6 +301,12 @@ class Settings(BaseSettings):
         elif self.simulated_modules_mode == "all" and not self.allow_public_simulated_modules:
             problems.append("SIMULATED_MODULES=all would show demo-only money features to every user; use 'invited', or set "
                             "ALLOW_PUBLIC_SIMULATED_MODULES=true after the owner has decided.")
+        if (self.stripe_secret_key or "").strip().startswith(("sk_live_", "rk_live_")):
+            problems.append("STRIPE_SECRET_KEY must remain unset or use Stripe test mode for this release.")
+        if self.payments_crypto_enabled:
+            problems.append("PAYMENTS_CRYPTO_ENABLED must remain false for this release.")
+        if self.token_mainnet_enabled:
+            problems.append("TOKEN_MAINNET_ENABLED must remain false for this release.")
         if self.rate_limit_backend.strip().lower() not in ("auto", "mongo", "memory", ""):
             problems.append("RATE_LIMIT_BACKEND must be auto, mongo or memory.")
         elif self.rate_limit_backend.strip().lower() == "memory" and not self.single_instance:

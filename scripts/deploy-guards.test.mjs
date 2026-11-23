@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 const SECRET = "e".repeat(40);
-import { deployProblems, enforceDeployGuards } from "./deploy-guards.mjs";
+import { deployProblems, enforceDeployGuards, publicBackendUrl } from "./deploy-guards.mjs";
 
 test("a correct production environment has no problems", () => {
   assert.deepEqual(deployProblems({ BACKEND_API_URL: "https://api.example.com", EDGE_SHARED_SECRET: SECRET }), []);
@@ -34,4 +34,19 @@ test("the edge-proof secret is required with a backend, and a short one is not e
   assert.match(deployProblems({ ...base, EDGE_SHARED_SECRET: "short" })[0], /EDGE_SHARED_SECRET/);
   assert.deepEqual(deployProblems({ ...base, ALLOW_NO_EDGE_PROOF: "true" }), []);
   assert.ok(!deployProblems({ ...base, EDGE_SHARED_SECRET: "nope" }).join().includes("nope"));
+});
+
+
+test("backend origins never expose URL credentials or query secrets in the build", () => {
+  for (const candidate of [
+    "https://user:test-secret@api.example.com",
+    "https://api.example.com/?key=test-secret",
+    "https://api.example.com/path",
+    "https://api.example.com/#test-secret",
+  ]) {
+    const env = { BACKEND_API_URL: candidate, EDGE_SHARED_SECRET: SECRET };
+    assert.match(deployProblems(env).join(), /BACKEND_API_URL/);
+    assert.throws(() => publicBackendUrl(env), (error) => !error.message.includes("test-secret"));
+  }
+  assert.equal(publicBackendUrl({ BACKEND_API_URL: "http://127.0.0.1:8000/" }), "http://127.0.0.1:8000");
 });

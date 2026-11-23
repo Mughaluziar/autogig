@@ -166,6 +166,8 @@ services:
       # until the launch gate passes and TOKEN_MAINNET_ENABLED is true.
       - key: TOKEN_PROGRAM_ENABLED
         value: "false"
+      - key: TOKEN_MAINNET_ENABLED
+        value: "false"
       - key: TOKEN_CHAIN_ID
         value: "84532"
       - key: TOKEN_RPC_URL

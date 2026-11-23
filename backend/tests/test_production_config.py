@@ -145,3 +145,21 @@ def test_mongo_failure_aborts_startup_and_degrades_health(monkeypatch, caplog):
         asyncio.run(startup())
     assert asyncio.run(health()).status_code == 503
     assert "private connection details" not in caplog.text
+
+
+@pytest.mark.parametrize(("settings", "variable"), [
+    ({"stripe_secret_key": "sk_live_example"}, "STRIPE_SECRET_KEY"),
+    ({"stripe_secret_key": "rk_live_example"}, "STRIPE_SECRET_KEY"),
+    ({"payments_crypto_enabled": True}, "PAYMENTS_CRYPTO_ENABLED"),
+    ({"token_mainnet_enabled": True}, "TOKEN_MAINNET_ENABLED"),
+])
+def test_demo_release_refuses_live_finance(settings, variable):
+    with pytest.raises(RuntimeError, match=variable):
+        make(**settings).validate_for_production()
+
+
+@pytest.mark.parametrize("key", ["cors_origins", "public_site_url"])
+def test_production_rejects_secret_bearing_origins_without_echoing_them(key):
+    with pytest.raises(RuntimeError) as err:
+        make(**{key: "https://user:fixture-secret@example.com"}).validate_for_production()
+    assert key.upper() in str(err.value) and "fixture-secret" not in str(err.value)
