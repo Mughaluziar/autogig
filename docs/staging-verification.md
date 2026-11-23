@@ -101,3 +101,6 @@ copy the final numbers into `docs/production-readiness.md`. An item stays "not v
 
 ## 11. Status (2026-11-16)
 Still **not run on Vercel or Render**; no staging exists. Local evidence only: unit tests (edge proof, replay, rate limit), a real-proxy local test and the Chromium suite with `REQUIRE_EDGE_PROOF=true`. No row of section 10 has been recorded. `REQUIRE_EDGE_PROOF` must stay `false` in production until sections 3 and 4 have passed on real hosts.
+
+When edge proof is required, a MongoDB nonce-store outage returns 503 for signed browser routes. The public health check
+and provisioned provider webhooks remain reachable and retain their own checks.

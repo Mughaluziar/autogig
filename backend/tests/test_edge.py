@@ -223,3 +223,21 @@ def test_nonces_expire_so_the_store_does_not_grow(client):
     result = client.portal.call(go)
     if not TEST_MONGODB_URI:
         assert result == 1
+
+
+def test_required_edge_proof_fails_closed_if_nonce_store_is_unavailable(client, monkeypatch):
+    from pymongo.errors import AutoReconnect
+    from types import SimpleNamespace
+
+    async def failed_insert(_doc):
+        raise AutoReconnect("private database host")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(edge.db, "enabled", lambda: True)
+        patch.setattr(edge.db, "_get_db", lambda: SimpleNamespace(edge_nonces=SimpleNamespace(insert_one=failed_insert)))
+        patch.setattr(get_settings(), "require_edge_proof", True)
+        path = "/api/legal/versions"
+        response = client.get(path, headers=signed(path=path))
+
+    assert response.status_code == 503
+    assert "private database host" not in response.text

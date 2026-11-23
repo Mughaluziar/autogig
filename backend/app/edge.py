@@ -93,10 +93,8 @@ def reset_memory() -> None:
     _seen.clear()
 
 
-async def claim_nonce(nonce: str, now: float | None = None) -> bool:
-    """True the first time a signed request's nonce is seen. A second use inside the validity window is a replay.
-    Shared by every instance through MongoDB (unique _id + TTL); if the store errors the request is accepted (the
-    signature already proved origin) and a warning is logged: availability over replay protection for that moment."""
+async def claim_nonce(nonce: str, now: float | None = None) -> bool | None:
+    """Return true for a new nonce, false for a replay, and None when storage is unavailable."""
     now = time.time() if now is None else now
     expire = now + 2 * get_settings().edge_max_skew_seconds + 5
     if db.enabled():
@@ -107,8 +105,8 @@ async def claim_nonce(nonce: str, now: float | None = None) -> bool:
         except DuplicateKeyError:
             return False
         except Exception as err:     # noqa: BLE001
-            log.warning("Edge nonce store unavailable (%s); replay protection skipped for this request.", type(err).__name__)
-            return True
+            log.warning("Edge nonce store unavailable (%s)", type(err).__name__)
+            return None
     for key in [k for k, v in _seen.items() if v < now]:
         del _seen[key]
     if nonce in _seen:
@@ -121,11 +119,16 @@ class EdgeProofMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Whatever the caller sent in these headers is never trusted unless the signature checks out.
         verified, reason = verify(request)
-        if verified and not await claim_nonce(request.headers.get(HEADER_NONCE, "")):
-            verified, reason = False, "replayed"
+        required = get_settings().require_edge_proof and request.method != "OPTIONS" and not direct_allowed(request)
+        if verified:
+            claim = await claim_nonce(request.headers.get(HEADER_NONCE, ""))
+            if claim is None and required:
+                return JSONResponse({"detail": "Website request verification temporarily unavailable."}, status_code=503)
+            if not claim:
+                verified, reason = False, "nonce store unavailable" if claim is None else "replayed"
         request.state.edge_verified = verified
         request.state.edge_reason = reason
         request.state.edge_ip = request.headers.get(HEADER_IP, "")[:64] if verified else None
-        if not verified and get_settings().require_edge_proof and not direct_allowed(request) and request.method != "OPTIONS":
+        if not verified and required:
             return JSONResponse({"detail": "Requests must come through the website."}, status_code=403)
         return await call_next(request)
