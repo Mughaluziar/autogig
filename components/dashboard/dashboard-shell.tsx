@@ -72,6 +72,11 @@ export function DashboardShell({
   }, []);
   const demo = useDemoStore();
   const [open, setOpen] = React.useState(false);
+  const [navQuery, setNavQuery] = React.useState("");
+  const navMatches = navQuery.trim()
+    ? nav.flatMap((section) => section.items).filter((item) =>
+        !item.soon && item.label.toLowerCase().includes(navQuery.trim().toLowerCase())).slice(0, 6)
+    : [];
 
   // Auth guard — when the dev bypass is off (NEXT_PUBLIC_DEV_BYPASS_AUTH=false),
   // unauthenticated visitors are sent to signup (launch wall) or login.
@@ -183,10 +188,29 @@ export function DashboardShell({
             <Menu className="size-5" />
           </button>
 
-          <div className="relative hidden max-w-sm flex-1 md:block">
+          <form className="relative hidden max-w-sm flex-1 md:block" role="search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (navMatches[0]) {
+                router.push(navMatches[0].href);
+                setNavQuery("");
+              }
+            }}>
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search jobs, clients, freelancers..." className="pl-9" />
-          </div>
+            <Input aria-label="Find a page" placeholder="Find a page..." className="pl-9"
+              value={navQuery} onChange={(event) => setNavQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Escape") setNavQuery(""); }} />
+            {navQuery.trim() && (
+              <div className="absolute inset-x-0 top-full z-50 mt-1 rounded-md border bg-popover p-1 shadow-lg">
+                {navMatches.length ? navMatches.map((item) => (
+                  <Link key={item.href} href={item.href} onClick={() => setNavQuery("")}
+                    className="block rounded px-3 py-2 text-sm hover:bg-accent focus:bg-accent">
+                    {item.label}
+                  </Link>
+                )) : <p className="px-3 py-2 text-sm text-muted-foreground">No matching page</p>}
+              </div>
+            )}
+          </form>
 
           <div className="ml-auto flex items-center gap-1.5">
             {/* Trial countdown */}

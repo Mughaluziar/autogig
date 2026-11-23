@@ -1,7 +1,7 @@
 """Job Radar detail endpoint — one listing by id for the detail/apply pages."""
 import pytest
 
-from conftest import bearer, signup
+from conftest import TEST_MONGODB_URI, bearer, signup
 from app import job_sources
 from app.routers import radar
 
@@ -75,6 +75,17 @@ def test_cached_scans_are_remembered_too(client, feed):
     radar._RECENT.clear()  # the result cache still answers the next scan
     client.get("/api/radar/jobs?q=python", headers=alice)
     assert client.get("/api/radar/jobs/rok-2", headers=alice).status_code == 200
+
+
+@pytest.mark.skipif(not TEST_MONGODB_URI, reason="requires disposable MongoDB")
+def test_recent_listing_survives_process_cache_loss_and_stays_private(client, feed):
+    alice = bearer(signup(client, email="durable-alice@example.com")["token"])
+    bob = bearer(signup(client, email="durable-bob@example.com")["token"])
+    assert client.get("/api/radar/jobs?q=python", headers=alice).status_code == 200
+    radar.reset_recent()  # simulate a fresh process with no result/detail cache
+    detail = client.get("/api/radar/jobs/rok-1", headers=alice)
+    assert detail.status_code == 200 and detail.json()["job"]["description"] == "P" * 2500
+    assert client.get("/api/radar/jobs/rok-1", headers=bob).status_code == 404
 
 
 def test_saved_jobs_stay_reachable_after_the_scan_expires(client, feed):

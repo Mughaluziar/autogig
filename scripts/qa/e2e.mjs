@@ -604,6 +604,12 @@ await guard("demo", "anonymous visitors, nav routes, Coming soon pages, mobile c
 
   // Command Center: real numbers only.
   await ag.goto("/dashboard/command", { waitUntil: "networkidle" }); await ag.waitForTimeout(800);
+  const pageSearch = ag.locator('form[role="search"]');
+  await pageSearch.getByRole("textbox", { name: "Find a page" }).fill("Job Radar");
+  await pageSearch.getByRole("link", { name: "Job Radar" }).click();
+  await ag.waitForURL("**/dashboard/job-radar");
+  check("demo", "topbar page search opens a permitted navigation destination", new URL(ag.url()).pathname === "/dashboard/job-radar");
+  await ag.goto("/dashboard/command", { waitUntil: "networkidle" });
   const cc = await text(ag);
   check("demo", "Command Center has no win-rate, margin or percentage-trend statistics", !/win rate|live margin|\+\d+(\.\d)?%/i.test(cc), cc.slice(0, 200));
   const specsApi = (await api(ctxs.agency, "GET", "/api/pool/admin/specs")).body;
