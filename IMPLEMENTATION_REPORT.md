@@ -431,3 +431,22 @@ Local only; nothing pushed, deployed or purchased; nothing real: no token, depos
 | Production build | compiled, run after the last code change |
 | `npm audit --omit=dev` / `npm audit` / `pip-audit` / `actionlint` | 0 / 6 moderate (dev tooling) / clean / clean |
 Skips are the Mongo-only tests in memory mode, five memory-inspection tests in Mongo mode, and the local-chain test (not run: no contract or token code changed). Nothing was weakened or skipped to pass.
+
+## Credential-free release readiness (2026-11-23)
+
+- Full backend regression runs passed in memory (**702 passed, 9 skipped**) and on disposable MongoDB (**700 passed,
+  6 skipped**). Focused MongoDB credit, restart and configuration checks passed (**91**). Focused provider/startup
+  (**48**) and edge/session/route (**67**) suites cover the subsequent configuration and replay-store changes.
+- Frontend typecheck, lint, production build and all **13** deploy/edge/privacy tests passed. Static QA reported **26
+  passes, 3 warnings, 0 failures**. The 145-route local Chromium crawl found no unexpected HTTP or page errors.
+- The first complete browser workflow run recorded **292 passes and 7 failures**. Six failures came from signup and
+  Upwork fixture or timing issues, and the credit case used a heading selector for text rendered as a card title.
+  The corrected auth/Upwork rerun passed **72 of 72**, and the isolated tablet retest passed the injected outage,
+  Retry and viewport checks. The Groq response and alert emails were synthetic. The local signed proxy rejected
+  unsigned API calls.
+- A live local MongoDB backup/restore drill matched both fixture documents and both indexes. The restore command
+  refused to overwrite a populated scratch database by default. A local production-mode startup reported
+  `database: "ok"` and returned 503 for signup with no mail provider. Production npm audit reported zero advisories.
+- Billing and Inbox/Messaging remain Fahim's work. The [deployment runbook](docs/deployment-runbook.md#approval-gates-and-client-acceptance)
+  records external credentials, staged validation, volatile-data preservation, acceptance and rollback gates.
+  No hosted environment changed.

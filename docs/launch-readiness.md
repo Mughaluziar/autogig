@@ -87,3 +87,19 @@ Walk each lens. For every row ask: does it exist, does it work, is it honest, is
 1. Stripe Checkout and webhooks, then set `NEXT_PUBLIC_PAYMENTS_LIVE=true`. Reword the escrow claim in the Terms, or build escrow.
 2. Store profile photos server-side; today a photo is kept in the browser that uploaded it.
 3. An Open Graph image, a cookie notice if analytics are added, and an uptime check.
+
+### Credential-free browser integration suite
+
+Start disposable MongoDB on localhost. Run the API from `backend/` with `PYTHONPATH=.`, `ENVIRONMENT=test`,
+`MONGODB_URI=mongodb://127.0.0.1:27017`, a fresh `MONGODB_DB=autogig_browser_qa_...`, an isolated `SECRET_KEY`,
+`OWNER_EMAILS=owner@example.test`, `CORS_ORIGINS=http://localhost:3100`, `PUBLIC_SITE_URL=http://localhost:3100`,
+`EMAIL_VERIFICATION=false`, and `REQUIRE_TERMS_ACCEPTANCE=true`. Set `INBOUND_EMAIL_DOMAIN=in.example.test`,
+`INBOUND_EMAIL_PLATFORMS=upwork`, `INBOUND_EMAIL_WEBHOOK_SECRET=qa-hook-secret`, and `AI_LOG` to a private temporary
+file. Set a shared local-only `EDGE_SHARED_SECRET` on both services and `REQUIRE_EDGE_PROOF=true` on the API. Run
+`python ../scripts/qa/local-api.py`. This runner binds localhost, simulates Groq, and blocks live provider requests.
+
+Build and start Next.js with `BACKEND_API_URL=http://127.0.0.1:8010` and the same local signing secret at build and start.
+Run `BASE=http://localhost:3100 API=http://127.0.0.1:8010 EXPECT_EDGE_PROOF=true node scripts/qa/e2e.mjs` with the same
+`AI_LOG`. Use `PLAYWRIGHT_MODULE` and `CHROME` if the installed browser tooling lives outside the repo. The script
+returns a failure status if any check fails. Use a fresh disposable database on each run because the owner address is fixed.
+Set `QA_SCOPE=auth-upwork` to rerun only the account and Upwork checks.

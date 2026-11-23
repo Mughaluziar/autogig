@@ -21,6 +21,15 @@ const check = (group, name, ok, detail = "") => {
 };
 const browser = await chromium.launch({ executablePath: process.env.CHROME, args: ["--disable-dev-shm-usage"] });
 
+async function finish(summary, upworkRequests) {
+  fs.writeFileSync(OUT, JSON.stringify({ run: RUN, results, summary, upworkRequests }, null, 1));
+  const failed = results.filter((r) => !r.ok);
+  console.log(`\n${results.length - failed.length}/${results.length} checks passed; ${failed.length} failed`);
+  await browser.close();
+  return failed.length ? 1 : 0;
+}
+
+
 // ---------------------------------------------------------------- helpers
 async function newCtx(viewport = { width: 1280, height: 860 }) {
   const ctx = await browser.newContext({ viewport, permissions: ["clipboard-read", "clipboard-write"], baseURL: BASE });
@@ -167,7 +176,7 @@ await guard("auth", "email-first signup UI", async () => {
     firstRequest?.email === email && !(await ctx.cookies()).some((c) => c.name === "autopilot_session"));
   await input.fill("local-browser-test-confirmation");
   await page.getByRole("button", { name: "Confirm email and create account" }).click();
-  await page.waitForURL("**/investor");
+  await page.waitForURL((url) => url.pathname === "/investor", { timeout: 15000 });
   check("auth", "the form resubmits inbox proof and opens the signed-in portal", redeemed === "local-browser-test-confirmation");
   await ctx.close();
 });
@@ -176,7 +185,8 @@ await guard("auth", "unauthorized", async () => {
   const anon = await newCtx();
   const page = await newPage(anon);
   for (const path of ["/freelancer/specs", "/dashboard/gigs", "/dashboard/pool"]) {
-    await page.goto(path); await page.waitForTimeout(1500);
+    await page.goto(path);
+    await page.waitForURL((url) => /^\/(login|signup)(?:\/|$)/.test(url.pathname), { timeout: 15000 }).catch(() => {});
     check("auth", `anonymous visitor to ${path} is sent to sign-in`, /\/(login|signup)/.test(page.url()), page.url());
   }
   for (const [m, p] of [["GET", "/api/auth/me"], ["GET", "/api/pool/specs"], ["GET", "/api/upwork/leads"], ["POST", "/api/upwork/leads/import"], ["GET", "/api/orders"]]) {
@@ -299,7 +309,8 @@ await guard("upwork", "ingest", async () => {
 
 await guard("upwork", "detail + proposal", async () => {
   const lead = uw.react; const id = encodeURIComponent(lead.id);
-  await uwPage.goto(`/dashboard/gigs/${id}`); await uwPage.waitForTimeout(1500);
+  await uwPage.goto(`/dashboard/gigs/${id}`);
+  await uwPage.getByText("You submit this one yourself", { exact: false }).first().waitFor({ timeout: 15000 });
   const detail = await text(uwPage);
   check("upwork", "detail page shows the manual-submission notice", /You submit this one yourself/.test(detail));
   check("upwork", "detail page has no auto-apply / API-connect UI", !/Auto-apply|Prepare it for me|Connect Upwork/i.test(detail));
@@ -349,7 +360,8 @@ await guard("upwork", "paste import UI", async () => {
   check("upwork", "pasting a plain-text alert in the dialog adds the job with the right title/budget", pasted && pasted.title === "Next.js storefront speed audit" && pasted.budget === 800, JSON.stringify(pasted)?.slice(0, 160));
   await uwPage.getByRole("button", { name: /Add Upwork jobs/ }).click();
   await uwPage.fill("#uw-paste", "nothing useful here");
-  await uwPage.getByRole("button", { name: "Add to my list" }).click(); await uwPage.waitForTimeout(1200);
+  await uwPage.getByRole("button", { name: "Add to my list" }).click();
+  await uwPage.getByText(/No Upwork job links/).first().waitFor({ timeout: 15000 }).catch(() => {});
   check("upwork", "pasting text without job links shows an error instead of failing silently", /No Upwork job links/.test(await text(uwPage)));
   await uwPage.keyboard.press("Escape");
 });
@@ -369,6 +381,10 @@ await guard("upwork", "no automation / no API UI", async () => {
   const toUpwork = upworkRequests.filter((r) => !/^GET .*upwork\.com\/jobs\/~01a1b2c3d4e5f6a7b8/.test(r));
   check("upwork", "the app's own pages made no requests to upwork.com except the user's tab opening a job link", toUpwork.length === 0, toUpwork.join(" | "));
 });
+
+if (process.env.QA_SCOPE === "auth-upwork") {
+  process.exit(await finish({}, upworkRequests));
+}
 
 // ====================================================================== TEST 3/4 — POOL, ROLES, PRIVACY
 const agency = { first: "Agnes", last: `Agency${RUN}`, email: unique("agency"), company: `QA Agency ${RUN}` };
@@ -1037,7 +1053,7 @@ await guard("credit", "contribution, application, offer, acceptance, repayment, 
   await tabletPage.getByRole("alert").filter({ hasText: "Credit data could not be loaded" }).waitFor();
   await tabletPage.unroute("**/api/credit/statement");
   await tabletPage.getByRole("button", { name: "Retry" }).click();
-  await tabletPage.getByRole("heading", { name: "Simulated statement" }).waitFor();
+  await tabletPage.getByText("Simulated statement", { exact: true }).waitFor();
   check("credit", "tablet view recovers from a partial API outage and fits the viewport",
     await tabletPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
   await tablet.close();
@@ -1050,8 +1066,4 @@ const summary = {};
 for (const [k, c] of Object.entries({ ann: ctxs.ann, agency: ctxs.agency, bob: ctxs.bob, uma: uwCtx, owner: ctxs.owner, investor: ctxs.investor, agency2: ctxs.agency2 })) {
   if (c) summary[k] = { consoleErrors: [...new Set(c.errors)].slice(0, 12), badResponses: [...new Set(c.bad)].slice(0, 20) };
 }
-fs.writeFileSync(OUT, JSON.stringify({ run: RUN, results, summary, upworkRequests }, null, 1));
-const failed = results.filter((r) => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} checks passed; ${failed.length} failed`);
-await browser.close();
-process.exitCode = failed.length ? 1 : 0;
+process.exitCode = await finish(summary, upworkRequests);
