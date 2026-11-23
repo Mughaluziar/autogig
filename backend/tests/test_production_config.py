@@ -163,3 +163,19 @@ def test_production_rejects_secret_bearing_origins_without_echoing_them(key):
     with pytest.raises(RuntimeError) as err:
         make(**{key: "https://user:fixture-secret@example.com"}).validate_for_production()
     assert key.upper() in str(err.value) and "fixture-secret" not in str(err.value)
+
+
+@pytest.mark.parametrize(("settings", "variable"), [
+    ({"mongodb_db": "  "}, "MONGODB_DB"),
+    ({"resend_api_key": "fixture-key"}, "RESEND_FROM"),
+    ({"resend_api_key": "fixture-key", "resend_from": "No address"}, "RESEND_FROM"),
+    ({"groq_api_key": "fixture-key", "groq_model": "  "}, "GROQ_MODEL"),
+])
+def test_partial_provider_configuration_fails_safely(settings, variable):
+    with pytest.raises(RuntimeError, match=variable):
+        make(**settings).validate_for_production()
+
+
+def test_valid_provider_settings_pass_startup_validation():
+    make(resend_api_key="resend-fixture", resend_from="AutoGig <hello@example.com>",
+         groq_api_key="groq-fixture").validate_for_production()

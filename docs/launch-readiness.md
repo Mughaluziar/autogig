@@ -1,5 +1,7 @@
 # Launch readiness checklist
 
+For the current release gates and client acceptance steps, use the [deployment runbook](deployment-runbook.md#approval-gates-and-client-acceptance).
+
 The go/no-go list to run before each release or client demo. It was adapted from the separate "launch pass" build (`Autopilot-launch/`), whose improvements were merged into this app on 2026-11-05. Each item is **PASS**, **WARN** or **BLOCKER**.
 
 ## How to run the checks

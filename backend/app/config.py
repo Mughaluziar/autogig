@@ -1,4 +1,5 @@
 """Application settings — loaded from environment / .env file."""
+from email.utils import parseaddr
 from functools import lru_cache
 from urllib.parse import urlsplit
 
@@ -272,6 +273,15 @@ class Settings(BaseSettings):
                 "MONGODB_URI is not set: accounts and data would live in memory and be lost on every "
                 "restart. Configure a persistent MongoDB connection."
             )
+        if not self.mongodb_db.strip():
+            problems.append("MONGODB_DB must name the target database.")
+        if self.resend_api_key:
+            sender = parseaddr(self.resend_from)[1]
+            local, sep, domain = sender.rpartition("@")
+            if not (sep and local and "." in domain) or domain.lower() == "resend.dev":
+                problems.append("RESEND_FROM must specify a sender on your verified domain when RESEND_API_KEY is set.")
+        if self.groq_api_key and not self.groq_model.strip():
+            problems.append("GROQ_MODEL cannot be blank when GROQ_API_KEY is set.")
         if not self.email_verification:
             problems.append("EMAIL_VERIFICATION must be enabled in production.")
         origins = self.cors_origin_list
