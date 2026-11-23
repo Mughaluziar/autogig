@@ -107,7 +107,7 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `revoked_sessions` | no | Not personal data | Revoked session ids; expire on their own. |
 | `oauth_states` | no | Not personal data | Single-use sign-in state; expires on its own. |
 | `oauth_handoffs` | no | Not personal data | Single-use sign-in handoff; expires on its own. |
-| `app_state` | no | Not personal data | Legacy single shared document; archived at startup if present. |
+| `app_state` | no | Not personal data | Legacy single shared document; retained until an explicit migration. |
 | `app_state_backup` | no | Not personal data | Archive of the legacy shared document: mixed data of every user from before per-user storage. The owner must review and drop it (docs/data-lifecycle.md). |
 
 ## Not covered by the app (operator tasks)

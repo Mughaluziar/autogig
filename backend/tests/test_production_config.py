@@ -5,6 +5,7 @@ from app.config import Settings
 
 GOOD = dict(
     environment="production",
+    email_verification=True,
     secret_key="x" * 40,
     mongodb_uri="mongodb://example.invalid:27017",
     cors_origins="https://app.example.com",
@@ -34,8 +35,10 @@ def test_missing_mongodb_is_refused_in_production():
         make(mongodb_uri=None).validate_for_production()
 
 
-def test_in_memory_demo_needs_an_explicit_opt_in():
-    make(mongodb_uri=None, allow_in_memory_db=True).validate_for_production()
+def test_legacy_memory_override_cannot_allow_production_startup(monkeypatch):
+    monkeypatch.setenv("ALLOW_IN_MEMORY_DB", "true")
+    with pytest.raises(RuntimeError, match="MONGODB_URI"):
+        make(mongodb_uri="  ").validate_for_production()
 
 
 @pytest.mark.parametrize("origins", ["*", "http://localhost:3000", ""])
@@ -116,3 +119,29 @@ def test_memory_rate_limit_backend_needs_a_single_instance_declaration():
     make(rate_limit_backend="auto").validate_for_production()
     with pytest.raises(RuntimeError, match="RATE_LIMIT_BACKEND must be"):
         make(rate_limit_backend="redis").validate_for_production()
+
+
+def test_production_cannot_disable_email_verification():
+    with pytest.raises(RuntimeError, match="EMAIL_VERIFICATION"):
+        make(email_verification=False).validate_for_production()
+
+
+def test_mongo_failure_aborts_startup_and_degrades_health(monkeypatch, caplog):
+    import asyncio
+
+    from pymongo.errors import ServerSelectionTimeoutError
+
+    from app import db
+    from app.main import health, startup
+
+    class UnavailableMongo:
+        async def command(self, command):
+            assert command == "ping"
+            raise ServerSelectionTimeoutError("private connection details")
+
+    monkeypatch.setattr(db, "enabled", lambda: True)
+    monkeypatch.setattr(db, "_get_db", UnavailableMongo)
+    with pytest.raises(RuntimeError, match="MongoDB connection or index initialization failed"):
+        asyncio.run(startup())
+    assert asyncio.run(health()).status_code == 503
+    assert "private connection details" not in caplog.text

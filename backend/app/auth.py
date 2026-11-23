@@ -3,7 +3,7 @@
 Every API route except the public ones (routers/public.py, /auth/login,
 /auth/signup, /health) requires an `Authorization: Bearer <token>` header.
 Tokens are HS256 JWTs signed with SECRET_KEY and carry the user's id, email
-and role, so guards don't need a database round-trip.
+and role. Guards check the current account and session version in storage.
 
 Roles
   admin       agency operator — the main dashboard
@@ -139,11 +139,11 @@ async def current_user(request: Request) -> dict:
         relative = request.url.path[len(get_settings().api_prefix):] if request.url.path.startswith(get_settings().api_prefix) else request.url.path
         if not relative.startswith(_TERMS_PENDING_PREFIXES):
             raise HTTPException(403, "Accept the current Terms of Service and Privacy Policy to continue.")
-    if claims.get("ev") is False:
+    if claims.get("ev") is False or (get_settings().email_verification and not db.is_email_verified(account)):
         prefix = get_settings().api_prefix
         if request.url.path not in {f"{prefix}{p}" for p in _UNVERIFIED_PATHS}:
             raise HTTPException(403, "Verify your email address to continue.")
-    user = {"id": claims["sub"], "email": claims["email"], "role": claims["role"]}
+    user = {"id": claims["sub"], "email": claims["email"], "role": account["role"]}
     request.state.account = account          # the stored account, for guards that need more than the token carries
     request.state.user = user
     request.state.claims = claims

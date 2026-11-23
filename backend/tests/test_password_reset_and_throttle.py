@@ -102,3 +102,35 @@ def test_general_rate_limit_is_configurable_and_per_ip(client, monkeypatch):
     assert client.get("/health", headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429  # headers alone can't dodge it
     # The shipped default leaves room for a chatty single-page app (about 25 calls per page load).
     assert get_settings().__class__.model_fields["rate_limit_per_minute"].default >= 600
+
+
+def test_concurrent_password_reset_only_consumes_once(client):
+    from concurrent.futures import ThreadPoolExecutor
+
+    signup(client)
+    token = _token(_request_reset(client)["devResetLink"])
+
+    def redeem(password):
+        return client.post("/api/auth/reset-password", json={"token": token, "password": password}).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        outcomes = list(workers.map(redeem, ["parallel-reset-one", "parallel-reset-two"]))
+    assert sorted(outcomes) == [200, 400]
+
+
+def test_production_reset_delivery_keeps_account_existence_private(client, monkeypatch):
+    from app import email
+    from app.config import get_settings
+
+    signup(client)
+    delivered = []
+
+    async def deliver(to, subject, html):
+        delivered.append(to)
+        return True
+
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    monkeypatch.setattr(email, "enabled", lambda: True)
+    monkeypatch.setattr(email, "send_email", deliver)
+    assert _request_reset(client) == _request_reset(client, "unknown@example.com")
+    assert delivered == ["agency@example.com"]

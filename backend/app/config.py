@@ -69,8 +69,8 @@ class Settings(BaseSettings):
 
     # Email verification for password signups (docs/social-sign-in.md). The
     # code is emailed; outside production with no email provider the API
-    # returns it so local development works. In production with no email
-    # provider verification can't be delivered, so it isn't enforced.
+    # returns it so local development works. Production signup requires a
+    # configured provider when verification is enabled.
     email_verification: bool = True
 
     # Social sign-in (docs/social-sign-in.md). Each provider is offered only
@@ -113,9 +113,6 @@ class Settings(BaseSettings):
     # fully in-memory.
     mongodb_uri: str | None = None
     mongodb_db: str = "autopilot"
-    # Production refuses to start without MONGODB_URI (data would vanish on
-    # every restart). Set true ONLY for a throwaway demo deployment.
-    allow_in_memory_db: bool = False
 
     # Freelancer.com connector — official API (OAuth). When unset, the connector
     # serves a realistic sandbox feed so the UI works in the demo.
@@ -258,11 +255,13 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if self.secret_key in ("dev-secret", "change-me-in-production") or len(self.secret_key) < 32:
             problems.append("SECRET_KEY must be a random value of at least 32 characters in production.")
-        if not (self.mongodb_uri or "").strip() and not self.allow_in_memory_db:
+        if not (self.mongodb_uri or "").strip():
             problems.append(
                 "MONGODB_URI is not set: accounts and data would live in memory and be lost on every "
-                "restart. Set it (MongoDB Atlas), or set ALLOW_IN_MEMORY_DB=true for a throwaway demo."
+                "restart. Configure a persistent MongoDB connection."
             )
+        if not self.email_verification:
+            problems.append("EMAIL_VERIFICATION must be enabled in production.")
         origins = self.cors_origin_list
         if not origins or "*" in origins:
             problems.append("CORS_ORIGINS must list the real frontend origin(s); '*' is not allowed with credentials.")
@@ -306,14 +305,16 @@ class Settings(BaseSettings):
                 problems.append(problem)
         return problems
 
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_user and self.smtp_password)
+
     def production_warnings(self) -> list[str]:
         """Settings that don't stop the app from starting but leave a feature off or unsafe-by-omission."""
         warnings: list[str] = []
-        if not (self.resend_api_key or (self.smtp_host and self.smtp_user)):
+        if not (self.resend_api_key or self.smtp_configured):
             warnings.append("No email provider (RESEND_API_KEY or SMTP_*): password-reset and verification emails cannot be "
-                            "sent, and email verification is skipped for new signups.")
-        if not self.email_verification:
-            warnings.append("EMAIL_VERIFICATION is off: new accounts are not required to confirm their email.")
+                            "sent. Signup requires a provider when EMAIL_VERIFICATION is enabled.")
         if not self.groq_api_key:
             warnings.append("No GROQ_API_KEY: proposal drafts use the built-in template, not an AI model.")
         if not (self.inbound_email_domain and self.inbound_email_webhook_secret):

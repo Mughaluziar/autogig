@@ -10,6 +10,7 @@ autopilot.users             one document per registered user, keyed by email
 autopilot.oauth_identities  "<provider>:<subject>" -> email, for social sign-in
 (see repo.py for the per-user data collections)
 """
+import asyncio
 import secrets
 import time
 from datetime import datetime, timezone
@@ -25,7 +26,14 @@ _db = None
 
 
 def enabled() -> bool:
-    return bool(get_settings().mongodb_uri)
+    return bool((get_settings().mongodb_uri or "").strip())
+
+
+def close() -> None:
+    global _client, _db
+    if _client is not None:
+        _client.close()
+        _client = _db = None
 
 
 def _get_db():
@@ -37,6 +45,35 @@ def _get_db():
         )
         _db = _client[get_settings().mongodb_db]
     return _db
+
+
+async def ping() -> None:
+    await asyncio.wait_for(_get_db().command("ping"), timeout=8)
+
+
+async def compare_and_update_user(
+    email: str, user_id: str, field: str, expected: dict | str | None,
+    fields: dict, unset: tuple[str, ...] = (), *, bump_session: bool = False,
+) -> dict | None:
+    """Update account credentials only if the observed challenge is still current."""
+    if not enabled():
+        doc = _mem_users.get(email)
+        if doc is None or doc["id"] != user_id or doc.get(field) != expected:
+            return None
+        if bump_session:
+            fields = {**fields, "session_version": doc.get("session_version", 0) + 1}
+        return await update_user(email, fields, unset)
+    update: dict = {}
+    if fields:
+        update["$set"] = fields
+    if unset:
+        update["$unset"] = {key: "" for key in unset}
+    if bump_session:
+        update["$inc"] = {"session_version": 1}
+    return await _get_db().users.find_one_and_update(
+        {"_id": email, "id": user_id, field: expected}, update,
+        return_document=ReturnDocument.AFTER,
+    )
 
 
 async def find_user_by_reset_hash(token_hash: str) -> dict | None:

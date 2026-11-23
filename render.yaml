@@ -29,7 +29,7 @@ services:
       # Must include your Vercel frontend URL (add your custom domain later).
       # https only: production refuses to start with any http:// origin (and localhost is not needed).
       - key: CORS_ORIGINS
-        value: https://autopilotv2.vercel.app
+        value: https://autogig-pi.vercel.app
       # Edge proof (docs/staging-verification.md): the website signs every /api request it proxies with this secret, so
       # the API knows the visitor address it reports and can refuse requests that skip the website. Generate a random
       # 48+ character value ONCE and set the SAME value as EDGE_SHARED_SECRET in Vercel (server-side variable, never
@@ -47,10 +47,11 @@ services:
       # Per-IP request counters are shared through MongoDB, so more than one API instance is safe.
       - key: RATE_LIMIT_BACKEND
         value: auto
-      # Banking, Marketplace, Capital and Token are simulated demonstrations: only the owner and accounts the owner
-      # invites can open them. "all" is refused in production unless ALLOW_PUBLIC_SIMULATED_MODULES=true.
+      # Investor demo access for signed-in accounts. Role checks still apply.
       - key: SIMULATED_MODULES
-        value: invited
+        value: all
+      - key: ALLOW_PUBLIC_SIMULATED_MODULES
+        value: "true"
       - key: EMAIL_VERIFICATION
         value: "true"
       # Comma-separated emails that may open the platform-owner pages.
@@ -90,8 +91,8 @@ services:
       # Outbound email (signup verification codes, welcome, invites) via Gmail
       # SMTP. SMTP_USER is the Gmail address; SMTP_PASSWORD is a 16-character
       # Google App Password (needs 2-Step Verification on that account), not
-      # the normal Gmail password. With these unset, production skips email
-      # verification so signups aren't blocked.
+      # the normal Gmail password. Prefer Resend HTTPS on the free web service.
+      # Signup requires a provider when email verification is enabled.
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
@@ -160,7 +161,7 @@ services:
       - key: PAYMENTS_CRYPTO_ENABLED
         value: "false"
       - key: PUBLIC_SITE_URL
-        sync: false
+        value: https://autogig-pi.vercel.app
       # Token program (docs/token-program.md). Off unless set; test networks only
       # until the launch gate passes and TOKEN_MAINNET_ENABLED is true.
       - key: TOKEN_PROGRAM_ENABLED

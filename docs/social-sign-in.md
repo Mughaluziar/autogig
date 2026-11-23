@@ -49,11 +49,11 @@ sign-ins are verified by the provider when it vouches for the email (below).
 |---|---|
 | Email provider configured (`RESEND_API_KEY` or `SMTP_*`) | Code is emailed; verification is enforced. |
 | No provider, not production | The API returns the code (`devCode`) and the page shows it under a "Development only" label. |
-| No provider, production | Verification can't be delivered, so it isn't enforced and no code is ever returned. Configure email to turn it on. |
-| `EMAIL_VERIFICATION=false` | Verification is off everywhere. |
+| No provider, production | Verification stays enforced. Password signup and resend return 503 until a provider is configured. |
+| `EMAIL_VERIFICATION=false` | Verification is off in development and test. Production startup rejects this setting. |
 
 `GET /api/auth/providers` reports the current mode as
-`emailVerification: {enforced, delivery: "email" | "dev" | "off"}`.
+`emailVerification: {enforced, delivery: "email" | "dev" | "unavailable" | "off"}`.
 
 ## Social sign-in
 

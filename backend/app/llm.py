@@ -7,10 +7,13 @@ never hard-breaks on an AI outage.
 Free-tier default model: openai/gpt-oss-120b (Groq's flagship open model).
 """
 import asyncio
+import logging
 
 import httpx
 
 from .config import get_settings
+
+log = logging.getLogger("autopilot.groq")
 
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -50,10 +53,18 @@ def chat(messages: list[dict], *, max_tokens: int = 400, temperature: float = 0.
                 },
                 json=payload,
             )
-        if res.status_code == 200:
-            return res.json()["choices"][0]["message"]["content"].strip()
-    except Exception:
-        pass
+        if res.status_code == 429:
+            log.warning("Groq rate limit reached")
+        elif res.is_success:
+            content = res.json()["choices"][0]["message"]["content"]
+            if isinstance(content, str):
+                return content.strip() or None
+        else:
+            log.warning("Groq rejected generation (HTTP %s)", res.status_code)
+    except httpx.TimeoutException:
+        log.warning("Groq generation timed out")
+    except (httpx.RequestError, ValueError, KeyError, IndexError, TypeError) as exc:
+        log.warning("Groq generation failed (%s)", type(exc).__name__)
     return None
 
 

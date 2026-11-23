@@ -16,6 +16,7 @@ import sentry_sdk
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pymongo.errors import PyMongoError
 
 from . import db, ratelimit, repo, rights_store
 from . import integrations
@@ -92,6 +93,10 @@ async def request_logging(request: Request, call_next):
     started = time.monotonic()
     try:
         response = await call_next(request)
+    except PyMongoError as exc:
+        log.error("MongoDB request failed (%s)", type(exc).__name__)
+        response = JSONResponse(status_code=503, content={"detail": "Database temporarily unavailable",
+                                                          "request_id": request_id})
     except Exception:
         sentry_sdk.capture_exception()
         log.exception("request failed", extra={"request_id": request_id})
@@ -126,25 +131,23 @@ async def startup() -> None:
     init_store()
     if db.enabled():
         try:
-            await db._get_db().command("ping")
-        except Exception:
-            # Production must not come up half-working against a dead database.
-            log.exception("MongoDB is not reachable at startup")
-            if settings.environment == "production":
-                raise RuntimeError("MongoDB is not reachable; refusing to start in production.")
-        await repo.ensure_indexes()
-        await order_store.ensure_indexes()
-        await capital_store.ensure_indexes()
-        await capital_ledger.ensure_indexes()
-        await payments_store.ensure_indexes()
-        await subscriptions_store.ensure_indexes()
-        await oauth.ensure_indexes()
-        await session_store.ensure_indexes()
-        await pool_store.ensure_indexes()
-        await access_store.ensure_indexes()
-        await rights_store.ensure_indexes()
-        await ratelimit.ensure_indexes()
-        await repo.archive_legacy_state()
+            await db.ping()
+            await repo.ensure_indexes()
+            await order_store.ensure_indexes()
+            await capital_store.ensure_indexes()
+            await capital_ledger.ensure_indexes()
+            await payments_store.ensure_indexes()
+            await subscriptions_store.ensure_indexes()
+            await oauth.ensure_indexes()
+            await session_store.ensure_indexes()
+            await pool_store.ensure_indexes()
+            await access_store.ensure_indexes()
+            await rights_store.ensure_indexes()
+            await ratelimit.ensure_indexes()
+        except Exception as exc:
+            db.close()
+            log.error("MongoDB startup checks failed (%s)", type(exc).__name__)
+            raise RuntimeError("MongoDB connection or index initialization failed.") from None
         log.info("MongoDB connected")
     else:
         log.warning("MONGODB_URI not set — accounts and data are kept in memory only")
@@ -157,10 +160,12 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
-    for name in ("housekeeping", "credit_jobs"):
-        task = getattr(app.state, name, None)
-        if task:
-            task.cancel()
+    tasks = [task for name in ("housekeeping", "credit_jobs")
+             if (task := getattr(app.state, name, None)) is not None]
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    db.close()
 
 
 @app.get("/health")
@@ -168,10 +173,10 @@ async def health() -> dict:
     database = "in-memory"
     if db.enabled():
         try:
-            await db._get_db().command("ping")
+            await db.ping()
             database = "ok"
-        except Exception:
-            log.exception("health check: MongoDB ping failed")
+        except Exception as exc:
+            log.warning("health check: MongoDB ping failed (%s)", type(exc).__name__)
             return JSONResponse(status_code=503, content={
                 "status": "degraded", "environment": settings.environment,
                 "version": "0.3.0", "database": "unavailable",

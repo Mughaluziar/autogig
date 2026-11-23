@@ -194,13 +194,14 @@ def test_code_is_emailed_when_a_provider_is_configured(client, verification_on, 
     assert sent[0][0] == "maya@example.com" and "verification code" in sent[0][1]
 
 
-def test_production_without_email_does_not_enforce_or_leak_codes(client, verification_on, monkeypatch):
+def test_production_without_email_blocks_signup_and_hides_dev_codes(client, verification_on, monkeypatch):
     monkeypatch.setattr(get_settings(), "environment", "production")
-    data = _signup_raw(client).json()
-    assert data["verification"] == {"required": False}
-    assert data["user"]["emailVerified"] is False and data["user"]["verificationRequired"] is False
-    assert client.get("/api/notifications", headers=bearer(data["token"])).status_code == 200
-    assert client.get("/api/auth/providers").json()["emailVerification"] == {"enforced": False, "delivery": "off"}
+    res = _signup_raw(client)
+    assert res.status_code == 503
+    assert "devCode" not in res.json()
+    assert client.get("/api/auth/providers").json()["emailVerification"] == {
+        "enforced": True, "delivery": "unavailable",
+    }
 
 
 def test_login_of_unverified_account_returns_restricted_session(client, verification_on):

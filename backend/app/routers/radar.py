@@ -478,7 +478,6 @@ async def radar_proposal(body: ProposalBody, user: dict = Depends(current_user))
         # Groq offline → still useful template.
         text = (
             f"Hi — your posting for \"{body.jobTitle}\" is a strong fit for my work in {skills}. "
-            "I've delivered similar projects recently and can start right away. "
             "My plan: (1) quick call to confirm scope, (2) a working first version fast, "
             "(3) revisions until you're happy. Could you share your ideal timeline?"
         )
