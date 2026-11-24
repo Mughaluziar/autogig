@@ -101,6 +101,11 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `credit_applications` | yes | **Kept, name removed** | Simulated project-credit applications; the title, description and applicant contact fields are replaced. |
 | `credit_agreements` | yes | **Kept, name removed** | Simulated credit agreements and their repayment schedule (ledger consistency). |
 | `credit_documents` | yes (metadata only; file contents are never exported) | **Deleted** | Private supporting documents uploaded with a credit application (PDF/PNG/JPEG, 3 per application, 2 MB each). |
+
+Credit document bytes are stored in MongoDB, limited by size/type and applicant/owner access. Downloads are forced attachments
+with no-store, sandbox, same-origin resource policy, and no-index headers. The demo UI warns users not to upload real identity
+or bank documents. There is no malware scanner or application-level document encryption; do not collect real sensitive files
+until the client has chosen storage, scanning, encryption, retention, and incident-response policies.
 | `credit_audit` | yes | **Kept** | Append-only audit trail of credit actions: ids and amounts only, no personal text. |
 | `terms_acceptances` | yes | Kept as is | Proof of which Terms/Privacy version was accepted and when (no personal content). |
 | `data_requests` | yes | Kept as is | Audit trail of export/deletion requests (counts, no content). |

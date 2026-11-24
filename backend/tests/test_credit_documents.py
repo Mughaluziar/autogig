@@ -66,6 +66,8 @@ def test_download_is_private_forced_to_download_and_never_rendered(client, owner
     assert res.headers["content-disposition"] == 'attachment; filename="document-1.pdf"'      # generated, never the typed label
     assert res.headers["content-type"] == "application/pdf" and res.headers["x-content-type-options"] == "nosniff"
     assert "no-store" in res.headers["cache-control"] and "sandbox" in res.headers["content-security-policy"]
+    assert res.headers["cross-origin-resource-policy"] == "same-origin"
+    assert res.headers["x-robots-tag"] == "noindex, noarchive"
     assert client.get(f"/api/credit/documents/{doc['id']}").status_code == 401                # anonymous
     other = freelancer(client, owner, "other@example.com")
     assert client.get(f"/api/credit/documents/{doc['id']}", headers=other).status_code == 404

@@ -262,4 +262,5 @@ async def download_document(doc_id: str, user: dict = Depends(current_user)):
     return Response(content=result["data"], media_type=result["mime"], headers={
         "Content-Disposition": f'attachment; filename="document-{result["slot"]}.{result["ext"]}"',
         "Cache-Control": "private, no-store", "Content-Security-Policy": "default-src 'none'; sandbox",
-        "X-Content-Type-Options": "nosniff"})
+        "X-Content-Type-Options": "nosniff", "Cross-Origin-Resource-Policy": "same-origin",
+        "X-Robots-Tag": "noindex, noarchive"})

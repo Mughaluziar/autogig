@@ -1,7 +1,8 @@
 # Deployment runbook (staging first, then production)
 
-Status: **prepared, not executed.** Nothing has been deployed. Every step marked *needs you* requires your accounts,
-credentials or an explicit go-ahead. Nothing here is verified on a live platform until the staging steps are done.
+Status: **new release not deployed.** Existing Vercel and Render production services remain on the earlier `main` revision;
+the live Render process has used in-memory storage. Do not restart it or cut over until the owner decides whether its volatile
+records need preservation. The integration branch is published for review, but this staging procedure has not run.
 
 ## 1. Architecture and what the code guarantees
 
@@ -40,13 +41,16 @@ in the platform dashboards; never commit them and never paste them into chat or 
 | Render start | `uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers` | already in `render.yaml` |
 | Render health check | `GET /health` -> 200 `{"status":"ok","database":"ok"}` (503 `degraded` if MongoDB is down) | |
 | Render plan | **Not `free`** for anything real | the free plan sleeps after 15 idle minutes and the first request then takes about a minute |
-| Auto-deploy | `autoDeploy: false` in `render.yaml` | deploy deliberately after CI is green |
-| Vercel build | `npm run build` (Node 22) | set `BACKEND_API_URL` for **Production and Preview** |
+| Auto-deploy | `autoDeploy: false` in `render.yaml`; verify the actual Render dashboard setting before any release | deploy deliberately after CI is green |
+| Vercel Git | Production branch is `main`; Git deployment creation was disabled when the integration branch was published and its preview attempt was `BLOCKED` | recheck project settings before any future push |
+| Vercel build | `npm run build`; CI uses Node 22, while the inspected Vercel project reported Node 26.x | align runtime versions and set `BACKEND_API_URL` for **Production and Preview** before staging |
 | Vercel timeouts | **unverified:** AI draft calls can take up to about 30 s (`app/llm.py` timeout); confirm they complete through the Vercel rewrite on staging with a real Groq key | if proxied requests time out, move the API behind a custom domain on the same site or shorten/stream the call |
 | Request size | Workspace saves are capped at 1 MB by the API | |
 | Edge proof secret | `EDGE_SHARED_SECRET` on **both** hosts (same 48+ random characters; Vercel: a server-side variable, Production + Preview; Render: Environment) | generate once with `python3 -c "import secrets;print(secrets.token_urlsafe(48))"`; never `NEXT_PUBLIC_`; a Vercel production build fails without it |
 | Edge enforcement | `REQUIRE_EDGE_PROOF=false` until `docs/staging-verification.md` steps 3-4 pass, then `true` | webhooks, health, OAuth callbacks and API keys stay reachable directly |
-| Simulated modules | `SIMULATED_MODULES=invited` (default in production) | grant access per account: `POST /api/admin/users/{id}/simulated-access` as owner |
+| Simulated modules | Application default is `invited`; `render.yaml` explicitly sets `SIMULATED_MODULES=all` and `ALLOW_PUBLIC_SIMULATED_MODULES=true` for the demo | confirm the public-demo audience and disclaimers before release; use `invited` to restrict access |
+| Freelancer pool bids | Demo blueprint sets `POOL_BID_CREDITS=false` so bidding works without Stripe | set `true` only when paid-credit use is deliberately enabled; checkout still needs Stripe credentials and approval |
+| Credit documents | Demo uploads are private, size/type limited and served as forced, uncached downloads | use synthetic files only; real identity/bank files need a storage, scanning, encryption and retention decision |
 | Terms | `TERMS_VERSION` / `PRIVACY_VERSION` | bump when the legal text changes; the API then requires everyone to accept again |
 | Sentry | `SENTRY_DSN` (Render), `NEXT_PUBLIC_SENTRY_DSN` and `SENTRY_AUTH_TOKEN` (Vercel) | privacy baseline is in code; verify one real event (`integration-verification.md` s.6) |
 

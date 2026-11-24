@@ -83,7 +83,7 @@ How it works:
 | `STRIPE_WEBHOOK_SECRET` | The webhook endpoint's signing secret (`whsec_…`). Unset means the webhook rejects every call. |
 | `PAYMENTS_CRYPTO_ENABLED` | `true` only after Stripe has enabled stablecoin payments on the account. |
 | `PUBLIC_SITE_URL` | Frontend origin for Stripe's return URLs (`/pay/<token>?status=success`). Blank means the first `CORS_ORIGINS` entry. |
-| `POOL_BID_CREDITS` | `true` (default): a freelancer's first bid on a spec spends a bid credit. `false`: bidding in the freelancer pool is free. |
+| `POOL_BID_CREDITS` | Application default `true`: a freelancer's first bid on a spec spends a bid credit. Demo Render blueprint sets `false` so bidding is free without Stripe. Set `true` only after deciding to activate paid-credit use; balances and accounting remain in place. |
 
 `NEXT_PUBLIC_PAYMENTS_LIVE` no longer gates upgrades: the checkout page asks the server whether Stripe is set up. The flag still decides whether free-plan profile limits are enforced in the frontend (`lib/demo-engine.ts`).
 

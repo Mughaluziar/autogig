@@ -1,6 +1,7 @@
 # Staging verification: Vercel to Render headers, cookies, client address and timeouts
 
-**Status: designed and tested locally; not yet run on Vercel or Render** (no accounts or deployments exist). Nothing here
+**Status: designed and tested locally; not yet run on a separate Vercel/Render staging pair.** Existing production services
+are not a substitute for staging. Nothing here
 may be skipped by guessing: each step records an observation, and the settings are derived from the observations.
 Run it on **staging first** (a separate Vercel project and Render service pointing at a separate database), then repeat the
 short checks on production after the first deploy. Never put the secrets below in chat, tickets or logs.
