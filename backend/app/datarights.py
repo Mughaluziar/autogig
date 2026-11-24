@@ -25,7 +25,7 @@ from .capital import ledger as capital_ledger, store as capital_store
 from .config import get_settings
 from .orders import store as order_store
 from .payments import store as payments_store, subscriptions as subscriptions_store
-from .pool import store as pool_store
+from .pool import credits as pool_credits, store as pool_store
 
 log = logging.getLogger("autopilot.datarights")
 
@@ -71,6 +71,11 @@ def _bid_decision(row: dict, ctx: dict) -> str:
 
 def _invite_decision(row: dict, ctx: dict) -> str:
     return "delete" if (row.get("team_id") == ctx["id"] or row.get("email") == ctx["email"]) else "scrub"
+
+
+def _message_decision(row: dict, ctx: dict) -> str:
+    # A conversation is shared: only what the deleted person wrote is removed.
+    return "scrub" if row.get("sender_id") == ctx["id"] else "keep"
 
 
 DATA_MAP: dict[str, Coll] = {c.name: c for c in (
@@ -129,6 +134,14 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
     Coll("pool_earnings", (("owner_id", "id"), ("freelancer_id", "id")), "scrub", "Recorded payouts (financial record).",
          True, lambda: pool_store._mem["earnings"],
          names={"owner_id": ("owner_name",), "freelancer_id": ("freelancer_name",)}),
+    Coll("pool_threads", (("owner_id", "id"), ("freelancer_id", "id")), "scrub", "Conversations between a freelancer "
+         "and an agency: kept for the other person with the deleted person's name replaced and the last-message "
+         "preview removed.", True, lambda: pool_store._mem["threads"], scrub=("last_preview",),
+         names={"owner_id": ("owner_name",), "freelancer_id": ("freelancer_name",)}),
+    Coll("pool_messages", (("owner_id", "id"), ("freelancer_id", "id")), "scrub", "Messages in those conversations. "
+         "The deleted person's own messages lose their text; the other person's messages stay theirs.", True,
+         lambda: pool_store._mem["messages"], scrub=("body",), names={"owner_id": (), "freelancer_id": ()},
+         decide=_message_decision),
     # --- money, simulated or recorded -----------------------------------------------------------------------
     Coll("billing", (("_id", "key"),), "keep", "Plan, credits, purchase history (financial record, no personal text).",
          True, lambda: repo._mem_docs["billing"]),
@@ -412,12 +425,14 @@ async def execute_deletion(user_doc: dict) -> dict:
 
 
 async def _close_open_specs(ctx: dict) -> None:
-    """Specs the user posted that are still open are closed (other people's bids on them are rejected, not erased)."""
+    """Specs the user posted that are still open are closed (other people's bids on them are rejected, not erased,
+    and the bid credits they spent are given back, as when an agency closes a spec without hiring)."""
     for spec in await pool_store.find("specs", {"owner_id": ctx["id"], "status": "open"}):
         await pool_store.update("specs", spec["id"], {"status": "closed"}, expect={"status": "open"})
         for bid in await pool_store.find("bids", {"spec_id": spec["id"]}):
             if bid.get("status") == "submitted":
                 await pool_store.update("bids", bid["id"], {"status": "rejected"})
+        await pool_credits.refund_open_bids(spec["id"])
 
 
 async def _remove_account(user_doc: dict, until: datetime) -> None:

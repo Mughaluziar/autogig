@@ -226,6 +226,11 @@ class Settings(BaseSettings):
     # Public frontend origin for Stripe's return URLs; blank means the first
     # CORS origin.
     public_site_url: str = ""
+    # Freelancer pool (pool/credits.py): a freelancer's first bid on a spec spends one bid credit from their plan
+    # (Basic 10 included, Plus 50 a month, Pro unlimited; packs top up). false = bidding in the pool is free.
+    pool_bid_credits: bool = True
+    # Messages between a freelancer and an agency (routers/pool_messages.py): sends per user per minute.
+    pool_message_rate_per_minute: int = 30
     activepieces_webhook_url: str | None = None
     activepieces_webhook_secret: str | None = None
 

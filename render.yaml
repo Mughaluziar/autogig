@@ -162,6 +162,10 @@ services:
         value: "false"
       - key: PUBLIC_SITE_URL
         value: https://autogig-pi.vercel.app
+      # Freelancer pool: a freelancer's first bid on a spec spends a bid credit
+      # (Pro unlimited). "false" makes bidding in the pool free.
+      - key: POOL_BID_CREDITS
+        value: "true"
       # Token program (docs/token-program.md). Off unless set; test networks only
       # until the launch gate passes and TOKEN_MAINNET_ENABLED is true.
       - key: TOKEN_PROGRAM_ENABLED

@@ -43,7 +43,11 @@ import {
   HandCoins,
 } from "lucide-react";
 
-export type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string; soon?: boolean; simulated?: boolean };
+export type NavItem = {
+  href: string; label: string; icon: LucideIcon; badge?: string; soon?: boolean; simulated?: boolean;
+  /** Show a live count as the badge: "messages" = unread freelancer/agency messages (lib/messages.ts). */
+  live?: "messages";
+};
 export type NavSection = {
   title: string;
   items: NavItem[];
@@ -63,7 +67,7 @@ export const DEMO_ONLY_ROUTES = [
   "/dashboard/personas", "/dashboard/portfolio",
   "/dashboard/job-hunter", "/dashboard/marketing",
   "/dashboard/agents", "/dashboard/calendar", "/dashboard/bidding",
-  "/freelancer/qa", "/freelancer/messages", "/freelancer/billing",
+  "/freelancer/qa",
   "/dashboard/clients", "/dashboard/contracts", "/dashboard/milestones", "/dashboard/freelancers",
 ];
 
@@ -78,7 +82,7 @@ export const adminNav: NavSection[] = [
       { href: "/dashboard/job-radar", label: "Job Radar", icon: Radar },
       { href: "/dashboard/gigs", label: "Gigs", icon: Briefcase },
       { href: "/dashboard/orders", label: "Orders", icon: PackageCheck },
-      { href: "/dashboard/pool", label: "Freelancer Pool", icon: Users },
+      { href: "/dashboard/pool", label: "Freelancer Pool", icon: Users, live: "messages" },
       { href: "/dashboard/automation", label: "Automation", icon: Zap },
       { href: "/dashboard/accounts", label: "Accounts & Gigs", icon: Plug },
     ],
@@ -133,12 +137,14 @@ export const freelancerNav: NavSection[] = [
       { href: "/freelancer/specs", label: "Open Specs", icon: Gavel },
       { href: "/freelancer/bids", label: "My Bids", icon: FileText },
       { href: "/freelancer/contracts", label: "My Contracts", icon: FolderKanban },
+      { href: "/freelancer/messages", label: "Messages", icon: MessagesSquare, live: "messages" },
     ],
   },
   {
     title: "Account",
     items: [
       { href: "/freelancer/earnings", label: "Earnings", icon: Wallet },
+      { href: "/freelancer/billing", label: "Billing & Plan", icon: CreditCard },
       { href: "/freelancer/credit", label: "Project credit", icon: HandCoins, simulated: true },
       { href: "/freelancer/profile", label: "My Profile", icon: User },
       { href: "/freelancer/your-data", label: "Account & data", icon: ShieldCheck },
@@ -149,8 +155,6 @@ export const freelancerNav: NavSection[] = [
     collapsible: true,
     items: [
       { href: "/freelancer/qa", label: "QA & Submissions", icon: FileCheck2 },
-      { href: "/freelancer/messages", label: "Messages", icon: MessagesSquare },
-      { href: "/freelancer/billing", label: "Billing & Plan", icon: CreditCard },
     ],
   },
 ];

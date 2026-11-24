@@ -1,6 +1,7 @@
 "use client";
 import * as React from "react";
-import { Check, Plus, Trophy, Undo2, X } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Check, MessageSquare, Plus, Trophy, Undo2, X } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { LoadState } from "@/components/shared/load-state";
@@ -14,15 +15,38 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { Inbox, StartConversationDialog } from "@/components/messages/inbox";
 import { API_URL } from "@/lib/api";
+import { useUnreadMessages } from "@/lib/messages";
 import { poolAction, usePool, type PoolContract, type PoolEarning, type PoolSpec } from "@/lib/pool";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 const NEW_SPEC = { title: "", summary: "", stack: "", estHours: "", deadline: "", maxRate: "" };
 
-/** Agency view of the freelancer pool: broadcast specs, read the blind bids, award, review milestones, record payouts. */
+const TABS = ["specs", "contracts", "earnings", "messages"];
+type MessageTarget = { specId: string; freelancerId: string; title: string; to: string };
+
+/** Agency view of the freelancer pool: broadcast specs, read the blind bids, award, review milestones, record payouts,
+ *  and message the freelancers. The open tab and conversation live in the URL (?tab=messages&thread=...). */
 export default function PoolPage() {
+  return (
+    <React.Suspense fallback={<div className="h-64 animate-pulse rounded-xl border bg-card" aria-busy="true" />}>
+      <Pool />
+    </React.Suspense>
+  );
+}
+
+function Pool() {
   const { toast } = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "specs";
+  const thread = params.get("thread");
+  const go = (next: string, threadId?: string | null) =>
+    router.replace(`${pathname}?tab=${next}${threadId ? `&thread=${encodeURIComponent(threadId)}` : ""}`, { scroll: false });
+  const unread = useUnreadMessages(Boolean(API_URL));
+  const [messageTarget, setMessageTarget] = React.useState<MessageTarget | null>(null);
   const specs = usePool<PoolSpec[]>("/api/pool/admin/specs");
   const contracts = usePool<PoolContract[]>("/api/pool/admin/contracts");
   const earnings = usePool<{ entries: PoolEarning[]; owed: number; note: string }>("/api/pool/admin/earnings");
@@ -68,11 +92,12 @@ export default function PoolPage() {
     <>
       <PageHeader title="Freelancer Pool" description="Broadcast a spec, read the blind bids, award one, review milestones and record payouts."
         actions={<Button variant="gradient" onClick={() => setOpen(true)}><Plus className="size-4" /> New spec</Button>} />
-      <Tabs defaultValue="specs">
+      <Tabs value={tab} onValueChange={(v) => go(v)}>
         <TabsList>
           <TabsTrigger value="specs">Specs</TabsTrigger>
           <TabsTrigger value="contracts">Contracts</TabsTrigger>
           <TabsTrigger value="earnings">Payouts</TabsTrigger>
+          <TabsTrigger value="messages">Messages{unread > 0 && <Badge variant="destructive" className="ml-1.5 h-5 px-1.5">{unread}</Badge>}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="specs" className="mt-4 space-y-4">
@@ -93,6 +118,12 @@ export default function PoolPage() {
                         <span><b>{b.freelancerName}</b> · {b.hours}h × {formatCurrency(b.rate)} = <b>{formatCurrency(b.total)}</b>{b.note && <span className="block text-xs text-muted-foreground">{b.note}</span>}</span>
                         <span className="flex items-center gap-2">
                           <StatusBadge status={b.status} />
+                          {b.freelancerId && (
+                            <Button size="sm" variant="ghost" aria-label={`Message ${b.freelancerName}`}
+                              onClick={() => setMessageTarget({ specId: s.id, freelancerId: b.freelancerId!, title: s.title, to: b.freelancerName ?? "the freelancer" })}>
+                              <MessageSquare className="size-4" />
+                            </Button>
+                          )}
                           {s.status === "open" && b.status === "submitted" && (
                             <Button size="sm" variant="gradient" onClick={() => void act(`/api/pool/admin/specs/${s.id}/award`, { bidId: b.id }, "Awarded: contract created")}><Trophy className="size-4" /> Award</Button>
                           )}
@@ -114,7 +145,14 @@ export default function PoolPage() {
             <Card key={c.id}>
               <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-base">{c.title} <span className="text-sm font-normal text-muted-foreground">· {c.freelancerName}</span></CardTitle>
-                <div className="flex items-center gap-2"><span className="font-semibold">{formatCurrency(c.value)}</span><StatusBadge status={c.status} /></div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{formatCurrency(c.value)}</span><StatusBadge status={c.status} />
+                  {c.freelancerId && (
+                    <Button size="sm" variant="outline" onClick={() => setMessageTarget({ specId: c.specId, freelancerId: c.freelancerId!, title: c.title, to: c.freelancerName })}>
+                      <MessageSquare className="size-4" /> Message
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 <ul className="divide-y rounded-lg border">
@@ -164,7 +202,14 @@ export default function PoolPage() {
             </>
           )}
         </TabsContent>
+
+        <TabsContent value="messages" className="mt-4">
+          <Inbox side="agency" selectedId={thread} onSelect={(id) => go("messages", id)} />
+        </TabsContent>
       </Tabs>
+
+      <StartConversationDialog target={messageTarget} onClose={() => setMessageTarget(null)}
+        onStarted={(id) => { setMessageTarget(null); toast({ title: "Message sent", variant: "success" }); go("messages", id); }} />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogHeader>

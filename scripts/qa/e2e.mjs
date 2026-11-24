@@ -489,6 +489,42 @@ await guard("pool", "contract, milestone, earnings (UI)", async () => {
   check("pool", "after the agency records the payout, Ann's paid total is $1,800", e.paid === 1800 && e.pendingPayout === 0, JSON.stringify(e));
 });
 
+// ---------------------------------------------------------------- messages and freelancer billing
+await guard("messages", "freelancer and agency talk about the contract (UI)", async () => {
+  const p = pages.ann;
+  await p.goto("/freelancer/contracts", { waitUntil: "networkidle" }); await p.waitForTimeout(400);
+  await p.getByRole("button", { name: /Message agency/ }).first().click();
+  await p.getByRole("textbox", { name: "Message" }).fill("Hi, the repo link is in the delivery note.");
+  await p.getByRole("button", { name: /^Send$/ }).click();
+  await p.waitForURL(/\/freelancer\/messages\?thread=/, { timeout: 15000 }); await p.waitForTimeout(800);
+  check("messages", "Ann's first message opens the conversation with it in the log", /repo link is in the delivery note/.test(await p.getByTestId("message-log").innerText()));
+  const ag = pages.agency;
+  await ag.goto("/dashboard/pool?tab=messages", { waitUntil: "networkidle" }); await ag.waitForTimeout(800);
+  const list = await ag.getByTestId("thread-list").innerText();
+  check("messages", "the agency sees the conversation under Ann's name, unread", list.includes(`${ann.first} ${ann.last}`) && /1 unread|\b1\b/.test(list), list.slice(0, 160));
+  await ag.getByTestId("thread-list").getByRole("button").first().click(); await ag.waitForTimeout(800);
+  await ag.getByTestId("message-input").fill("Thanks Ann, reviewing now.");
+  await ag.getByTestId("message-input").press("Enter"); await ag.waitForTimeout(800);
+  check("messages", "the agency's reply shows in its log", /reviewing now/.test(await ag.getByTestId("message-log").innerText()));
+  await p.waitForTimeout(5500);   // the open conversation polls every 4 s
+  const annLog = await p.getByTestId("message-log").innerText();
+  check("messages", "Ann's open conversation receives the reply without a reload", /reviewing now/.test(annLog), annLog.slice(-160));
+  check("messages", "Ann's message shows Seen after the agency read it", /Seen/.test(annLog));
+  check("messages", "Bob sees none of their conversation", (await api(ctxs.bob, "GET", "/api/pool/threads")).body.length === 0);
+  check("messages", "an investor can't use messages (403)", (await api(ctxs.investor, "GET", "/api/pool/threads")).status === 403);
+});
+
+await guard("billing", "freelancer billing and bid credits", async () => {
+  const p = pages.bob;
+  await p.goto("/freelancer/billing", { waitUntil: "networkidle" }); await p.waitForTimeout(600);
+  const t = await text(p);
+  check("billing", "Billing & Plan shows the current plan, bids left and the freelancer plans", /Current plan/.test(t) && /left/.test(t) && /Unlimited spec bids/.test(t), t.slice(0, 200));
+  const c = (await api(ctxs.bob, "GET", "/api/pool/bid-credits")).body;
+  check("billing", "each spec Bob bid on used one credit from the 10 included", c.enabled && c.used.length >= 1 && c.left === 10 - c.used.filter((u) => u.credit === "spent").length, JSON.stringify(c).slice(0, 200));
+  const cfg = (await api(ctxs.bob, "GET", "/api/billing/checkout-config")).body;
+  check("billing", "a freelancer is offered bid packs only (no agency profile slots)", cfg.packs.map((x) => x.id).join() === "bids" && cfg.planPage === "/freelancer/billing");
+});
+
 await guard("roles", "privacy and permissions", async () => {
   const specId = (await api(ctxs.agency, "GET", "/api/pool/admin/specs")).body[0].id;
   const contract = (await api(ctxs.ann, "GET", "/api/pool/my-contracts")).body[0];
@@ -655,9 +691,13 @@ await guard("demo", "anonymous visitors, nav routes, Coming soon pages, mobile c
 
   // Freelancer: Coming soon pages, real profile, mobile cards.
   const fp = await ctxs.bob.newPage();
-  for (const r of ["/freelancer/qa", "/freelancer/messages", "/freelancer/billing"]) {
+  for (const r of ["/freelancer/qa"]) {
     await fp.goto(r, { waitUntil: "networkidle" }); await fp.waitForTimeout(400);
     check("demo", `${r} says Coming soon without redirecting`, new URL(fp.url()).pathname === r && /Coming soon/i.test(await text(fp)), fp.url());
+  }
+  for (const r of ["/freelancer/messages", "/freelancer/billing"]) {
+    await fp.goto(r, { waitUntil: "networkidle" }); await fp.waitForTimeout(400);
+    check("demo", `${r} is a working page, not Coming soon`, new URL(fp.url()).pathname === r && !/Coming soon/i.test(await text(fp)), fp.url());
   }
   await fp.goto("/freelancer/profile", { waitUntil: "networkidle" }); await fp.waitForTimeout(400);
   const ft = await text(fp);

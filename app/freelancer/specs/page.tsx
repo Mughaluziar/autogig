@@ -1,6 +1,8 @@
 "use client";
 import * as React from "react";
-import { Gavel, Undo2 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Gavel, MessageSquare, Undo2, Zap } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { LoadState } from "@/components/shared/load-state";
@@ -13,15 +15,19 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { StartConversationDialog } from "@/components/messages/inbox";
 import { freelancerOpenSpecs as demoSpecs } from "@/lib/mock-data";
 import { API_URL } from "@/lib/api";
-import { poolAction, usePool, type PoolSpec } from "@/lib/pool";
+import { poolAction, usePool, type BidCredits, type PoolSpec } from "@/lib/pool";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default function FreelancerSpecsPage() {
   const { toast } = useToast();
+  const router = useRouter();
   const pool = usePool<PoolSpec[]>("/api/pool/specs", demoSpecs as unknown as PoolSpec[]);
+  const credit = usePool<BidCredits>("/api/pool/bid-credits", null);
   const [target, setTarget] = React.useState<PoolSpec | null>(null);
+  const [ask, setAsk] = React.useState<{ specId: string; title: string; to: string } | null>(null);
   const [hours, setHours] = React.useState("");
   const [rate, setRate] = React.useState("");
   const [note, setNote] = React.useState("");
@@ -46,10 +52,11 @@ export default function FreelancerSpecsPage() {
     setBusy(true);
     const res = await poolAction(`/api/pool/specs/${encodeURIComponent(target.id)}/bid`, { hours: h, rate: r, note });
     setBusy(false);
-    if (res.error) { setError(res.error); return; }
+    if (res.error) { setError(res.error); credit.reload(); return; }
     toast({ title: res.data.updated ? "Bid updated" : "Bid placed", description: `${formatCurrency(res.data.total)} on "${target.title}". Other freelancers can't see it.`, variant: "success" });
     setTarget(null);
     pool.reload();
+    credit.reload();
   };
 
   const withdraw = async (spec: PoolSpec) => {
@@ -58,6 +65,9 @@ export default function FreelancerSpecsPage() {
     toast({ title: "Bid withdrawn" });
     pool.reload();
   };
+
+  // Editing, or bidding again on a spec you already paid a credit for, is free (the server decides; this only explains).
+  const free = Boolean(target && (target.myBid || credit.data?.used.some((u) => u.specId === target.id)));
 
   const columns: Column<PoolSpec>[] = [
     { key: "title", header: "Spec", render: (r) => <span className="font-medium">{r.title}</span> },
@@ -72,6 +82,7 @@ export default function FreelancerSpecsPage() {
       render: (r) => (
         <div className="flex gap-1.5">
           <Button size="sm" variant="gradient" onClick={() => open(r)}><Gavel className="size-4" /> {r.myBid ? "Edit bid" : "Bid"}</Button>
+          {API_URL && <Button size="sm" variant="outline" onClick={() => setAsk({ specId: r.id, title: r.title, to: "the agency" })} aria-label={`Ask the agency about ${r.title}`}><MessageSquare className="size-4" /> Ask</Button>}
           {r.myBid && API_URL && <Button size="sm" variant="ghost" onClick={() => void withdraw(r)} aria-label={`Withdraw bid on ${r.title}`}><Undo2 className="size-4" /></Button>}
         </div>
       ),
@@ -109,13 +120,38 @@ export default function FreelancerSpecsPage() {
             <Label htmlFor="bid-note">Note to the agency (optional)</Label>
             <Textarea id="bid-note" rows={3} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
+          {target && <CreditLine credits={credit.data} free={free} />}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setTarget(null)}>Cancel</Button>
-            <Button type="submit" variant="gradient" disabled={busy}>{busy ? "Saving…" : target?.myBid ? "Update bid" : "Place bid"}</Button>
+            <Button type="submit" variant="gradient" disabled={busy || (!free && outOfCredits(credit.data))}>{busy ? "Saving…" : target?.myBid ? "Update bid" : "Place bid"}</Button>
           </DialogFooter>
         </form>
       </Dialog>
+
+      <StartConversationDialog target={ask} onClose={() => setAsk(null)}
+        onStarted={(id) => { setAsk(null); router.push(`/freelancer/messages?thread=${encodeURIComponent(id)}`); }} />
     </>
+  );
+}
+
+const outOfCredits = (c: BidCredits | null) => Boolean(c && c.enabled && !c.unlimited && c.left <= 0);
+
+/** What placing this bid costs, from the server's own count. */
+function CreditLine({ credits, free }: { credits: BidCredits | null; free: boolean }) {
+  if (!credits || !credits.enabled) return null;
+  if (credits.unlimited) return <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Zap className="size-3.5 text-primary" /> Pro plan: unlimited bids.</p>;
+  if (free) return <p className="text-xs text-muted-foreground">No credit needed: you already used one on this spec.</p>;
+  if (credits.left <= 0) {
+    return (
+      <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
+        You&apos;re out of bid credits. <Link href="/freelancer/billing" className="font-medium text-primary hover:underline">Get more bids or upgrade</Link> to keep bidding.
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      Uses 1 of your {credits.left} bid credit{credits.left === 1 ? "" : "s"}. <Link href="/freelancer/billing" className="text-primary hover:underline">Plans &amp; credits</Link>
+    </p>
   );
 }
