@@ -51,7 +51,7 @@ is about a real third party: those rows are PARTIAL or BLOCKED. Test commands an
 | Backup and restore scripts verified | **COMPLETED (local)** | 45 collections / 128 indexes compared on a disposable MongoDB (`verify_restore.py`, `restore-drill.sh`) |
 | MongoDB Atlas cloud backup, point-in-time recovery, restore drill on Atlas | **BLOCKED** | Needs an Atlas Project Owner account and a tier/budget decision (`docs/backup-and-monitoring.md` s.2-3) |
 | Staging and production deployment (Render, Vercel, DNS, HTTPS) | **BLOCKED** | Needs accounts, a paid Render plan and your go-ahead (`docs/deployment-runbook.md`, exact steps) |
-| GitHub Actions on the integration branch | **PARTIAL** | GitHub remote exists and prior `main` CI passed. The integration branch requires a manual `workflow_dispatch` or pull request because branch pushes alone do not trigger CI; see `docs/ci-first-run.md` |
+| GitHub Actions on the integration branch | **BLOCKED (account billing)** | Prior `main` CI passed. Manual dispatch at `5f26b18` created run 45397936608, but GitHub stopped all jobs before steps ran, citing failed account payments or the Actions spending limit. Account owner must resolve this and rerun CI on the final commit; see `docs/ci-first-run.md` |
 | Uptime monitoring | **BLOCKED** | Needs a monitor account (`backup-and-monitoring.md` s.5) |
 
 ## E. Integrations (none verified with a real service)

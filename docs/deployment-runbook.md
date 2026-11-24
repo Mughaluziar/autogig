@@ -42,6 +42,7 @@ in the platform dashboards; never commit them and never paste them into chat or 
 | Render health check | `GET /health` -> 200 `{"status":"ok","database":"ok"}` (503 `degraded` if MongoDB is down) | |
 | Render plan | **Not `free`** for anything real | the free plan sleeps after 15 idle minutes and the first request then takes about a minute |
 | Auto-deploy | `autoDeploy: false` in `render.yaml`; verify the actual Render dashboard setting before any release | deploy deliberately after CI is green |
+| GitHub CI | Manual integration run 45397936608 was blocked before any steps by account payments/spending limit | account owner must restore Actions access and rerun on the final commit before release |
 | Vercel Git | Production branch is `main`; Git deployment creation was disabled when the integration branch was published and its preview attempt was `BLOCKED` | recheck project settings before any future push |
 | Vercel build | `npm run build`; CI uses Node 22, while the inspected Vercel project reported Node 26.x | align runtime versions and set `BACKEND_API_URL` for **Production and Preview** before staging |
 | Vercel timeouts | **unverified:** AI draft calls can take up to about 30 s (`app/llm.py` timeout); confirm they complete through the Vercel rewrite on staging with a real Groq key | if proxied requests time out, move the API behind a custom domain on the same site or shorten/stream the call |

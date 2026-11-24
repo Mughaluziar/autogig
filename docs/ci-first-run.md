@@ -1,8 +1,9 @@
 # CI: local checks and GitHub Actions on the integration branch
 
-Status: GitHub remote exists. Prior `main` CI succeeded at `d075a33`; the published
-`integration/autogig-fahim-readiness` branch needs a manual dispatch or pull request because ordinary branch pushes do not
-trigger this workflow. Do not merge or deploy based on local checks alone.
+Status: GitHub remote exists. Prior `main` CI succeeded at `d075a33`. Manual dispatch on the published integration branch
+at `5f26b18` created [run 45397936608](https://github.com/Mughaluziar/autogig/actions/runs/45397936608), but all three jobs
+failed **before any step ran**. GitHub's annotation says recent account payments failed or the Actions spending limit needs
+adjustment. The account owner must resolve this and rerun CI on the final commit; do not interpret this as a code-test failure.
 
 ## 1. What the workflow does (`.github/workflows/ci.yml`)
 | Job | Runs on | Steps | Needs secrets? |
@@ -36,7 +37,7 @@ a stand-in AI provider and Chromium, and was run locally. Adding it as a separat
   alerts and security updates; pin third-party actions by commit SHA.
 
 ## 4. Run the published integration commit without deploying
-1. Confirm `integration/autogig-fahim-readiness` points to the intended commit and Vercel/Render deployment settings remain safe.
+1. Resolve GitHub's Actions payment/spending-limit block, then confirm `integration/autogig-fahim-readiness` points to the intended commit and Vercel/Render deployment settings remain safe.
 2. Dispatch `CI` on that branch from GitHub Actions or run
    `gh workflow run ci.yml --ref integration/autogig-fahim-readiness`.
 3. Check all three job results and their commit SHA with `gh run view <run-id>`; manual dispatch includes the Mongo job.
