@@ -16,6 +16,7 @@ import sentry_sdk
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pymongo.errors import PyMongoError
 
 from . import db, ratelimit, repo, rights_store
 from . import integrations
@@ -26,7 +27,7 @@ from .config import get_settings
 from .routers import (
     activity, admin, agents, auth, automation, billing, core, demo, freelancer, growth,
     capital, operations, orders, pipeline, portal, public, radar, revenue, studio, system, token, workspace,
-    inbox, payments, pool, upwork, upwork_leads, me,
+    inbox, payments, pool, upwork, upwork_leads, me, credit,
 )
 from .capital import ledger as capital_ledger, store as capital_store
 from .orders import store as order_store
@@ -35,6 +36,7 @@ from .access import store as access_store
 from .pool import store as pool_store
 from .routers import api_keys as api_keys_router, team as team_router
 from .routers import fleet as fleet_router
+from .routers import pool_messages
 from . import session as session_store
 from .edge import EdgeProofMiddleware
 from .security import ApiKeyMiddleware, OriginMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
@@ -92,6 +94,10 @@ async def request_logging(request: Request, call_next):
     started = time.monotonic()
     try:
         response = await call_next(request)
+    except PyMongoError as exc:
+        log.error("MongoDB request failed (%s)", type(exc).__name__)
+        response = JSONResponse(status_code=503, content={"detail": "Database temporarily unavailable",
+                                                          "request_id": request_id})
     except Exception:
         sentry_sdk.capture_exception()
         log.exception("request failed", extra={"request_id": request_id})
@@ -126,37 +132,42 @@ async def startup() -> None:
     init_store()
     if db.enabled():
         try:
-            await db._get_db().command("ping")
-        except Exception:
-            # Production must not come up half-working against a dead database.
-            log.exception("MongoDB is not reachable at startup")
-            if settings.environment == "production":
-                raise RuntimeError("MongoDB is not reachable; refusing to start in production.")
-        await repo.ensure_indexes()
-        await order_store.ensure_indexes()
-        await capital_store.ensure_indexes()
-        await capital_ledger.ensure_indexes()
-        await payments_store.ensure_indexes()
-        await subscriptions_store.ensure_indexes()
-        await oauth.ensure_indexes()
-        await session_store.ensure_indexes()
-        await pool_store.ensure_indexes()
-        await access_store.ensure_indexes()
-        await rights_store.ensure_indexes()
-        await ratelimit.ensure_indexes()
-        await repo.archive_legacy_state()
+            await db.ping()
+            await repo.ensure_indexes()
+            await order_store.ensure_indexes()
+            await capital_store.ensure_indexes()
+            await capital_ledger.ensure_indexes()
+            await payments_store.ensure_indexes()
+            await subscriptions_store.ensure_indexes()
+            await oauth.ensure_indexes()
+            await session_store.ensure_indexes()
+            await pool_store.ensure_indexes()
+            await pool.recover_pending()
+            await access_store.ensure_indexes()
+            await rights_store.ensure_indexes()
+            await ratelimit.ensure_indexes()
+        except Exception as exc:
+            db.close()
+            log.error("MongoDB startup checks failed (%s)", type(exc).__name__)
+            raise RuntimeError("MongoDB connection or index initialization failed.") from None
         log.info("MongoDB connected")
     else:
         log.warning("MONGODB_URI not set — accounts and data are kept in memory only")
     if settings.deletion_runner and settings.environment != "test":
         app.state.housekeeping = asyncio.create_task(me.housekeeping_loop())
+    if settings.credit_jobs_runner and settings.environment != "test":
+        from .credit import service as credit_service
+        app.state.credit_jobs = asyncio.create_task(credit_service.scheduler_loop())
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
-    task = getattr(app.state, "housekeeping", None)
-    if task:
+    tasks = [task for name in ("housekeeping", "credit_jobs")
+             if (task := getattr(app.state, name, None)) is not None]
+    for task in tasks:
         task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    db.close()
 
 
 @app.get("/health")
@@ -164,10 +175,10 @@ async def health() -> dict:
     database = "in-memory"
     if db.enabled():
         try:
-            await db._get_db().command("ping")
+            await db.ping()
             database = "ok"
-        except Exception:
-            log.exception("health check: MongoDB ping failed")
+        except Exception as exc:
+            log.warning("health check: MongoDB ping failed (%s)", type(exc).__name__)
             return JSONResponse(status_code=503, content={
                 "status": "degraded", "environment": settings.environment,
                 "version": "0.3.0", "database": "unavailable",
@@ -200,6 +211,7 @@ app.include_router(marketplace_routes.router, prefix=settings.api_prefix, depend
 app.include_router(banking_routes.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 # Token program: the transparency report is public (no personal data); the
 # rest needs a session, and admin routes check for a platform owner.
+app.include_router(credit.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 app.include_router(token.public_router, prefix=settings.api_prefix)
 app.include_router(token.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 app.include_router(integrations.router, prefix=settings.api_prefix,
@@ -213,6 +225,8 @@ app.include_router(payments.router, prefix=settings.api_prefix, dependencies=[De
 app.include_router(upwork_leads.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Freelancer pool: specs, blind bids, contracts, earnings. Role checks are per route (agency vs freelancer).
 app.include_router(pool.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
+# Messages between a freelancer and an agency, one thread per spec. Each route checks the caller is a participant.
+app.include_router(pool_messages.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Agent Fleet Copilot: interprets free-form commands; the browser runs them.
 app.include_router(fleet_router.router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 # Team & invites and personal API keys: the invite preview is public (the

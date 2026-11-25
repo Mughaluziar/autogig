@@ -1,7 +1,7 @@
 "use client";
 /**
- * Pops up when a new order arrives, offering insurance while its window
- * (the first 24 hours) is open. Orders that can't be insured, such as Fiverr
+ * Pops up when a new order arrives, offering protection while its window
+ * (the first 24 hours) is open. Orders that can't be protected, such as Fiverr
  * orders detected by email, get the same prompt with the reasons instead.
  *
  * "Not now" hides an offer for the rest of the browser session; "No thanks"
@@ -88,7 +88,7 @@ export function CoverOfferPrompt() {
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2 pr-6">
           {offer.eligible ? <ShieldCheck className="size-5 text-primary" /> : <ShieldAlert className="size-5 text-muted-foreground" />}
-          New {order.platform} order{offer.eligible ? ": insure it?" : ""}
+          New {order.platform} order{offer.eligible ? ": protect it?" : ""}
         </DialogTitle>
         <DialogDescription>{name}{value}</DialogDescription>
       </DialogHeader>
@@ -97,7 +97,7 @@ export function CoverOfferPrompt() {
         <>
           <p className="mb-3 flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-sm">
             <Clock className="mt-0.5 size-4 shrink-0" />
-            <span>You can insure this order for <strong>{left}</strong> more. After that, insurance can&apos;t be added.</span>
+            <span>You can protect this order for <strong>{left}</strong> more. After that, protection can&apos;t be added.</span>
           </p>
           {offer.identityVerified ? (
             <CoverForm
@@ -118,7 +118,7 @@ export function CoverOfferPrompt() {
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                Up to {usd(offer.maxCoverCents)} of insurance for {usd(offer.premiumCents)}. Verify your identity first; an operator
+                Up to {usd(offer.maxCoverCents)} of protection for {usd(offer.premiumCents)}. Verify your identity first; an operator
                 reviews it, so start soon to finish inside the window.
               </p>
               <DialogFooter className="flex-wrap">
@@ -130,7 +130,7 @@ export function CoverOfferPrompt() {
         </>
       ) : (
         <>
-          <p className="text-sm">This order can&apos;t be insured:</p>
+          <p className="text-sm">This order can&apos;t be protected:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
             {offer.reasons.map((r) => <li key={r}>{r}</li>)}
           </ul>

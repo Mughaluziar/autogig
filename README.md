@@ -1,5 +1,11 @@
 # Autonomous AI Agency & Career Ecosystem
 
+> **Scope note (2026-11-23):** This README retains the original architecture blueprint, including proposed
+> autonomous marketplace and financial workflows. It is not a claim that those workflows are deployed or approved.
+> The current code and release gates are tracked in [the requirements checklist](docs/requirements-checklist.md)
+> and [deployment runbook](docs/deployment-runbook.md). Upwork submissions remain manual; funding, credit,
+> banking and protection features in the current demo are simulated.
+
 > **Architecture Blueprint v2.0 → Engineering README**
 > A fully autonomous, closed-loop revenue-generation platform that automates the entire lifecycle of a
 > freelance/agency business **and** a personal job hunt — from lead acquisition and client conversation, to
@@ -52,7 +58,7 @@ is observable/controllable from the dashboard.
 | Layer | Status | Details |
 |-------|--------|---------|
 | **Frontend** | ✅ Built | Next.js 14 App Router, 137 routes (`npm run build` passes; typecheck clean) — public/marketing, auth, admin dashboard, freelancer and investor portals. Security headers (CSP, HSTS…) are set in `next.config.mjs`. |
-| **Backend API** | ✅ Built | FastAPI app in [`backend/`](backend/), OpenAPI docs at `/docs`. Persists to MongoDB when `MONGODB_URI` is set; in production it **refuses to start** without it (or `ALLOW_IN_MEMORY_DB=true`). Test suite: `cd backend && pytest` (Python 3.12). |
+| **Backend API** | ✅ Built | FastAPI app in [`backend/`](backend/), OpenAPI docs at `/docs`. Persists to MongoDB when `MONGODB_URI` is set; in production it **refuses to start** without it. Test suite: `cd backend && pytest` (Python 3.12). |
 | **Command Center** | ✅ Complete | `/dashboard/command` — single-pane control of the whole agency: clickable KPIs, agent fleet toggles, revenue streams, HITL resolution, contract progress, security posture, live audit feed, notifications. |
 | **Security & API Vault** | ✅ Complete | `/dashboard/security` — centrally managed credentials (masked keys, connect/rotate actions), security-control checklist, security events. Backend hardening live: security headers, per-IP rate limiting, `X-Request-Id`, optional `X-API-Key` gate (`API_KEY` env). |
 | **User Testing** | ✅ Complete | `/dashboard/user-testing` — click-through scenario checklist per role (advance/reset status), pass-rate tracking, tester feedback log. |
@@ -559,7 +565,7 @@ The names below are the variables read by the current frontend, API, and worker.
 | `CORS_ORIGINS` | Required for a separate frontend origin | Comma-separated allowed browser origins, e.g. `http://localhost:3000,https://your-app.example`. |
 | `OWNER_EMAILS` | No | Comma-separated owner accounts that can access owner-only routes. |
 | `API_KEY` | No | Optional extra key required on mutating API requests via `X-API-Key`. |
-| `MONGODB_URI` | No for local demo; recommended for persistent deployments | MongoDB connection string. When unset, account and application data use process memory and are lost on restart. Set on both API and queue services. |
+| `MONGODB_URI` | Required in production | MongoDB connection string. When unset, account and application data use process memory and are lost on restart. Set on both API and queue services. |
 | `MONGODB_DB` | No (`autopilot`) | MongoDB database name. |
 | `REDIS_URL` | Required for the scheduled queue | Redis connection string. Render supplies it from the Blueprint; configure on both API and queue services. |
 | `GROQ_API_KEY` | No | Enables Groq-powered proposal, reply, and other text generation. Without it, AI generation may fall back to templates or be unavailable. |

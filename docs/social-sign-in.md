@@ -43,17 +43,19 @@ page after email verification goes straight to the dashboard.
 Accounts created before verification existed count as verified. Social
 sign-ins are verified by the provider when it vouches for the email (below).
 
+Production password signup first returns the same response for any address and emails a 15-minute, single-use code. The form exchanges that code to create a verified account. The signed-in verification flow still serves older pending accounts and social sign-ins.
+
 ### Delivery and environments
 
 | Situation | What happens |
 |---|---|
 | Email provider configured (`RESEND_API_KEY` or `SMTP_*`) | Code is emailed; verification is enforced. |
 | No provider, not production | The API returns the code (`devCode`) and the page shows it under a "Development only" label. |
-| No provider, production | Verification can't be delivered, so it isn't enforced and no code is ever returned. Configure email to turn it on. |
-| `EMAIL_VERIFICATION=false` | Verification is off everywhere. |
+| No provider, production | Verification stays enforced. Password signup and resend return 503 until a provider is configured. |
+| `EMAIL_VERIFICATION=false` | Verification is off in development and test. Production startup rejects this setting. |
 
 `GET /api/auth/providers` reports the current mode as
-`emailVerification: {enforced, delivery: "email" | "dev" | "off"}`.
+`emailVerification: {enforced, delivery: "email" | "dev" | "unavailable" | "off"}`.
 
 ## Social sign-in
 

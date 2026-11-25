@@ -1,8 +1,21 @@
 """Application settings — loaded from environment / .env file."""
+from email.utils import parseaddr
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _is_https_origin(value: str) -> bool:
+    try:
+        url = urlsplit(value)
+        _ = url.port
+        return bool(url.scheme == "https" and url.hostname and not url.username and not url.password
+                    and url.path in ("", "/") and not any(c in value for c in "?#\\@*")
+                    and not any(c.isspace() for c in value))
+    except ValueError:
+        return False
 
 
 class Settings(BaseSettings):
@@ -45,6 +58,8 @@ class Settings(BaseSettings):
     # An hourly in-process job executes deletions whose grace period has ended and removes retained rows past their
     # retention date. Safe with several instances (every step is idempotent). Off in tests. POST /api/admin/deletions/run does the same on demand.
     deletion_runner: bool = True
+    # Hourly late/default/expiry pass for the simulated credit prototype (idempotent, safe on several instances).
+    credit_jobs_runner: bool = True
     # Who may open the simulated money modules (Banking, Marketplace, Capital, Token): "off" = owners only,
     # "invited" = owners and accounts an owner granted access to, "all" = every signed-in user. Production
     # refuses "all" unless ALLOW_PUBLIC_SIMULATED_MODULES=true.
@@ -67,8 +82,8 @@ class Settings(BaseSettings):
 
     # Email verification for password signups (docs/social-sign-in.md). The
     # code is emailed; outside production with no email provider the API
-    # returns it so local development works. In production with no email
-    # provider verification can't be delivered, so it isn't enforced.
+    # returns it so local development works. Production signup requires a
+    # configured provider when verification is enabled.
     email_verification: bool = True
 
     # Social sign-in (docs/social-sign-in.md). Each provider is offered only
@@ -111,9 +126,6 @@ class Settings(BaseSettings):
     # fully in-memory.
     mongodb_uri: str | None = None
     mongodb_db: str = "autopilot"
-    # Production refuses to start without MONGODB_URI (data would vanish on
-    # every restart). Set true ONLY for a throwaway demo deployment.
-    allow_in_memory_db: bool = False
 
     # Freelancer.com connector — official API (OAuth). When unset, the connector
     # serves a realistic sandbox feed so the UI works in the demo.
@@ -214,6 +226,11 @@ class Settings(BaseSettings):
     # Public frontend origin for Stripe's return URLs; blank means the first
     # CORS origin.
     public_site_url: str = ""
+    # Freelancer pool (pool/credits.py): a freelancer's first bid on a spec spends one bid credit from their plan
+    # (Basic 10 included, Plus 50 a month, Pro unlimited; packs top up). false = bidding in the pool is free.
+    pool_bid_credits: bool = True
+    # Messages between a freelancer and an agency (routers/pool_messages.py): sends per user per minute.
+    pool_message_rate_per_minute: int = 30
     activepieces_webhook_url: str | None = None
     activepieces_webhook_secret: str | None = None
 
@@ -235,7 +252,7 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return [o.strip().removesuffix("/") for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def site_url(self) -> str:
@@ -256,22 +273,31 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if self.secret_key in ("dev-secret", "change-me-in-production") or len(self.secret_key) < 32:
             problems.append("SECRET_KEY must be a random value of at least 32 characters in production.")
-        if not (self.mongodb_uri or "").strip() and not self.allow_in_memory_db:
+        if not (self.mongodb_uri or "").strip():
             problems.append(
                 "MONGODB_URI is not set: accounts and data would live in memory and be lost on every "
-                "restart. Set it (MongoDB Atlas), or set ALLOW_IN_MEMORY_DB=true for a throwaway demo."
+                "restart. Configure a persistent MongoDB connection."
             )
+        if not self.mongodb_db.strip():
+            problems.append("MONGODB_DB must name the target database.")
+        if self.resend_api_key:
+            sender = parseaddr(self.resend_from)[1]
+            local, sep, domain = sender.rpartition("@")
+            if not (sep and local and "." in domain) or domain.lower() == "resend.dev":
+                problems.append("RESEND_FROM must specify a sender on your verified domain when RESEND_API_KEY is set.")
+        if self.groq_api_key and not self.groq_model.strip():
+            problems.append("GROQ_MODEL cannot be blank when GROQ_API_KEY is set.")
+        if not self.email_verification:
+            problems.append("EMAIL_VERIFICATION must be enabled in production.")
         origins = self.cors_origin_list
         if not origins or "*" in origins:
             problems.append("CORS_ORIGINS must list the real frontend origin(s); '*' is not allowed with credentials.")
         elif all(o.startswith("http://localhost") or o.startswith("http://127.0.0.1") for o in origins):
             problems.append("CORS_ORIGINS only lists localhost; set the deployed frontend origin.")
-        else:
-            plain = [o for o in origins if not o.startswith("https://")]
-            if plain:
-                problems.append(f"CORS_ORIGINS must be https:// origins in production (found {', '.join(plain)}).")
-        if self.public_site_url.strip() and not self.public_site_url.strip().startswith("https://"):
-            problems.append("PUBLIC_SITE_URL must be an https:// URL in production.")
+        elif not all(_is_https_origin(origin) for origin in origins):
+            problems.append("CORS_ORIGINS must list https:// origins without credentials, path, query, or fragment.")
+        if self.public_site_url.strip() and not _is_https_origin(self.public_site_url.strip()):
+            problems.append("PUBLIC_SITE_URL must be an https:// origin without credentials, path, query, or fragment.")
         if self.seed_demo_data:
             problems.append("SEED_DEMO_DATA=true serves one shared set of demo data to every account; it must be off in production.")
         if self.cookie_secure_flag is False:
@@ -290,6 +316,12 @@ class Settings(BaseSettings):
         elif self.simulated_modules_mode == "all" and not self.allow_public_simulated_modules:
             problems.append("SIMULATED_MODULES=all would show demo-only money features to every user; use 'invited', or set "
                             "ALLOW_PUBLIC_SIMULATED_MODULES=true after the owner has decided.")
+        if (self.stripe_secret_key or "").strip().startswith(("sk_live_", "rk_live_")):
+            problems.append("STRIPE_SECRET_KEY must remain unset or use Stripe test mode for this release.")
+        if self.payments_crypto_enabled:
+            problems.append("PAYMENTS_CRYPTO_ENABLED must remain false for this release.")
+        if self.token_mainnet_enabled:
+            problems.append("TOKEN_MAINNET_ENABLED must remain false for this release.")
         if self.rate_limit_backend.strip().lower() not in ("auto", "mongo", "memory", ""):
             problems.append("RATE_LIMIT_BACKEND must be auto, mongo or memory.")
         elif self.rate_limit_backend.strip().lower() == "memory" and not self.single_instance:
@@ -304,14 +336,16 @@ class Settings(BaseSettings):
                 problems.append(problem)
         return problems
 
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_user and self.smtp_password)
+
     def production_warnings(self) -> list[str]:
         """Settings that don't stop the app from starting but leave a feature off or unsafe-by-omission."""
         warnings: list[str] = []
-        if not (self.resend_api_key or (self.smtp_host and self.smtp_user)):
+        if not (self.resend_api_key or self.smtp_configured):
             warnings.append("No email provider (RESEND_API_KEY or SMTP_*): password-reset and verification emails cannot be "
-                            "sent, and email verification is skipped for new signups.")
-        if not self.email_verification:
-            warnings.append("EMAIL_VERIFICATION is off: new accounts are not required to confirm their email.")
+                            "sent. Signup requires a provider when EMAIL_VERIFICATION is enabled.")
         if not self.groq_api_key:
             warnings.append("No GROQ_API_KEY: proposal drafts use the built-in template, not an AI model.")
         if not (self.inbound_email_domain and self.inbound_email_webhook_secret):

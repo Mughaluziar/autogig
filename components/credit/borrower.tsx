@@ -1,0 +1,382 @@
+"use client";
+import * as React from "react";
+import Link from "next/link";
+import { Loader2, Paperclip, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/toast";
+import { apiCall, apiUrl } from "@/lib/api";
+import { newIdempotencyKey, pct, toCents, usd } from "@/lib/capital";
+import { AGREEMENT_LABELS, APP_LABELS, DOC_ACCEPT, MAX_DOCS, MAX_DOC_BYTES, documentUrl, fileToBase64, useCredit, type CreditAgreement, type CreditApplication, type CreditOverview } from "@/lib/credit";
+import { Gate, SimNotice, Stat, dateOnly } from "@/components/credit/common";
+
+type Detail = { detail?: string };
+const message = (res: { data?: unknown } | null) => (res?.data as Detail | undefined)?.detail || "Can't reach the server.";
+
+async function uploadDocument(applicationId: string, file: File) {
+  return apiCall<Detail>(`/api/credit/applications/${encodeURIComponent(applicationId)}/documents`, {
+    label: file.name.slice(0, 80),
+    contentBase64: await fileToBase64(file),
+  });
+}
+
+export function CreditBorrower({ verifyHref }: { verifyHref: string }) {
+  const { overview, applications, agreements, loaded, denied, failed, refresh } = useCredit({ borrower: true });
+  return (
+    <Gate loaded={loaded} denied={denied} failed={failed} retry={refresh}>
+      {overview && (
+        <div className="space-y-6">
+          <SimNotice>Credit offers here are examples reviewed by hand. Repayments are records in a demo ledger.</SimNotice>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Stat label="Open applications" value={applications.filter((a) => a.status === "submitted" || a.status === "offered").length} />
+            <Stat label="Active agreements" value={agreements.filter((a) => a.status === "active" || a.status === "late").length} />
+            <Stat label="Still owed (simulated)" value={usd(agreements.filter((a) => a.status === "active" || a.status === "late").reduce((s, a) => s + a.openCents, 0))} />
+          </div>
+          <ApplyCard overview={overview} applications={applications} agreements={agreements} verifyHref={verifyHref} onDone={refresh} />
+          <ApplicationList apps={applications} onChanged={refresh} />
+          <AgreementList agreements={agreements} onChanged={refresh} />
+        </div>
+      )}
+    </Gate>
+  );
+}
+
+function ApplyCard({ overview, applications, agreements, verifyHref, onDone }: {
+  overview: CreditOverview; applications: CreditApplication[]; agreements: CreditAgreement[]; verifyHref: string; onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const { limits, eligibility } = overview;
+  const [title, setTitle] = React.useState("");
+  const [description, setDescription] = React.useState("");
+  const [amount, setAmount] = React.useState("");
+  const [installments, setInstallments] = React.useState("3");
+  const [files, setFiles] = React.useState<File[]>([]);
+  const [busy, setBusy] = React.useState(false);
+  const cents = toCents(amount);
+  const open = applications.some((a) => a.status === "submitted" || a.status === "offered") || agreements.some((a) => a.status === "active" || a.status === "late");
+  const rangeOk = cents != null && cents >= limits.minRequestCents && cents <= limits.maxRequestCents;
+  const fileProblem = files.find((f) => f.size > MAX_DOC_BYTES || f.size === 0 || !["application/pdf", "image/png", "image/jpeg"].includes(f.type));
+  const docsOk = !fileProblem && files.length <= MAX_DOCS;
+  const valid = title.trim().length >= 3 && description.trim().length >= 20 && rangeOk && docsOk;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const res = await apiCall<Detail & { id?: string }>("/api/credit/applications", {
+      title: title.trim(), description: description.trim(), requestedCents: cents, installments: Number(installments),
+    });
+    if (!res || res.status >= 400 || !res.data.id) { setBusy(false); return toast({ title: "Application not sent", description: message(res) }); }
+    const failed: string[] = [];
+    for (const file of files) {
+      try {
+        const up = await uploadDocument(res.data.id, file);
+        if (!up || up.status >= 400) failed.push(`${file.name}: ${message(up)}`);
+      } catch { failed.push(`${file.name}: could not be read`); }
+    }
+    setBusy(false);
+    toast(failed.length
+      ? { title: "Application sent, but some files were not added", description: failed.join(" · ") }
+      : { title: "Application sent for review (simulated)", variant: "success" });
+    setTitle(""); setDescription(""); setAmount(""); setFiles([]);
+    onDone();
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Request project credit</CardTitle>
+        <CardDescription>
+          Describe the project you need to start. The platform owner reviews it, assigns a risk grade and may make an offer.
+          Between {usd(limits.minRequestCents)} and {usd(limits.maxRequestCents)}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {eligibility.reasons.length > 0 ? (
+          <div role="status" className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
+            {eligibility.reasons.map((r) => <p key={r}>{r}</p>)}
+            <Link className="font-medium text-primary underline-offset-4 hover:underline" href={verifyHref}>Open verification</Link>
+          </div>
+        ) : open ? (
+          <p className="text-sm text-muted-foreground">You already have an open application or an unpaid agreement. Finish it before applying again.</p>
+        ) : (
+          <form onSubmit={(e) => void submit(e)} className="space-y-4" aria-label="Credit application">
+            <div className="space-y-1.5">
+              <Label htmlFor="credit-title">Project title</Label>
+              <Input id="credit-title" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="credit-desc">What you will deliver and what the money is for</Label>
+              <Textarea id="credit-desc" rows={4} value={description} maxLength={3000} onChange={(e) => setDescription(e.target.value)} required aria-describedby="credit-desc-hint" />
+              <p id="credit-desc-hint" className="text-xs text-muted-foreground">At least 20 characters. Do not paste passwords, ID numbers or bank details.</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="credit-amount">Amount requested (USD)</Label>
+                <Input id="credit-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1,000.00" required aria-invalid={amount !== "" && !rangeOk} />
+                {amount !== "" && !rangeOk && <p role="alert" className="text-xs text-destructive">Enter an amount between {usd(limits.minRequestCents)} and {usd(limits.maxRequestCents)}.</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="credit-installments">Preferred installments</Label>
+                <Select id="credit-installments" value={installments} onChange={(e) => setInstallments(e.target.value)}>
+                  {Array.from({ length: limits.maxInstallments }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} × every {limits.installmentDays} days</option>)}
+                </Select>
+              </div>
+            </div>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Supporting documents (optional)</legend>
+              <p id="credit-files-hint" className="text-xs text-muted-foreground">
+                Up to {MAX_DOCS} files (PDF, PNG or JPEG, {MAX_DOC_BYTES / (1024 * 1024)} MB each). Only you and the platform owner can open them, and every owner view is logged.
+                This is a demo: do not upload real identity or bank documents.
+              </p>
+              <Input id="credit-files" type="file" multiple accept={DOC_ACCEPT} aria-describedby="credit-files-hint"
+                onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, MAX_DOCS + 1))} />
+              {files.length > 0 && (
+                <ul className="space-y-1 text-sm">
+                  {files.map((f, i) => (
+                    <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 rounded border px-2 py-1">
+                      <span className="flex min-w-0 items-center gap-1.5"><Paperclip className="size-3.5 shrink-0" /><span className="truncate">{f.name}</span><span className="text-xs text-muted-foreground">{Math.max(1, Math.round(f.size / 1024))} KB</span></span>
+                      <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}><Trash2 /></Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!docsOk && <p role="alert" className="text-xs text-destructive">{files.length > MAX_DOCS ? `At most ${MAX_DOCS} files.` : `${fileProblem?.name}: use a PDF, PNG or JPEG under ${MAX_DOC_BYTES / (1024 * 1024)} MB.`}</p>}
+            </fieldset>
+            <Button type="submit" disabled={busy || !valid}>{busy && <Loader2 className="animate-spin" />} Send application</Button>
+          </form>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ApplicationDocuments({ application, onChanged }: { application: CreditApplication; onChanged: () => void }) {
+  const { toast } = useToast();
+  const [busy, setBusy] = React.useState(false);
+  const inputId = React.useId();
+  const editable = application.status === "submitted";
+  const base = `/api/credit/applications/${encodeURIComponent(application.id)}/documents`;
+  const add = async (file: File) => {
+    if (!file.size || file.size > MAX_DOC_BYTES) {
+      toast({ title: "File not added", description: "Use a non-empty PDF, PNG or JPEG up to 2 MB." });
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await uploadDocument(application.id, file);
+      if (!result || result.status >= 400) toast({ title: "File not added", description: message(result) });
+      else onChanged();
+    } catch {
+      toast({ title: "File not added", description: "The file could not be read." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (id: string) => {
+    setBusy(true);
+    const result = await apiCall<Detail>(`${base}/${encodeURIComponent(id)}`, undefined, "DELETE");
+    setBusy(false);
+    if (!result || result.status >= 400) toast({ title: "File not removed", description: message(result) });
+    else onChanged();
+  };
+  if (!editable && !application.documents.length) return null;
+  return (
+    <div className="mt-2 space-y-1.5">
+      {application.documents.map((doc) => (
+        <div key={doc.id} className="flex min-w-0 items-center gap-2">
+          <a className="min-w-0 truncate text-primary underline" href={apiUrl(documentUrl(doc.id))} download>{doc.label}</a>
+          {editable && <Button type="button" size="icon" variant="ghost" disabled={busy}
+            aria-label={`Remove ${doc.label}`} onClick={() => void remove(doc.id)}><Trash2 /></Button>}
+        </div>
+      ))}
+      {editable && application.documents.length < MAX_DOCS && (
+        <div className="space-y-1">
+          <Label htmlFor={inputId}>Add supporting file</Label>
+          <Input id={inputId} type="file" accept={DOC_ACCEPT} disabled={busy} onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void add(file);
+          }} />
+          <p className="text-xs text-muted-foreground">Use demo files only. PDF, PNG or JPEG up to 2 MB.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ApplicationList({ apps, onChanged }: { apps: CreditApplication[]; onChanged: () => void }) {
+  const [offerFor, setOfferFor] = React.useState<CreditApplication | null>(null);
+  const { toast } = useToast();
+  const act = async (id: string, action: "reject" | "withdraw") => {
+    const res = await apiCall<Detail>(`/api/credit/applications/${encodeURIComponent(id)}/${action}`);
+    if (!res || res.status >= 400) return toast({ title: "Not done", description: message(res) });
+    onChanged();
+  };
+  return (
+    <>
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base">Your applications</CardTitle></CardHeader>
+      <CardContent>
+        {apps.length === 0 ? <p className="text-sm text-muted-foreground">No applications yet.</p> : (
+          <ul className="divide-y">
+            {apps.map((a) => {
+              const label = APP_LABELS[a.status];
+              return (
+                <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{a.title}</p>
+                    <p className="text-muted-foreground">Requested {usd(a.requestedCents)} · {dateOnly(a.createdAt)}{a.documents.length > 0 && ` · ${a.documents.length} file${a.documents.length > 1 ? "s" : ""} attached`}</p>
+                    <ApplicationDocuments application={a} onChanged={onChanged} />
+                    {a.status === "declined" && a.decision?.note && <p className="text-muted-foreground">Reviewer note: {a.decision.note}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={label.variant}>{label.label}</Badge>
+                    {a.status === "offered" && <Button size="sm" onClick={() => setOfferFor(a)}>View offer</Button>}
+                    {(a.status === "submitted" || a.status === "offered") && <Button size="sm" variant="ghost" onClick={() => void act(a.id, "withdraw")}>Withdraw</Button>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+    {/* Outside the Card: its backdrop blur would otherwise become the containing block of the fixed dialog. */}
+    {offerFor && <OfferDialog app={offerFor} onClose={() => setOfferFor(null)} onDone={() => { setOfferFor(null); onChanged(); }} onReject={() => { void act(offerFor.id, "reject"); setOfferFor(null); }} />}
+    </>
+  );
+}
+
+function OfferDialog({ app, onClose, onDone, onReject }: { app: CreditApplication; onClose: () => void; onDone: () => void; onReject: () => void }) {
+  const { toast } = useToast();
+  const [agree, setAgree] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const o = app.offer!;
+  const accept = async () => {
+    setBusy(true);
+    const res = await apiCall<Detail>(`/api/credit/applications/${encodeURIComponent(app.id)}/accept`, { acceptTerms: agree });
+    setBusy(false);
+    if (!res || res.status >= 400) return toast({ title: "Offer not accepted", description: message(res) });
+    toast({ title: "Offer accepted (simulated)", description: "No real money moved. Your repayment schedule is below.", variant: "success" });
+    onDone();
+  };
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogHeader>
+        <DialogTitle>Credit offer</DialogTitle>
+        <DialogDescription>{app.title} · valid until {dateOnly(o.expiresAt)}</DialogDescription>
+      </DialogHeader>
+      <dl className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm">
+        <dt className="text-muted-foreground">Offered (simulated)</dt><dd className="text-right font-medium">{usd(o.principalCents)}</dd>
+        <dt className="text-muted-foreground">Risk grade</dt><dd className="text-right">{o.grade}</dd>
+        <dt className="text-muted-foreground">Flat fee ({pct(o.feeBps)})</dt><dd className="text-right">{usd(o.feeTotalCents)}</dd>
+        <dt className="text-muted-foreground">Total to repay</dt><dd className="text-right font-semibold">{usd(o.totalRepayableCents)}</dd>
+        <dt className="text-muted-foreground">Installments</dt><dd className="text-right">{o.installments} × every {o.installmentDays} days</dd>
+      </dl>
+      <p className="text-xs text-muted-foreground">
+        The fee is a flat amount, not an annual rate. Missing a due date marks the agreement late; 60 days after a missed installment it
+        is recorded as a default and the unpaid principal is written off in the demo ledger. This is a simulation: nothing is lent.
+      </p>
+      <label className="flex items-start gap-2 text-sm">
+        <Checkbox checked={agree} onCheckedChange={setAgree} className="mt-0.5" />
+        I understand this is a simulation and agree to repay {usd(o.totalRepayableCents)} in the demo ledger.
+      </label>
+      <DialogFooter>
+        <Button variant="ghost" onClick={onReject}>Reject offer</Button>
+        <Button disabled={busy || !agree} onClick={() => void accept()}>{busy && <Loader2 className="animate-spin" />} Accept offer</Button>
+      </DialogFooter>
+    </Dialog>
+  );
+}
+
+function AgreementList({ agreements, onChanged }: { agreements: CreditAgreement[]; onChanged: () => void }) {
+  const [repaying, setRepaying] = React.useState<CreditAgreement | null>(null);
+  return (
+    <>
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base">Agreements and repayments</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        {agreements.length === 0 ? <p className="text-sm text-muted-foreground">No agreements yet.</p> : agreements.map((a) => {
+          const label = AGREEMENT_LABELS[a.status];
+          const open = a.status === "active" || a.status === "late";
+          return (
+            <div key={a.id} className="rounded-lg border p-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-medium">{a.title}</p>
+                  <p className="text-muted-foreground">{usd(a.principalCents)} + {usd(a.feeTotalCents)} fee · still owed {usd(a.openCents)}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={label.variant}>{label.label}</Badge>
+                  {open && <Button size="sm" onClick={() => setRepaying(a)}>Record repayment</Button>}
+                </div>
+              </div>
+              {a.status === "defaulted" && <p className="mt-2 text-destructive">Defaulted: {usd(a.writtenOffCents)} of principal was written off in the demo ledger.</p>}
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[420px] text-left text-xs">
+                  <caption className="sr-only">Repayment schedule</caption>
+                  <thead className="text-muted-foreground"><tr><th scope="col" className="py-1">#</th><th scope="col">Due</th><th scope="col" className="text-right">Principal</th><th scope="col" className="text-right">Fee</th><th scope="col" className="text-right">Left</th></tr></thead>
+                  <tbody>
+                    {a.schedule.map((i) => {
+                      const left = i.principalCents + i.feeCents - i.principalPaidCents - i.feePaidCents;
+                      return (
+                        <tr key={i.n} className="border-t">
+                          <td className="py-1">{i.n}</td><td>{dateOnly(i.dueAt)}</td>
+                          <td className="text-right tabular-nums">{usd(i.principalCents)}</td><td className="text-right tabular-nums">{usd(i.feeCents)}</td>
+                          <td className="text-right tabular-nums">{left === 0 ? "Paid" : usd(left)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+    {repaying && <RepayDialog agreement={repaying} onClose={() => setRepaying(null)} onDone={() => { setRepaying(null); onChanged(); }} />}
+    </>
+  );
+}
+
+function RepayDialog({ agreement, onClose, onDone }: { agreement: CreditAgreement; onClose: () => void; onDone: () => void }) {
+  const { toast } = useToast();
+  const [amount, setAmount] = React.useState((agreement.openCents / 100).toFixed(2));
+  const [busy, setBusy] = React.useState(false);
+  const [key] = React.useState(newIdempotencyKey);      // one key per dialog: a double click cannot pay twice
+  const cents = toCents(amount);
+  const ok = cents != null && cents <= agreement.openCents;
+  const go = async () => {
+    setBusy(true);
+    const res = await apiCall<Detail & { status?: string }>(`/api/credit/agreements/${encodeURIComponent(agreement.id)}/repay`, { amountCents: cents, idempotencyKey: key });
+    setBusy(false);
+    if (!res || res.status >= 400) return toast({ title: "Repayment not recorded", description: message(res) });
+    toast({ title: res.data.status === "repaid" ? "Fully repaid (simulated)" : "Repayment recorded (simulated)", variant: "success" });
+    onDone();
+  };
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogHeader>
+        <DialogTitle>Record a repayment</DialogTitle>
+        <DialogDescription>{agreement.title} · {usd(agreement.openCents)} left. This records an entry in the demo ledger; no real payment is made.</DialogDescription>
+      </DialogHeader>
+      <div className="space-y-1.5">
+        <Label htmlFor="credit-repay">Amount (USD)</Label>
+        <Input id="credit-repay" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-invalid={!ok} />
+        <p className="text-xs text-muted-foreground">Payments go to the oldest installment first, fee before principal.</p>
+      </div>
+      <DialogFooter>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button disabled={busy || !ok} onClick={() => void go()}>{busy && <Loader2 className="animate-spin" />} Record repayment</Button>
+      </DialogFooter>
+    </Dialog>
+  );
+}

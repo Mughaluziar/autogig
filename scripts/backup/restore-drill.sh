@@ -1,36 +1,28 @@
 #!/usr/bin/env bash
-# One-command restore drill: backup -> restore into a scratch database -> verify everything matches.
-# Non-destructive: the source is only read, the restore goes into "<db>_restore_test", never over the source.
-#
-#   MONGODB_URI=... MONGODB_DB=autopilot BACKUP_DIR=./backups scripts/backup/restore-drill.sh
-#
-# Run it against a disposable database, or against a copy; do NOT point it at production unless you have
-# agreed to read it (a dump reads every document). Set DRILL_KEEP=yes to keep the scratch database.
-# Needs mongodump/mongorestore (or MONGODUMP/MONGORESTORE docker overrides, see mongo-backup.sh) and python3 + pymongo.
+# Backup, restore into a new scratch database, verify, and optionally keep it.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
+source "$here/mongo-tools.sh"
 : "${MONGODB_URI:?MONGODB_URI is required}"
 DB="${MONGODB_DB:-autopilot}"
-DIR="${BACKUP_DIR:-./backups}"
 PY="${PYTHON:-python3}"
+mongo_db_name "$DB"
+
+target="autogig_restore_$("$PY" -c 'import secrets; print(secrets.token_hex(12))')"
 start=$(date +%s)
-# mongorestore ADDS documents to whatever is already there, so the scratch database must start empty.
-# Only "<db>_restore_test" is ever dropped, never the source.
-"$PY" - <<PYEOF
+archive="$(bash "$here/mongo-backup.sh")"
+CONFIRM_OVERWRITE=no bash "$here/mongo-restore.sh" "$archive" "$target"
+"$PY" "$here/verify_restore.py" "$DB" "$target"
+echo "Drill completed in $(( $(date +%s) - start )) s."
+if [[ "${DRILL_KEEP:-no}" != yes ]]; then
+  "$PY" - "$target" <<'PY'
 import os
+import sys
 from pymongo import MongoClient
-MongoClient(os.environ["MONGODB_URI"]).drop_database("${DB}_restore_test")
-PYEOF
-bash "$here/mongo-backup.sh"
-archive="$(ls -1t "$DIR/${DB}-"*.archive.gz | head -1)"
-bash "$here/mongo-restore.sh" "$archive"
-"$PY" "$here/verify_restore.py" "$DB" "${DB}_restore_test"
-echo "drill completed in $(( $(date +%s) - start )) s"
-if [ "${DRILL_KEEP:-no}" != "yes" ]; then
-  "$PY" - <<PYEOF
-import os
-from pymongo import MongoClient
-MongoClient(os.environ["MONGODB_URI"]).drop_database("${DB}_restore_test")
-print("scratch database ${DB}_restore_test dropped")
-PYEOF
+
+with MongoClient(os.environ["MONGODB_URI"], serverSelectionTimeoutMS=5000) as client:
+    client.drop_database(sys.argv[1])
+PY
+else
+  echo "Scratch database retained: $target"
 fi

@@ -5,6 +5,7 @@ from app.config import Settings
 
 GOOD = dict(
     environment="production",
+    email_verification=True,
     secret_key="x" * 40,
     mongodb_uri="mongodb://example.invalid:27017",
     cors_origins="https://app.example.com",
@@ -34,8 +35,10 @@ def test_missing_mongodb_is_refused_in_production():
         make(mongodb_uri=None).validate_for_production()
 
 
-def test_in_memory_demo_needs_an_explicit_opt_in():
-    make(mongodb_uri=None, allow_in_memory_db=True).validate_for_production()
+def test_legacy_memory_override_cannot_allow_production_startup(monkeypatch):
+    monkeypatch.setenv("ALLOW_IN_MEMORY_DB", "true")
+    with pytest.raises(RuntimeError, match="MONGODB_URI"):
+        make(mongodb_uri="  ").validate_for_production()
 
 
 @pytest.mark.parametrize("origins", ["*", "http://localhost:3000", ""])
@@ -116,3 +119,63 @@ def test_memory_rate_limit_backend_needs_a_single_instance_declaration():
     make(rate_limit_backend="auto").validate_for_production()
     with pytest.raises(RuntimeError, match="RATE_LIMIT_BACKEND must be"):
         make(rate_limit_backend="redis").validate_for_production()
+
+
+def test_production_cannot_disable_email_verification():
+    with pytest.raises(RuntimeError, match="EMAIL_VERIFICATION"):
+        make(email_verification=False).validate_for_production()
+
+
+def test_mongo_failure_aborts_startup_and_degrades_health(monkeypatch, caplog):
+    import asyncio
+
+    from pymongo.errors import ServerSelectionTimeoutError
+
+    from app import db
+    from app.main import health, startup
+
+    class UnavailableMongo:
+        async def command(self, command):
+            assert command == "ping"
+            raise ServerSelectionTimeoutError("private connection details")
+
+    monkeypatch.setattr(db, "enabled", lambda: True)
+    monkeypatch.setattr(db, "_get_db", UnavailableMongo)
+    with pytest.raises(RuntimeError, match="MongoDB connection or index initialization failed"):
+        asyncio.run(startup())
+    assert asyncio.run(health()).status_code == 503
+    assert "private connection details" not in caplog.text
+
+
+@pytest.mark.parametrize(("settings", "variable"), [
+    ({"stripe_secret_key": "sk_live_example"}, "STRIPE_SECRET_KEY"),
+    ({"stripe_secret_key": "rk_live_example"}, "STRIPE_SECRET_KEY"),
+    ({"payments_crypto_enabled": True}, "PAYMENTS_CRYPTO_ENABLED"),
+    ({"token_mainnet_enabled": True}, "TOKEN_MAINNET_ENABLED"),
+])
+def test_demo_release_refuses_live_finance(settings, variable):
+    with pytest.raises(RuntimeError, match=variable):
+        make(**settings).validate_for_production()
+
+
+@pytest.mark.parametrize("key", ["cors_origins", "public_site_url"])
+def test_production_rejects_secret_bearing_origins_without_echoing_them(key):
+    with pytest.raises(RuntimeError) as err:
+        make(**{key: "https://user:fixture-secret@example.com"}).validate_for_production()
+    assert key.upper() in str(err.value) and "fixture-secret" not in str(err.value)
+
+
+@pytest.mark.parametrize(("settings", "variable"), [
+    ({"mongodb_db": "  "}, "MONGODB_DB"),
+    ({"resend_api_key": "fixture-key"}, "RESEND_FROM"),
+    ({"resend_api_key": "fixture-key", "resend_from": "No address"}, "RESEND_FROM"),
+    ({"groq_api_key": "fixture-key", "groq_model": "  "}, "GROQ_MODEL"),
+])
+def test_partial_provider_configuration_fails_safely(settings, variable):
+    with pytest.raises(RuntimeError, match=variable):
+        make(**settings).validate_for_production()
+
+
+def test_valid_provider_settings_pass_startup_validation():
+    make(resend_api_key="resend-fixture", resend_from="AutoGig <hello@example.com>",
+         groq_api_key="groq-fixture").validate_for_production()

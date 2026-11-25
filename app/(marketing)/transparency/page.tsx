@@ -79,7 +79,7 @@ export default function TransparencyPage() {
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="size-4" /> Protection fund</CardTitle>
                     <CardDescription>
-                      Funded by fees, not by investor capital. It backs order insurance, but it is discretionary and not a licensed insurer: claims are reviewed and paid only up
+                      Funded by fees, not by investor capital. It backs order protection, but it is discretionary and not a licensed insurer: claims are reviewed and paid only up
                       to the fund&apos;s balance.
                     </CardDescription>
                   </CardHeader>

@@ -194,13 +194,14 @@ def test_code_is_emailed_when_a_provider_is_configured(client, verification_on, 
     assert sent[0][0] == "maya@example.com" and "verification code" in sent[0][1]
 
 
-def test_production_without_email_does_not_enforce_or_leak_codes(client, verification_on, monkeypatch):
+def test_production_without_email_blocks_signup_and_hides_dev_codes(client, verification_on, monkeypatch):
     monkeypatch.setattr(get_settings(), "environment", "production")
-    data = _signup_raw(client).json()
-    assert data["verification"] == {"required": False}
-    assert data["user"]["emailVerified"] is False and data["user"]["verificationRequired"] is False
-    assert client.get("/api/notifications", headers=bearer(data["token"])).status_code == 200
-    assert client.get("/api/auth/providers").json()["emailVerification"] == {"enforced": False, "delivery": "off"}
+    res = _signup_raw(client)
+    assert res.status_code == 503
+    assert "devCode" not in res.json()
+    assert client.get("/api/auth/providers").json()["emailVerification"] == {
+        "enforced": True, "delivery": "unavailable",
+    }
 
 
 def test_login_of_unverified_account_returns_restricted_session(client, verification_on):
@@ -306,3 +307,61 @@ def test_replacing_a_pending_signup_respects_code_limits(client, verification_on
     assert res.status_code == 429 and "an hour" in res.json()["detail"]
     # Neither attempt replaced the account.
     assert client.post("/api/auth/login", json={"email": "maya@example.com", "password": "first-password"}).status_code == 200
+
+
+def test_production_signup_only_checks_account_after_email_proof(client, verification_on, monkeypatch):
+    import re
+    from datetime import timedelta
+
+    from app import email as mail, oauth
+
+    existing = _signup_raw(client).json()
+    old_email = existing["user"]["email"]
+    response = client.post("/api/auth/verify-email", json={"code": existing["verification"]["devCode"]},
+                           headers=bearer(existing["token"]))
+    assert response.status_code == 200
+    codes = {}
+
+    async def send(to, subject, html):
+        if subject == "Confirm your AutoGig signup":
+            codes[to] = re.search(r"<code>([^<]+)</code>", html)[1]
+        return True
+
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    monkeypatch.setattr(mail, "enabled", lambda: True)
+    monkeypatch.setattr(mail, "send_email", send)
+    new_email = "new@example.com"
+    def browser_signup(email, **fields):
+        return client.post("/api/auth/signup", headers={"X-Session-Mode": "cookie"}, json={
+            "email": email, "password": "correct-horse", "role": "freelancer", **fields,
+        })
+
+    known = browser_signup(old_email, password="different-password")
+    unknown = browser_signup(new_email)
+    assert known.status_code == unknown.status_code == 200
+    assert known.json() == unknown.json() == {"verificationPending": True}
+    assert "set-cookie" not in known.headers and "set-cookie" not in unknown.headers
+    assert run(client, db.find_user, new_email) is None
+
+    bad = "invalid-code"
+    assert _signup_raw(client, email=old_email, signupProof=bad).json() == _signup_raw(
+        client, email=new_email, signupProof=bad).json()
+    assert _signup_raw(client, email=old_email, signupProof=codes[new_email]).status_code == 400
+    assert _signup_raw(client, email=old_email, signupProof=codes[old_email]).status_code == 409
+
+    other_email = "other@example.com"
+    assert _signup_raw(client, email=other_email).json() == {"verificationPending": True}
+    proof = codes[other_email]
+    confirmed = browser_signup(other_email, signupProof=proof)
+    assert confirmed.status_code == 200
+    assert confirmed.json()["user"]["emailVerified"] is True
+    assert "autopilot_session=" in confirmed.headers["set-cookie"] and "token" not in confirmed.json()
+    assert _signup_raw(client, email=other_email, signupProof=proof).status_code == 400
+    assert run(client, db.find_user, old_email)["id"] == existing["user"]["id"]
+
+    expired_email = "expired@example.com"
+    assert _signup_raw(client, email=expired_email).status_code == 200
+    future = oauth.now() + timedelta(minutes=16)
+    monkeypatch.setattr(oauth, "now", lambda: future)
+    assert _signup_raw(client, email=expired_email, signupProof=codes[expired_email]).status_code == 400
+    assert run(client, db.find_user, expired_email) is None

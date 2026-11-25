@@ -62,11 +62,15 @@ How it works:
 - **Nothing changes until Stripe's signed webhook says so.** `checkout.session.completed` (metadata `kind=plan`) switches the plan and records a "Trial" or "Paid" purchase; `kind=pack` adds the credits once the payment is `paid` (crypto: on `async_payment_succeeded`) and covers the price. `invoice.paid` records each renewal and, on Plus, adds that month's 50 bids. `customer.subscription.updated/deleted` keeps status, trial end, renewal date and cancel-at-period-end in sync, and moves the user back to Basic when the subscription ends. An old subscription ending never downgrades a newer one.
 - **Replays are no-ops.** Each applied session, invoice and event id is remembered per user (`subscriptions` collection, `backend/app/payments/subscriptions.py`).
 - **Plus** adds 50 bids and 3 profile slots when it starts and 50 bids each paid month. **Pro** is unlimited (credits aren't spent).
+- **Freelancer accounts** use the same plans, prices, trial and checkout. Their bid credits pay for bids in the freelancer pool (`backend/app/pool/credits.py`): the first bid on a spec spends one credit; editing it, withdrawing it and bidding again on the same spec are free; Pro spends nothing; the credit comes back when the agency closes the spec without hiring (or the agency's account is deleted), not when another bid wins. `checkout-config` describes the plans in those terms, offers only the bids pack (profile slots are agency-only, refused with 422) and returns `planPage: "/freelancer/billing"`, which is also where Stripe's billing portal returns them. `POOL_BID_CREDITS=false` makes pool bidding free.
+- **Receipts.** `GET /api/billing/receipts/{purchaseId}` builds a receipt from the server's own purchase record (only the caller's own; 404 otherwise). It says plainly when nothing was charged (trial, simulated purchase, plan ended); for Stripe payments Stripe's own receipt and invoice are in the billing portal. The freelancer billing page shows it and downloads it as a self-contained HTML file.
 - **Simulated purchases** (`POST /api/billing/upgrade`, `/api/billing/credits`) only work without Stripe and outside production, so the app can be tried end to end in development. With Stripe configured they return 409 (use checkout); in production without Stripe they return 403. The checkout page offers "Simulate" only when the server says simulation is allowed.
 
 | Method | Path | Auth |
 |---|---|---|
-| GET | `/api/billing/checkout-config` | session: `{live, cryptoLive, simulated, trialDays, trialAvailable, plan, plans, packs, subscription}` |
+| GET | `/api/billing/checkout-config` | session: `{live, cryptoLive, simulated, trialDays, trialAvailable, plan, plans, packs, subscription, planPage}` (plans and packs described for the account type) |
+| GET | `/api/billing/receipts/{purchaseId}` | session: a receipt for one of the caller's purchases; 404 for anyone else's |
+| GET | `/api/pool/bid-credits` | freelancer: `{enabled, plan, unlimited, left, used[], rules}`: what bidding costs and which bids used a credit |
 | POST | `/api/billing/checkout` | session: `{plan}` or `{pack, method?}` → `{url}`; 503 when Stripe isn't set up, 409 when already on that plan |
 | POST | `/api/billing/portal` | session: `{url}` of Stripe's billing portal; 404 without a paid plan |
 | POST | `/api/billing/subscription/cancel` | session: `{cancel: bool}` cancel at period end, or undo |
@@ -79,6 +83,7 @@ How it works:
 | `STRIPE_WEBHOOK_SECRET` | The webhook endpoint's signing secret (`whsec_…`). Unset means the webhook rejects every call. |
 | `PAYMENTS_CRYPTO_ENABLED` | `true` only after Stripe has enabled stablecoin payments on the account. |
 | `PUBLIC_SITE_URL` | Frontend origin for Stripe's return URLs (`/pay/<token>?status=success`). Blank means the first `CORS_ORIGINS` entry. |
+| `POOL_BID_CREDITS` | Application default `true`: a freelancer's first bid on a spec spends a bid credit. Demo Render blueprint sets `false` so bidding is free without Stripe. Set `true` only after deciding to activate paid-credit use; balances and accounting remain in place. |
 
 `NEXT_PUBLIC_PAYMENTS_LIVE` no longer gates upgrades: the checkout page asks the server whether Stripe is set up. The flag still decides whether free-plan profile limits are enforced in the frontend (`lib/demo-engine.ts`).
 

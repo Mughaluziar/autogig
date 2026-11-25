@@ -6,7 +6,7 @@ const columns = [
     title: "Platform",
     links: [
       { href: "/#auto-find", label: "Auto-find jobs & gigs" },
-      { href: "/#insurance", label: "Freelancer insurance" },
+      { href: "/#insurance", label: "Freelancer protection" },
       { href: "/#get-paid", label: "Invoices & milestones" },
       { href: "/#cards", label: "Debit & credit cards" },
       { href: "/#funding", label: "Business funding" },
@@ -84,7 +84,7 @@ export function SiteFooter() {
         </div>
         <p className="mt-6 text-[11px] leading-relaxed text-muted-foreground">
           Autopilot is not a bank. Cards and financing are not yet available; when they launch they will be provided by licensed partners,
-          subject to approval. Order insurance is backed by the Autopilot protection fund, not a licensed insurer. Investment features are for
+          subject to approval. Order protection is backed by the Autopilot protection fund, not a licensed insurer. Investment features are for
           accredited or professional investors only, carry risk including loss of principal, and use simulated settlement during beta.
           Nothing on this site is an offer to sell securities.
         </p>

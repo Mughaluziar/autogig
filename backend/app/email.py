@@ -9,47 +9,57 @@ SMTP uses stdlib smtplib inside a thread so the event loop never blocks.
 Everything degrades to a no-op when unconfigured — never breaks a request.
 """
 import asyncio
+import logging
 import smtplib
+import ssl
+from html import escape
 from email.message import EmailMessage
 
 import httpx
 
 from .config import get_settings
 
+log = logging.getLogger("autopilot.email")
+
 
 def enabled() -> bool:
     s = get_settings()
-    return bool(s.resend_api_key or (s.smtp_host and s.smtp_user))
+    return bool(s.resend_api_key or s.smtp_configured)
 
 
 async def _send_resend(to: str, subject: str, html: str) -> bool:
     s = get_settings()
     try:
-        r = await httpx.AsyncClient(timeout=15).post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {s.resend_api_key}"},
-            json={"from": s.resend_from, "to": [to], "subject": subject, "html": html},
-        )
-        return r.status_code in (200, 201)
-    except Exception:
-        return False
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {s.resend_api_key}"},
+                json={"from": s.resend_from, "to": [to], "subject": subject, "html": html},
+            )
+        if response.is_success:
+            return True
+        log.warning("Resend rejected email (HTTP %s)", response.status_code)
+    except Exception as exc:
+        log.warning("Resend delivery failed (%s)", type(exc).__name__)
+    return False
 
 
 def _smtp_send_sync(to: str, subject: str, html_body: str) -> bool:
     s = get_settings()
-    msg = EmailMessage()
-    msg["From"] = s.smtp_from or s.smtp_user
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg.set_content("This message requires an HTML-capable mail client.")
-    msg.add_alternative(html_body, subtype="html")
     try:
+        msg = EmailMessage()
+        msg["From"] = s.smtp_from or s.smtp_user
+        msg["To"] = to
+        msg["Subject"] = subject
+        msg.set_content("This message requires an HTML-capable mail client.")
+        msg.add_alternative(html_body, subtype="html")
         with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as smtp:
-            smtp.starttls()
+            smtp.starttls(context=ssl.create_default_context())
             smtp.login(s.smtp_user, s.smtp_password)
             smtp.send_message(msg)
         return True
-    except Exception:
+    except Exception as exc:
+        log.warning("SMTP delivery failed (%s)", type(exc).__name__)
         return False
 
 
@@ -59,7 +69,7 @@ async def send_email(to: str, subject: str, html: str) -> bool:
     if s.resend_api_key:
         if await _send_resend(to, subject, html):
             return True
-    if s.smtp_host and s.smtp_user:
+    if s.smtp_configured:
         return await asyncio.to_thread(_smtp_send_sync, to, subject, html)
     return False
 
@@ -80,7 +90,7 @@ def _wrap(title: str, body_html: str) -> str:
 
 
 def welcome_email(name: str, role: str) -> tuple[str, str]:
-    first = (name or "there").split()[0]
+    first = escape((name.strip() or "there").split()[0])
     if role == "investor":
         return (
             "Welcome to Autopilot",
@@ -101,7 +111,7 @@ def welcome_email(name: str, role: str) -> tuple[str, str]:
         _wrap(
             f"Welcome aboard, {first}!",
             f"""
-<p>Your <b>{role}</b> account is ready. Here's what to do first:</p>
+<p>Your <b>{escape(role)}</b> account is ready. Here's what to do first:</p>
 <ol>
   <li><b>Job Radar</b> — enter your skills, get real openings ranked by match.</li>
   <li><b>AI proposals</b> — one click writes a tailored bid; you review &amp; send.</li>
@@ -113,7 +123,7 @@ def welcome_email(name: str, role: str) -> tuple[str, str]:
 
 
 def verification_email(name: str, code: str, minutes: int) -> tuple[str, str]:
-    first = (name or "there").split()[0]
+    first = escape((name.strip() or "there").split()[0])
     spaced = " ".join(code)
     return (
         f"{code} is your Autopilot verification code",
@@ -129,7 +139,7 @@ no account is activated without the code.</p>""",
 
 
 def email_change_code_email(name: str, code: str, minutes: int) -> tuple[str, str]:
-    first = (name or "there").split()[0]
+    first = escape((name.strip() or "there").split()[0])
     spaced = " ".join(code)
     return (
         f"{code} confirms your new Autopilot email address",
@@ -144,28 +154,28 @@ def email_change_code_email(name: str, code: str, minutes: int) -> tuple[str, st
 
 
 def email_change_notice_email(name: str, new_email: str, changed: bool) -> tuple[str, str]:
-    first = (name or "there").split()[0]
+    first = escape((name.strip() or "there").split()[0])
     if changed:
         subject, title = "Your Autopilot sign-in email was changed", f"Your email was changed, {first}"
-        body = (f"<p>The sign-in email of your Autopilot account is now <strong>{new_email}</strong>. All other sessions were signed out.</p>"
+        body = (f"<p>The sign-in email of your Autopilot account is now <strong>{escape(new_email)}</strong>. All other sessions were signed out.</p>"
                 "<p>If you didn't do this, reset your password straight away and contact support: someone with your password and access to that mailbox made the change.</p>")
     else:
         subject, title = "Someone asked to change your Autopilot sign-in email", f"Email change requested, {first}"
-        body = (f"<p>A request was made to change the sign-in email of your account to <strong>{new_email}</strong>. "
+        body = (f"<p>A request was made to change the sign-in email of your account to <strong>{escape(new_email)}</strong>. "
                 "Nothing changes until a code sent to that address is entered.</p>"
                 "<p>If this wasn't you, change your password now: the request needed your password.</p>")
     return subject, _wrap(title, body)
 
 
 def reset_email(name: str, link: str, minutes: int) -> tuple[str, str]:
-    first = (name or "there").split()[0]
+    first = escape((name.strip() or "there").split()[0])
     return (
         "Reset your Autopilot password",
         _wrap(
             f"Reset your password, {first}",
             f"""
 <p>We received a request to reset your password. Use the button below to choose a new one:</p>
-<p style="margin:20px 0"><a href="{link}" style="background:#6366f1;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Choose a new password</a></p>
+<p style="margin:20px 0"><a href="{escape(link)}" style="background:#6366f1;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Choose a new password</a></p>
 <p>The link works once and expires in {minutes} minutes. If you didn't ask for this, ignore this email:
 your password stays as it is.</p>""",
         ),

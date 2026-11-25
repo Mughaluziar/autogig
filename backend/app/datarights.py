@@ -25,7 +25,7 @@ from .capital import ledger as capital_ledger, store as capital_store
 from .config import get_settings
 from .orders import store as order_store
 from .payments import store as payments_store, subscriptions as subscriptions_store
-from .pool import store as pool_store
+from .pool import credits as pool_credits, store as pool_store
 
 log = logging.getLogger("autopilot.datarights")
 
@@ -71,6 +71,11 @@ def _bid_decision(row: dict, ctx: dict) -> str:
 
 def _invite_decision(row: dict, ctx: dict) -> str:
     return "delete" if (row.get("team_id") == ctx["id"] or row.get("email") == ctx["email"]) else "scrub"
+
+
+def _message_decision(row: dict, ctx: dict) -> str:
+    # A conversation is shared: only what the deleted person wrote is removed.
+    return "scrub" if row.get("sender_id") == ctx["id"] else "keep"
 
 
 DATA_MAP: dict[str, Coll] = {c.name: c for c in (
@@ -129,6 +134,14 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
     Coll("pool_earnings", (("owner_id", "id"), ("freelancer_id", "id")), "scrub", "Recorded payouts (financial record).",
          True, lambda: pool_store._mem["earnings"],
          names={"owner_id": ("owner_name",), "freelancer_id": ("freelancer_name",)}),
+    Coll("pool_threads", (("owner_id", "id"), ("freelancer_id", "id")), "scrub", "Conversations between a freelancer "
+         "and an agency: kept for the other person with the deleted person's name replaced and the last-message "
+         "preview removed.", True, lambda: pool_store._mem["threads"], scrub=("last_preview",),
+         names={"owner_id": ("owner_name",), "freelancer_id": ("freelancer_name",)}),
+    Coll("pool_messages", (("owner_id", "id"), ("freelancer_id", "id")), "scrub", "Messages in those conversations. "
+         "The deleted person's own messages lose their text; the other person's messages stay theirs.", True,
+         lambda: pool_store._mem["messages"], scrub=("body",), names={"owner_id": (), "freelancer_id": ()},
+         decide=_message_decision),
     # --- money, simulated or recorded -----------------------------------------------------------------------
     Coll("billing", (("_id", "key"),), "keep", "Plan, credits, purchase history (financial record, no personal text).",
          True, lambda: repo._mem_docs["billing"]),
@@ -169,6 +182,16 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
          lambda: capital_store._mem["bank_transfers"], scrub=("address", "note")),
     Coll("financing_applications", _uid(), "scrub", "Simulated financing applications.", True,
          lambda: capital_store._mem["financing_applications"], scrub=("email",)),
+    Coll("credit_contributions", _uid(), "scrub", "Simulated contributions to the demo credit pool.", True,
+         lambda: capital_store._mem["credit_contributions"]),
+    Coll("credit_applications", _uid(), "scrub", "Simulated project-credit applications.", True,
+         lambda: capital_store._mem["credit_applications"], scrub=("applicant_name", "applicant_email", "description", "title")),
+    Coll("credit_agreements", _uid(), "scrub", "Simulated credit agreements (ledger consistency).", True,
+         lambda: capital_store._mem["credit_agreements"], scrub=("title",)),
+    Coll("credit_documents", _uid(), "delete", "Private supporting documents uploaded with a credit application (the file contents are never exported).", True,
+         lambda: capital_store._mem["credit_documents"], exclude=("data",)),
+    Coll("credit_audit", _uid(), "keep", "Append-only audit trail of credit actions (ids and amounts, no personal text).", True,
+         lambda: capital_store._mem["credit_audit"]),
     # --- records about the data rights themselves -----------------------------------------------------------
     Coll("terms_acceptances", _uid(), "keep", "Proof of which Terms/Privacy version was accepted and when "
          "(no personal content).", True, lambda: rights_store._mem["terms_acceptances"]),
@@ -181,6 +204,7 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
     Coll("revoked_sessions", (), "none", "Revoked session ids; expire on their own."),
     Coll("oauth_states", (), "none", "Single-use sign-in state; expires on its own."),
     Coll("oauth_handoffs", (), "none", "Single-use sign-in handoff; expires on its own."),
+    Coll("oauth_signup_proofs", (), "none", "Hashed email binding and single-use signup proof; expires on its own."),
     Coll("app_state", (), "none", "Legacy single shared document; archived at startup if present."),
     Coll("app_state_backup", (), "none", "Archive of the legacy shared document: mixed data of every user from before "
          "per-user storage. The owner must review and drop it (docs/data-lifecycle.md)."),
@@ -341,9 +365,10 @@ async def blockers(user_doc: dict) -> list[str]:
     if active:
         out.append(f"{len(active)} contract(s) are still active. Finish or end them first so nobody is left unpaid.")
     for name, label in (("capital_advances", "advance"), ("capital_coverages", "cover"), ("market_investments", "investment"),
-                        ("market_listings", "listing"), ("financing_applications", "financing application")):
+                        ("market_listings", "listing"), ("financing_applications", "financing application"),
+                        ("credit_applications", "credit application"), ("credit_agreements", "credit agreement")):
         open_rows = [r for r in await rows(DATA_MAP[name], ctx)
-                     if r.get("status") in ("active", "open", "funding", "submitted", "in_review", "outstanding", "live")]
+                     if r.get("status") in ("active", "open", "funding", "submitted", "in_review", "outstanding", "live", "offered", "late")]
         if open_rows:
             out.append(f"{len(open_rows)} simulated {label}(s) are still open. Close or settle them first.")
     return out
@@ -400,12 +425,14 @@ async def execute_deletion(user_doc: dict) -> dict:
 
 
 async def _close_open_specs(ctx: dict) -> None:
-    """Specs the user posted that are still open are closed (other people's bids on them are rejected, not erased)."""
+    """Specs the user posted that are still open are closed (other people's bids on them are rejected, not erased,
+    and the bid credits they spent are given back, as when an agency closes a spec without hiring)."""
     for spec in await pool_store.find("specs", {"owner_id": ctx["id"], "status": "open"}):
         await pool_store.update("specs", spec["id"], {"status": "closed"}, expect={"status": "open"})
         for bid in await pool_store.find("bids", {"spec_id": spec["id"]}):
             if bid.get("status") == "submitted":
                 await pool_store.update("bids", bid["id"], {"status": "rejected"})
+        await pool_credits.refund_open_bids(spec["id"])
 
 
 async def _remove_account(user_doc: dict, until: datetime) -> None:

@@ -11,7 +11,7 @@ import { DEMO_MODE, dashboardHomeFor, useAuth } from "@/lib/auth";
 import { useDemoStore } from "@/lib/demo-store";
 import { cn } from "@/lib/utils";
 import { withNext } from "@/lib/safe-next";
-import { PACKS, PENDING_PLAN_KEY, PLANS, startCheckout, TRIAL_DAYS, useBillingConfig, type PackId, type PlanId } from "./billing";
+import { PACKS, PENDING_PLAN_KEY, PLANS, planPageFor, startCheckout, TRIAL_DAYS, useBillingConfig, type PackId, type PlanId } from "./billing";
 
 const usd = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 const inDays = (days: number) => { const d = new Date(); d.setDate(d.getDate() + days); return d.toLocaleDateString("en", { month: "short", day: "numeric" }); };
@@ -31,13 +31,17 @@ export function CheckoutView({ plan: planParam, pack: packParam, cancelled }: { 
 
   const plans = config?.plans ?? PLANS;
   const plan = plans.find((p) => p.id === planId) ?? PLANS[2];
-  const packInfo = pack ? (config?.packs ?? PACKS).find((p) => p.id === pack)! : null;
+  // A pack this account can't buy (profile slots are for agencies) has no entry in the server's list.
+  const packInfo = pack ? (config?.packs ?? PACKS).find((p) => p.id === pack) ?? null : null;
+  const packUnavailable = Boolean(pack && !packInfo);
+  const planPage = config?.planPage ?? planPageFor(user?.role);
+  const freelancer = user?.role === "freelancer";
   const trialDays = config?.trialDays ?? TRIAL_DAYS;
   const trial = !pack && (config?.trialAvailable ?? true) && trialDays > 0;
   const currentPlan = config?.plan ?? demo?.state.monetization.plan ?? "free";
   const alreadyOnPlan = !pack && currentPlan === planId;
   const proHasEverything = !!pack && currentPlan === "pro";
-  const price = packInfo ? packInfo.price : plan.price;
+  const price = packInfo ? packInfo.price : pack ? 0 : plan.price;
   const dueToday = trial ? 0 : price;
   const cryptoOk = !!pack && !!config?.cryptoLive;
 
@@ -65,8 +69,23 @@ export function CheckoutView({ plan: planParam, pack: packParam, cancelled }: { 
   const title = packInfo ? packInfo.label : `${plan.name} plan`;
   const home = user ? dashboardHomeFor(user.role) : "/";
 
+  if (packUnavailable) {
+    return (
+      <Shell back={user ? planPage : "/#pricing"}>
+        <Card className="mx-auto max-w-lg">
+          <CardContent className="space-y-3 p-6 text-center">
+            <AlertCircle className="mx-auto size-8 text-warning" />
+            <p className="font-semibold">This top-up isn&apos;t available for your account</p>
+            <p className="text-sm text-muted-foreground">Profile slots are for agency accounts. Nothing was charged.</p>
+            <Button variant="outline" asChild><Link href={planPage}>Back to Billing &amp; Plan</Link></Button>
+          </CardContent>
+        </Card>
+      </Shell>
+    );
+  }
+
   return (
-    <Shell back={user ? "/dashboard/money/plan" : "/#pricing"}>
+    <Shell back={user ? planPage : "/#pricing"}>
       {banner && (
         <div role="status" className="mb-5 flex items-start gap-2 rounded-xl border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
           <XCircle className="mt-0.5 size-4 shrink-0" /><span className="flex-1">Checkout cancelled. Nothing was charged.</span>
@@ -85,7 +104,7 @@ export function CheckoutView({ plan: planParam, pack: packParam, cancelled }: { 
               {pack ? <>Add <span className="gradient-text">{packInfo!.label.toLowerCase()}</span></> : trial ? <>Try <span className="gradient-text">{plan.name}</span> free for {trialDays} days</> : <>Upgrade to <span className="gradient-text">{plan.name}</span></>}
             </h1>
             <p className="mt-2 text-muted-foreground">
-              {pack ? (pack === "bids" ? "Ten more bids your agents can send on your behalf. They never expire." : "One more marketplace profile your agents can work from.")
+              {pack ? (pack === "bids" ? (freelancer ? "Ten more spec bids for the freelancer pool. They never expire." : "Ten more bids your agents can send on your behalf. They never expire.") : "One more marketplace profile your agents can work from.")
                 : trial ? `Full ${plan.name} access today. Pay nothing until ${inDays(trialDays)}, and cancel any time before then.` : `${usd(plan.price)} a month. Cancel anytime.`}
             </p>
           </div>
@@ -121,7 +140,7 @@ export function CheckoutView({ plan: planParam, pack: packParam, cancelled }: { 
                 <span className="flex size-12 items-center justify-center rounded-full bg-success/15 text-success"><CheckCircle2 className="size-6" /></span>
                 <p className="mt-1 font-semibold">{pack ? `${packInfo!.label} added` : `You're on ${plan.name}`}</p>
                 <p className="text-sm text-muted-foreground">Simulated purchase: nothing was charged.</p>
-                <Button variant="gradient" className="mt-3" onClick={() => window.location.assign("/dashboard/money/plan")}>See plan &amp; credits</Button>
+                <Button variant="gradient" className="mt-3" onClick={() => window.location.assign(planPage)}>See plan &amp; credits</Button>
               </div>
             ) : (
               <>
@@ -153,7 +172,7 @@ export function CheckoutView({ plan: planParam, pack: packParam, cancelled }: { 
                 ) : alreadyOnPlan || proHasEverything ? (
                   <div className="mt-5 rounded-xl border border-success/40 bg-success/10 p-3 text-sm">
                     <p className="font-medium">{proHasEverything ? "Pro already includes unlimited bids and profiles." : `You're already on ${plan.name}.`}</p>
-                    <Link href="/dashboard/money/plan" className="mt-1 inline-block text-xs font-medium text-primary hover:underline">Go to Plan &amp; credits</Link>
+                    <Link href={planPage} className="mt-1 inline-block text-xs font-medium text-primary hover:underline">Go to Plan &amp; credits</Link>
                   </div>
                 ) : config?.live ? (
                   <>

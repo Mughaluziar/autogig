@@ -194,4 +194,4 @@ def test_production_refuses_weak_secret(secret):
 
 def test_production_accepts_strong_secret():
     Settings(environment="production", secret_key="x" * 48, mongodb_uri="mongodb://db.invalid:27017",
-             cors_origins="https://app.example.com").validate_for_production()
+             cors_origins="https://app.example.com", email_verification=True).validate_for_production()

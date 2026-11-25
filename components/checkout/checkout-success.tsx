@@ -4,8 +4,8 @@ import { CheckCircle2, Clock, Loader2, PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { API_URL, apiGet } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import { PACKS, planName, type BillingConfig } from "./billing";
+import { dashboardHomeFor, useAuth } from "@/lib/auth";
+import { PACKS, planName, planPageFor, type BillingConfig } from "./billing";
 import { Shell } from "./checkout-view";
 
 type Monetization = { plan: string; purchases?: { item?: string; status?: string; date?: string }[] };
@@ -59,7 +59,7 @@ export function CheckoutSuccess({ plan, pack }: { plan?: string; pack?: string }
               <span className="flex size-16 items-center justify-center rounded-full bg-gradient-to-br from-primary to-fuchsia-500 text-white shadow-lg shadow-primary/40"><PartyPopper className="size-8" /></span>
               <h1 className="text-2xl font-extrabold tracking-tight">{packInfo ? `${packInfo.label} added` : `Welcome to ${planName(plan ?? "pro")}`}</h1>
               <p className="max-w-sm text-sm text-muted-foreground">
-                {packInfo ? "Your credits are ready. Your agents can use them right away."
+                {packInfo ? (user?.role === "freelancer" ? "Your bids are ready to use on open specs." : "Your credits are ready. Your agents can use them right away.")
                   : trialEnd ? `Your free trial is on. Nothing is charged until ${new Date(trialEnd).toLocaleDateString("en", { month: "long", day: "numeric" })}.` : "Your plan is active. Everything it includes is unlocked."}
               </p>
               <ul className="mt-2 space-y-1.5 text-left text-sm">
@@ -76,8 +76,8 @@ export function CheckoutSuccess({ plan, pack }: { plan?: string; pack?: string }
           )}
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             {/* Full page loads so the dashboard reloads the new plan and credits. */}
-            <Button variant="gradient" onClick={() => window.location.assign("/dashboard/command")}>Go to dashboard</Button>
-            <Button variant="outline" onClick={() => window.location.assign("/dashboard/money/plan")}>Plan &amp; credits</Button>
+            <Button variant="gradient" onClick={() => window.location.assign(user ? dashboardHomeFor(user.role) : "/dashboard/command")}>Go to dashboard</Button>
+            <Button variant="outline" onClick={() => window.location.assign(planPageFor(user?.role))}>Plan &amp; credits</Button>
           </div>
         </CardContent>
       </Card>

@@ -1,6 +1,6 @@
 """Accounts — signup, email verification, login, social sign-in and the session.
 
-POST /api/auth/signup                 create an account -> {token, user, verification}
+POST /api/auth/signup                 email a signup proof, then redeem it for a session in production
 POST /api/auth/login                  verify credentials -> {token, user}
 GET  /api/auth/me                     the signed-in user (validates a stored token)
 POST /api/auth/verify-email {code}    confirm the emailed code -> fresh {token, user}
@@ -26,11 +26,11 @@ import time
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
-from .. import db, email as mail, oauth, repo, session as sessions, terms
+from .. import db, email as mail, oauth, ratelimit, repo, session as sessions, terms
 from ..modules_gate import allowed as simulated_allowed
 from ..auth import (
     MIN_PASSWORD_LENGTH, RETIRED_ROLES, SIGNUP_ROLES, check_login_allowed, clear_login_failures,
@@ -61,11 +61,7 @@ def _db_unavailable() -> HTTPException:
 # Email verification
 # --------------------------------------------------------------------------- #
 def verification_enforced() -> bool:
-    """Verification is required when a code can actually reach the user: an
-    email provider is configured, or this isn't production (the API then
-    returns the code itself for local development)."""
-    s = get_settings()
-    return s.email_verification and (mail.enabled() or s.environment != "production")
+    return get_settings().email_verification
 
 
 def _needs_verification(doc: dict) -> bool:
@@ -82,10 +78,12 @@ async def _issue_code(doc: dict, sent_at: list[float]) -> dict:
     may know: whether it was sent, and the code itself only for local dev."""
     code = f"{secrets.randbelow(1_000_000):06d}"
     stamp = time.time()
-    await db.update_user(doc["email"], {"verify": {
+    updated = await db.compare_and_update_user(doc["email"], doc["id"], "verify", doc.get("verify"), {"verify": {
         "code_hash": _code_hash(doc["email"], code), "expires_at": stamp + CODE_TTL_SECONDS,
         "attempts": 0, "sent_at": [t for t in sent_at if stamp - t < 3600] + [stamp],
     }})
+    if not updated:
+        raise HTTPException(409, "Verification changed. Reload and try again.")
     out: dict = {"required": True, "sent": False, "expiresInSeconds": CODE_TTL_SECONDS,
                  "retryAfterSeconds": RESEND_COOLDOWN_SECONDS}
     if mail.enabled():
@@ -203,6 +201,7 @@ class SignupBody(BaseModel):
     name: str = Field(default="", max_length=120)
     email: str = Field(max_length=254)
     password: str = Field(max_length=200)
+    signupProof: str = Field(default="", max_length=200)
     role: str = "admin"
     company: str = Field(default="", max_length=120)
     profile: SignupProfile | None = None
@@ -234,8 +233,22 @@ def _profile_doc(profile: SignupProfile | None) -> dict:
     return out
 
 
+async def _email_signup_proof(email: str) -> None:
+    try:
+        email_key = _code_hash(email, "signup-proof")
+        allowed, _ = await ratelimit.allow("auth", f"signup-email:{email_key}", 1)
+        if not allowed:
+            return
+        code = await oauth.create_signup_proof(email_key)
+        await mail.send_email(email, "Confirm your AutoGig signup",
+                              f"<p>Paste this code into the AutoGig signup form within 15 minutes.</p><p><code>{code}</code></p>"
+                              "<p>If you did not request this code, you can ignore this email.</p>")
+    except Exception as exc:
+        log.error("Signup email failed (%s)", type(exc).__name__)
+
+
 @router.post("/signup")
-async def signup(body: SignupBody, request: Request, response: Response):
+async def signup(body: SignupBody, request: Request, response: Response, background_tasks: BackgroundTasks):
     email = body.email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(422, "Enter a valid email address.")
@@ -251,9 +264,19 @@ async def signup(body: SignupBody, request: Request, response: Response):
         if not terms.versions_match(body.acceptedTerms):
             raise HTTPException(409, "The Terms or Privacy Policy changed while this page was open. Reload and read the new version.")
     profile = _profile_doc(body.profile)
+    production = get_settings().environment == "production"
+    if production:
+        if not body.signupProof:
+            if not mail.enabled():
+                raise HTTPException(503, "Email verification is temporarily unavailable. Please try again.")
+            background_tasks.add_task(_email_signup_proof, email)
+            return {"verificationPending": True}
+        if not await oauth.take_signup_proof(body.signupProof, _code_hash(email, "signup-proof")):
+            raise HTTPException(400, "This signup code is invalid or expired. Request a new code.")
     try:
-        user = await db.create_user(body.name, email, hash_password(body.password), body.role, body.company or None,
-                                    extra={"email_verified": False, "profile": profile})
+        password_hash = await asyncio.to_thread(hash_password, body.password)
+        user = await db.create_user(body.name, email, password_hash, body.role, body.company or None,
+                                    extra={"email_verified": production, "profile": profile})
     except HTTPException:
         raise
     except Exception:
@@ -267,15 +290,15 @@ async def signup(body: SignupBody, request: Request, response: Response):
         if not existing or not db.is_pending_signup(existing) or await db.email_has_identity(email):
             raise HTTPException(409, "An account with this email already exists.")
         sent_at = [t for t in existing["verify"].get("sent_at", []) if time.time() - t < 3600]
-        if sent_at and time.time() - sent_at[-1] < RESEND_COOLDOWN_SECONDS:
+        if not production and sent_at and time.time() - sent_at[-1] < RESEND_COOLDOWN_SECONDS:
             wait = int(RESEND_COOLDOWN_SECONDS - (time.time() - sent_at[-1])) + 1
             raise HTTPException(429, f"A code was just sent to this email. Wait {wait} seconds and try again.",
                                 headers={"Retry-After": str(wait)})
-        if len(sent_at) >= RESENDS_PER_HOUR:
+        if not production and len(sent_at) >= RESENDS_PER_HOUR:
             raise HTTPException(429, "Too many codes were sent to this email. Try again in an hour.",
                                 headers={"Retry-After": "3600"})
-        user = await db.replace_pending_user(email, body.name, hash_password(body.password), body.role,
-                                             body.company or None, extra={"profile": profile})
+        user = await db.replace_pending_user(email, body.name, password_hash, body.role, body.company or None,
+                                             extra={"profile": profile}, verified=production)
         if not user:
             raise HTTPException(409, "An account with this email already exists.")
     await repo.log_activity(user["id"], "Operator", f"Account created ({body.role})")
@@ -283,7 +306,7 @@ async def signup(body: SignupBody, request: Request, response: Response):
     if terms.required():
         await terms.record(doc, "signup", terms.current())
         doc = await db.find_user(email) or doc
-    if verification_enforced():
+    if _needs_verification(doc):
         verification = await _issue_code(doc, sent_at)
     else:
         verification = {"required": False}
@@ -312,7 +335,9 @@ async def login(body: LoginBody, request: Request, response: Response):
     await clear_login_failures(email)
     if needs_rehash(doc):
         try:
-            await db.update_password_hash(email, hash_password(body.password))
+            upgraded = await asyncio.to_thread(hash_password, body.password)
+            await db.compare_and_update_user(email, doc["id"], "password_hash", doc.get("password_hash"),
+                                             {"password_hash": upgraded}, unset=("salt",))
         except Exception:
             pass  # the old hash still works; the upgrade retries on the next login
     await repo.log_activity(doc["id"], "Operator", f"Signed in as {doc['role']}")
@@ -367,12 +392,17 @@ async def verify_email(body: VerifyBody, request: Request, response: Response, s
         raise HTTPException(429, "Too many wrong attempts. Request a new code.")
     if len(code) != 6 or not hmac.compare_digest(pending["code_hash"], _code_hash(doc["email"], code)):
         attempts = pending.get("attempts", 0) + 1
-        await db.update_user(doc["email"], {"verify.attempts": attempts} if db.enabled()
-                             else {"verify": {**pending, "attempts": attempts}})
+        updated = await db.compare_and_update_user(doc["email"], doc["id"], "verify", pending,
+                                                   {"verify": {**pending, "attempts": attempts}})
+        if not updated:
+            raise HTTPException(409, "Verification changed. Try again.")
         left = CODE_MAX_ATTEMPTS - attempts
         raise HTTPException(400, "That code isn't right." + (f" {left} attempt{'s' if left != 1 else ''} left."
                                                                if left > 0 else " Request a new code."))
-    doc = await db.update_user(doc["email"], {"email_verified": True}, unset=("verify",)) or doc
+    doc = await db.compare_and_update_user(doc["email"], doc["id"], "verify", pending,
+                                           {"email_verified": True}, unset=("verify",))
+    if not doc:
+        raise HTTPException(409, "Verification changed. Try again.")
     await repo.log_activity(doc["id"], "Operator", "Email address verified")
     _send_welcome(doc)
     return sessions.issue(request, response, _session(doc))
@@ -385,6 +415,8 @@ async def resend_verification(session: dict = Depends(current_user)):
         return {"ok": True, "alreadyVerified": True}
     if not verification_enforced():
         return {"ok": True, "required": False}
+    if get_settings().environment == "production" and not mail.enabled():
+        raise HTTPException(503, "Email verification is temporarily unavailable. Please try again.")
     sent_at = [t for t in (doc.get("verify") or {}).get("sent_at", []) if time.time() - t < 3600]
     if sent_at and time.time() - sent_at[-1] < RESEND_COOLDOWN_SECONDS:
         wait = int(RESEND_COOLDOWN_SECONDS - (time.time() - sent_at[-1])) + 1
@@ -415,10 +447,14 @@ async def change_password(body: ChangePasswordBody, request: Request, response: 
             raise HTTPException(422, "Choose a password different from your current one.")
     if len(body.newPassword) < MIN_PASSWORD_LENGTH:
         raise HTTPException(422, f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
-    await db.update_password_hash(email, hash_password(body.newPassword))
+    password_hash = await asyncio.to_thread(hash_password, body.newPassword)
+    doc = await db.compare_and_update_user(
+        email, doc["id"], "password_hash", doc.get("password_hash"), {"password_hash": password_hash},
+        unset=("salt", "reset"), bump_session=True,
+    )
+    if not doc:
+        raise HTTPException(409, "Credentials changed. Sign in again and retry.")
     await clear_login_failures(email)
-    # Every other session of this account ends; this one continues on a fresh token.
-    doc = await db.update_user(email, {"session_version": doc.get("session_version", 0) + 1}) or doc
     await repo.log_activity(doc["id"], "Operator", "Password changed")
     fresh = create_access_token(db._public_user(doc), email_verified=not _needs_verification(doc),
                                 session_version=doc.get("session_version", 0))
@@ -462,34 +498,51 @@ class ResetBody(BaseModel):
     password: str = Field(max_length=200)
 
 
+async def _prepare_password_reset(email: str) -> str | None:
+    doc = await db.find_user(email)
+    if not doc or doc.get("role") in RETIRED_ROLES or not doc.get("password_hash"):
+        return None
+    pending = doc.get("reset")
+    stamp = time.time()
+    if stamp - (pending or {}).get("sent_at", 0) < RESET_COOLDOWN_SECONDS:
+        return None
+    token = secrets.token_urlsafe(32)
+    updated = await db.compare_and_update_user(email, doc["id"], "reset", pending, {"reset": {
+        "hash": hashlib.sha256(token.encode()).hexdigest(),
+        "expires_at": stamp + RESET_TTL_SECONDS, "sent_at": stamp,
+    }})
+    if not updated:
+        return None
+    link = f"{get_settings().site_url}/reset-password?token={token}"
+    if mail.enabled():
+        subject, html = mail.reset_email(doc.get("name", ""), link, RESET_TTL_SECONDS // 60)
+        await mail.send_email(email, subject, html)
+    await repo.log_activity(doc["id"], "Operator", "Password reset requested")
+    return link
+
+
+async def _deliver_password_reset(email: str) -> None:
+    try:
+        await _prepare_password_reset(email)
+    except Exception as exc:
+        log.error("Password reset request failed (%s)", type(exc).__name__)
+
+
 @router.post("/forgot-password")
-async def forgot_password(body: ForgotBody):
+async def forgot_password(body: ForgotBody, background_tasks: BackgroundTasks):
     email = body.email.strip().lower()
     generic = {"ok": True, "message": "If an account exists for that email, a reset link is on its way."}
     if not _EMAIL_RE.match(email):
         return generic
+    if get_settings().environment == "production":
+        if mail.enabled():
+            background_tasks.add_task(_deliver_password_reset, email)
+        return generic
     try:
-        doc = await db.find_user(email)
+        link = await _prepare_password_reset(email)
     except Exception:
         raise _db_unavailable()
-    if not doc or doc.get("role") in RETIRED_ROLES or not doc.get("password_hash"):
-        return generic  # unknown, retired, or social-only account: say nothing
-    last = (doc.get("reset") or {}).get("sent_at", 0)
-    if time.time() - last < RESET_COOLDOWN_SECONDS:
-        return generic
-    token = secrets.token_urlsafe(32)
-    await db.update_user(email, {"reset": {
-        "hash": hashlib.sha256(token.encode()).hexdigest(),
-        "expires_at": time.time() + RESET_TTL_SECONDS, "sent_at": time.time(),
-    }})
-    link = f"{get_settings().site_url}/reset-password?token={token}"
-    sent = False
-    if mail.enabled():
-        subject, html = mail.reset_email(doc.get("name", ""), link, RESET_TTL_SECONDS // 60)
-        sent = await mail.send_email(email, subject, html)
-    await repo.log_activity(doc["id"], "Operator", "Password reset requested")
-    # Without an email provider (local development only) hand the link back so the flow can be completed.
-    if not sent and get_settings().environment != "production":
+    if link and not mail.enabled():
         return {**generic, "devResetLink": link}
     return generic
 
@@ -506,9 +559,12 @@ async def reset_password(body: ResetBody):
     if not doc or reset.get("expires_at", 0) < time.time():
         raise HTTPException(400, "This reset link is invalid or has expired. Request a new one.")
     email = doc["email"]
-    await db.update_password_hash(email, hash_password(body.password))
-    # Single use; and every existing session of the account ends.
-    await db.update_user(email, {"session_version": doc.get("session_version", 0) + 1}, unset=("reset",))
+    password_hash = await asyncio.to_thread(hash_password, body.password)
+    if reset["expires_at"] <= time.time() or not await db.compare_and_update_user(
+        email, doc["id"], "reset", reset, {"password_hash": password_hash},
+        unset=("reset", "salt"), bump_session=True,
+    ):
+        raise HTTPException(400, "This reset link is invalid or has expired. Request a new one.")
     await clear_login_failures(email)
     await repo.log_activity(doc["id"], "Operator", "Password reset completed")
     return {"ok": True}
@@ -523,7 +579,7 @@ async def providers():
     if not verification_enforced():
         delivery = "off"
     else:
-        delivery = "email" if mail.enabled() else "dev"
+        delivery = "email" if mail.enabled() else ("unavailable" if s.environment == "production" else "dev")
     return {
         "providers": [{"id": p.id, "name": p.name, "configured": oauth.configured(p.id, s)}
                       for p in oauth.PROVIDERS.values()],

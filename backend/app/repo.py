@@ -367,7 +367,7 @@ async def get_billing(user_id: str) -> dict:
         doc = _mem_docs["billing"].get(user_id)
     else:
         doc = await db._get_db().billing.find_one({"_id": user_id})
-    return {**deepcopy(DEFAULT_BILLING), **{k: v for k, v in (doc or {}).items() if k != "_id"}}
+    return {**deepcopy(DEFAULT_BILLING), **{k: v for k, v in (doc or {}).items() if k not in ("_id", "_pool_refund_ids")}}
 
 
 async def _ensure_billing(user_id: str) -> None:
@@ -410,6 +410,24 @@ async def refund_credit(user_id: str, kind: str) -> None:
             doc[field] += 1
         return
     await db._get_db().billing.update_one({"_id": user_id, "plan": {"$ne": "pro"}}, {"$inc": {field: 1}})
+
+
+async def refund_pool_bid_credit_once(user_id: str, bid_id: str) -> bool:
+    """Return a pool bid's credit once, including when repair retries after a crash."""
+    await _ensure_billing(user_id)
+    if not db.enabled():
+        doc = _mem_docs["billing"][user_id]
+        ids = doc.setdefault("_pool_refund_ids", [])
+        if bid_id in ids:
+            return False
+        ids.append(bid_id)
+        doc["bidCredits"] += 1
+        return True
+    result = await db._get_db().billing.update_one(
+        {"_id": user_id, "_pool_refund_ids": {"$ne": bid_id}},
+        {"$addToSet": {"_pool_refund_ids": bid_id}, "$inc": {"bidCredits": 1}},
+    )
+    return result.modified_count == 1
 
 
 async def record_purchase(user_id: str, purchase: dict, *, add_credits: dict | None = None, plan: str | None = None) -> dict:

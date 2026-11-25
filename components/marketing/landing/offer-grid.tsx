@@ -14,21 +14,22 @@ const TILES: Tile[] = [
   { icon: Briefcase, title: "Auto gig finding", desc: "Projects and buyer requests on Upwork, Fiverr and more", href: "#auto-find", status: "Live", for: ["freelancer", "agency"] },
   { icon: PenLine, title: "AI proposals & gigs", desc: "Tailored bids and full gig listings, ready to review", href: "#auto-find", status: "Live", for: ["freelancer", "agency"] },
   { icon: Bot, title: "Agent fleet", desc: "Agents that scout, write and follow up inside your rules", href: "/signup", status: "Live", for: ["agency"] },
-  { icon: ShieldCheck, title: "Freelancer insurance", desc: "Up to 80% of a new order covered if it's cancelled", href: "#insurance", status: "Beta", for: ["freelancer", "agency"] },
+  { icon: ShieldCheck, title: "Freelancer protection", desc: "Up to 80% of a new order covered if it's cancelled", href: "#insurance", status: "Simulated demo", for: ["freelancer", "agency"] },
   { icon: Receipt, title: "Invoices & milestones", desc: "Paid in-app by debit card, credit card or crypto", href: "#get-paid", status: "Live", for: ["freelancer", "agency"] },
-  { icon: Zap, title: "Early pay", desc: "Up to 70% of a verified order today, flat 3% fee", href: "#get-paid", status: "Beta", for: ["freelancer"] },
+  { icon: Zap, title: "Early pay", desc: "Up to 70% of a verified order today, flat 3% fee", href: "#get-paid", status: "Simulated demo", for: ["freelancer"] },
   { icon: CreditCard, title: "Debit & credit cards", desc: "Spend earnings instantly, credit built for gig income", href: "#cards", status: "Coming soon", for: ["freelancer", "agency"] },
-  { icon: Landmark, title: "Business financing", desc: "Up to $250,000, based on business performance", href: "#funding", status: "Early access", for: ["agency", "freelancer"] },
-  { icon: Rocket, title: "Project funding", desc: "Agencies borrow up to $10,000 to hire or expand", href: "#funding", status: "Early access", for: ["agency"] },
-  { icon: Bitcoin, title: "Investment marketplace", desc: "Back freelancers, agencies or the Platform Index", href: "#invest", status: "Beta", for: ["investor"] },
-  { icon: PieChart, title: "Investment portfolios", desc: "Performance, distributions and risk in one view", href: "#invest", status: "Beta", for: ["investor"] },
-  { icon: LineChart, title: "Revenue sharing", desc: "A defined share of eligible revenue, for a defined period", href: "#invest", status: "Early access", for: ["investor", "agency"] },
+  { icon: Landmark, title: "Business financing", desc: "Up to $250,000, based on business performance", href: "#funding", status: "Simulated demo", for: ["agency", "freelancer"] },
+  { icon: Rocket, title: "Project funding", desc: "Agencies borrow up to $10,000 to hire or expand", href: "#funding", status: "Simulated demo", for: ["agency"] },
+  { icon: Bitcoin, title: "Investment marketplace", desc: "Back freelancers, agencies or the Platform Index", href: "#invest", status: "Simulated demo", for: ["investor"] },
+  { icon: PieChart, title: "Investment portfolios", desc: "Performance, distributions and risk in one view", href: "#invest", status: "Simulated demo", for: ["investor"] },
+  { icon: LineChart, title: "Revenue sharing", desc: "A defined share of eligible revenue, for a defined period", href: "#invest", status: "Simulated demo", for: ["investor", "agency"] },
 ];
 
 const STATUS_TONE: Record<string, string> = {
   Live: "bg-success/15 text-success",
   Beta: "bg-primary/15 text-primary",
   "Early access": "bg-fuchsia-500/15 text-fuchsia-500",
+  "Simulated demo": "bg-warning/15 text-warning",
   "Coming soon": "bg-warning/15 text-warning",
 };
 

@@ -51,15 +51,15 @@ export function ProtectionPanel({
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="size-4" /> Order insurance</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="size-4" /> Order protection</CardTitle>
           <CardDescription>
-            Insures against a loss <em>the marketplace itself reports</em>: a client cancellation or refund after insurance starts.
-            Every early payment is insured automatically; other orders can be insured in their first 24 hours. Backed by the
+            Protects against a loss <em>the marketplace itself reports</em>: a client cancellation or refund after protection starts.
+            Every early payment is protected automatically; other orders can be protected in their first 24 hours. Backed by the
             platform&apos;s protection fund, not a licensed insurer: claims are reviewed by an operator and paid up to the fund&apos;s balance.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          {coverages.length === 0 && <p className="text-sm text-muted-foreground">No insurance yet.</p>}
+          {coverages.length === 0 && <p className="text-sm text-muted-foreground">No protection yet.</p>}
           <ul className="divide-y">
             {coverages.map((c) => (
               <li key={c.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -69,7 +69,7 @@ export function ProtectionPanel({
                     <Badge variant={c.status === "active" ? "default" : "secondary"}>{c.status}</Badge>
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {c.kind === "advance" ? "Insures your early payment" : `${usd(c.coveredCents)} insured · ${usd(c.premiumCents)} premium`}
+                    {c.kind === "advance" ? "Protects your early payment" : `${usd(c.coveredCents)} protected · ${usd(c.premiumCents)} premium`}
                     {" "}· since {formatDate(c.startsAt)}{c.endsAt && ` · until ${formatDate(c.endsAt)}`}
                   </p>
                 </div>
@@ -83,7 +83,7 @@ export function ProtectionPanel({
           </ul>
           {coverable.length > 0 && verified && (
             <div className="border-t pt-3">
-              <p className="mb-2 text-sm font-medium">Insure a new order</p>
+              <p className="mb-2 text-sm font-medium">Protect a new order</p>
               <div className="flex flex-wrap gap-2">
                 {coverable.map((r) => (
                   <Button key={r.order.id} size="sm" variant="outline" onClick={() => setBuying(r)}>
@@ -132,7 +132,7 @@ function BuyCoverDialog({ row, policy, onClose, onDone }: {
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogHeader>
-        <DialogTitle>Insure this order</DialogTitle>
+        <DialogTitle>Protect this order</DialogTitle>
         <DialogDescription>
           {row.order.title} · {row.order.platform} · {usd(row.underwriting.orderCents)}
           {row.coverClosesAt && ` · offer closes in ${timeLeft(row.coverClosesAt)}`}
@@ -144,7 +144,7 @@ function BuyCoverDialog({ row, policy, onClose, onDone }: {
   );
 }
 
-/** Insured amount, premium and terms, then buy. Shared by the capital page and the new-order prompt. */
+/** Protected amount, premium and terms, then buy. Shared by the capital page and the new-order prompt. */
 export function CoverForm({ orderId, platform, maxCents, premiumBps, termDays, secondary, onDone }: {
   orderId: string; platform: string; maxCents: number; premiumBps: number; termDays: number;
   secondary: React.ReactNode; onDone: () => void;
@@ -160,23 +160,23 @@ export function CoverForm({ orderId, platform, maxCents, premiumBps, termDays, s
     setBusy(true);
     const res = await apiCall<Coverage & Detail>("/api/capital/coverages", { orderId, coveredCents: cents, acceptTerms: agree });
     setBusy(false);
-    if (!res || res.status >= 400) return toast({ title: "Insurance not added", description: describe(res?.data) || "Can't reach the server." });
-    toast({ title: "Order insured (simulated)", variant: "success" });
+    if (!res || res.status >= 400) return toast({ title: "Protection not added", description: describe(res?.data) || "Can't reach the server." });
+    toast({ title: "Order protected (simulated)", variant: "success" });
     onDone();
   };
   return (
     <>
       <div className="space-y-3 text-sm">
         <div className="space-y-1.5">
-          <Label htmlFor={inputId}>Insured amount (up to {usd(maxCents)})</Label>
+          <Label htmlFor={inputId}>Protected amount (up to {usd(maxCents)})</Label>
           <Input id={inputId} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
           <p className="text-xs text-muted-foreground">
-            Premium: {pct(premiumBps)} of the insured amount, {usd(premium)}. Insurance lasts {termDays} days.
+            Premium: {pct(premiumBps)} of the protected amount, {usd(premium)}. Protection lasts {termDays} days.
           </p>
         </div>
         <label className="flex items-start gap-2">
           <Checkbox checked={agree} onCheckedChange={setAgree} className="mt-0.5" />
-          I understand this insurance is backed by the platform&apos;s discretionary protection fund, not a licensed insurer.
+          I understand this protection is backed by the platform&apos;s discretionary protection fund, not a licensed insurer.
           Only a cancellation or refund reported by {platform} after today qualifies, and payouts are limited to the
           fund&apos;s balance.
         </label>
@@ -184,7 +184,7 @@ export function CoverForm({ orderId, platform, maxCents, premiumBps, termDays, s
       <DialogFooter className="flex-wrap">
         {secondary}
         <Button disabled={busy || !agree || cents == null || cents > maxCents} onClick={() => void buy()}>
-          {busy && <Loader2 className="animate-spin" />} Pay {usd(premium)} and insure
+          {busy && <Loader2 className="animate-spin" />} Pay {usd(premium)} and protect
         </Button>
       </DialogFooter>
     </>

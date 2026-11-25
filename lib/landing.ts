@@ -74,7 +74,7 @@ export const PERSONA_COPY: Record<Persona, PersonaCopy> = {
     highlight: "Let the work find you.",
     sub: (n) =>
       `Autopilot scans Upwork, Fiverr, Freelancer.com and ${n - 3} more platforms around the clock, ranks every job and gig against your skills, and drafts the proposal. You review it and hit send.`,
-    bullets: ["Jobs and gigs matched to you, in one feed", "AI proposals in your voice, in seconds", "New orders insured for up to 80%"],
+    bullets: ["Jobs and gigs matched to you, in one feed", "AI proposals in your voice, in seconds", "New orders protected for up to 80%"],
     cta: { label: "Find my matches", href: "/signup" },
     secondary: { label: "Watch it scan", href: "#auto-find" },
     final: {

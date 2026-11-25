@@ -53,7 +53,7 @@ export function EarlyPayPanel({
                     <p className="truncate font-medium">{row.order.title ?? row.order.externalOrderId}</p>
                     <p className="text-xs text-muted-foreground">
                       {row.order.platform} · {row.order.accountLabel} · {usd(row.underwriting.orderCents)}
-                      {row.covered && " · insured"}
+                      {row.covered && " · protected"}
                     </p>
                     {!row.underwriting.eligible && (
                       <p className="mt-1 text-xs text-muted-foreground">{row.underwriting.reasons.join(" ")}</p>
@@ -89,7 +89,7 @@ export function EarlyPayPanel({
                         {usd(a.principalCents)} received · {usd(a.feeCents)} fee
                         {a.dueAt && ` · due ${formatDate(a.dueAt)}`}
                         {a.totalDueCents > 0 && ` · ${usd(a.totalDueCents)} left to repay`}
-                        {a.principalCoveredCents > 0 && ` · ${usd(a.principalCoveredCents)} paid by insurance`}
+                        {a.principalCoveredCents > 0 && ` · ${usd(a.principalCoveredCents)} paid by protection`}
                       </p>
                     </div>
                     {a.totalDueCents > 0 && (
@@ -158,7 +158,7 @@ function QuoteDialog({ row, onClose, onDone }: { row: EligibleRow; onClose: () =
           </dl>
           <p className="text-xs text-muted-foreground">
             You repay this yourself once {row.order.platform} pays you. If the platform reports the client cancelled or
-            refunded, its insurance can repay it for you (backed by the protection fund, not a licensed insurer; reviewed, and limited to the fund&apos;s balance).
+            refunded, its protection can repay it for you (backed by the protection fund, not a licensed insurer; reviewed, and limited to the fund&apos;s balance).
             Missing the grace period puts the advance in default and pauses new early payments. The quote expires in 15 minutes.
           </p>
           <label className="flex items-start gap-2">

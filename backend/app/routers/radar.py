@@ -42,8 +42,8 @@ _LIST_DESCRIPTION = 600
 
 # Every listing a user was shown recently, by id, so the detail and apply
 # pages can load one without re-running the scan. Per user (Upwork rows come
-# from the user's own connection), in memory, bounded; a restart just means
-# the page falls back to the browser's copy of the last scan.
+# from the user's own connection), in memory, bounded. MongoDB also retains a
+# short, per-user recent snapshot so a detail link works after a restart.
 _RECENT: dict[str, dict[str, tuple[float, dict]]] = {}
 _RECENT_TTL = 6 * 3600
 _RECENT_ROWS = 400
@@ -73,6 +73,32 @@ def _remember(user_id: str, rows: list[dict]) -> None:
 def _recent_rows(user_id: str) -> list[dict]:
     now = time.monotonic()
     return [row for expiry, row in _RECENT.get(user_id, {}).values() if expiry > now]
+
+
+async def _persist_recent(user_id: str, rows: list[dict]) -> None:
+    if not db.enabled():
+        return
+    profile = await repo.get_settings_doc(user_id, seed.SETTINGS)
+    now = time.time()
+    current = [item for item in profile.get("radarRecentJobs", [])
+               if isinstance(item, dict) and item.get("expiresAt", 0) > now
+               and isinstance(item.get("job"), dict)]
+    by_id = {item["job"].get("id"): item for item in current if item["job"].get("id")}
+    for row in rows:
+        by_id.pop(row["id"], None)
+        by_id[row["id"]] = {"expiresAt": now + _RECENT_TTL, "job": row}
+    # Settings is one MongoDB document; keep the snapshot well below its size limit.
+    await repo.update_settings_doc(user_id, {"radarRecentJobs": list(by_id.values())[-100:]}, seed.SETTINGS)
+
+
+async def _persisted_recent(user_id: str) -> list[dict]:
+    if not db.enabled():
+        return []
+    profile = await repo.get_settings_doc(user_id, seed.SETTINGS)
+    now = time.time()
+    return [item["job"] for item in profile.get("radarRecentJobs", [])
+            if isinstance(item, dict) and item.get("expiresAt", 0) > now
+            and isinstance(item.get("job"), dict)]
 
 
 def _summary(job: dict) -> dict:
@@ -215,6 +241,7 @@ async def radar_jobs(q: str = "", limit: int = 30, kind: str = "all", user: dict
         result = dict(cached[1])
         rows = await _with_alert_leads(user["id"], result["jobs"], skills, kind)
         _remember(user["id"], rows[:limit])
+        await _persist_recent(user["id"], rows[:limit])
         result["jobs"] = [_summary(job) for job in rows[:limit]]
         result["total"] = len(rows)
         return result
@@ -255,6 +282,7 @@ async def radar_jobs(q: str = "", limit: int = 30, kind: str = "all", user: dict
             _RESULT_CACHE.pop(key, None)
     rows = await _with_alert_leads(user["id"], jobs, skills, kind)
     _remember(user["id"], rows[:limit])
+    await _persist_recent(user["id"], rows[:limit])
     response = dict(result)
     response["jobs"] = [_summary(job) for job in rows[:limit]]
     response["total"] = len(rows)
@@ -270,6 +298,10 @@ async def radar_job(job_id: str, user: dict = Depends(current_user)):
     recent = _recent_rows(user["id"])
     found = next((row for row in recent if row["id"] == job_id), None)
     origin = "scan"
+    if not found:
+        persisted = await _persisted_recent(user["id"])
+        found = next((row for row in persisted if row.get("id") == job_id), None)
+        recent = persisted + recent
     if not found:
         profile = await repo.get_settings_doc(user["id"], seed.SETTINGS)
         found = next((row for row in profile.get("radarSavedJobs", []) if row.get("id") == job_id), None)
@@ -478,7 +510,6 @@ async def radar_proposal(body: ProposalBody, user: dict = Depends(current_user))
         # Groq offline → still useful template.
         text = (
             f"Hi — your posting for \"{body.jobTitle}\" is a strong fit for my work in {skills}. "
-            "I've delivered similar projects recently and can start right away. "
             "My plan: (1) quick call to confirm scope, (2) a working first version fast, "
             "(3) revisions until you're happy. Could you share your ideal timeline?"
         )

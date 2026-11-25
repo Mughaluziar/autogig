@@ -117,6 +117,11 @@ def test_settings_are_per_user(client, two_users):
     {"values.plan": "pro"},
     {"$set": 1},
     {"salesWebhook": "http://example.com/hook"},
+    {"radarRecentJobs": [{"job": {"id": "other-user-job"}, "expiresAt": "forever"}]},
+    {"radarSavedJobs": [{"id": "forged"}]},
+    {"radarWatchedBoards": [{"provider": "unknown", "slug": "x"}]},
+    {"radarSavedSearches": [{"query": "x"}]},
+    {"skillProfile": ["unvalidated"]},
 ])
 def test_settings_reject_unsafe_input(client, two_users, body):
     alice, _, _ = two_users

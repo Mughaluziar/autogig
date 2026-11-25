@@ -324,7 +324,7 @@ async def identify(provider: str, code: str, *, verifier: str | None, nonce: str
 # --------------------------------------------------------------------------- #
 # Pending states and session handoffs — MongoDB, in memory without it
 # --------------------------------------------------------------------------- #
-_mem: dict[str, dict[str, dict]] = {"states": {}, "handoffs": {}}
+_mem: dict[str, dict[str, dict]] = {"states": {}, "handoffs": {}, "signup_proofs": {}}
 
 
 def reset_memory() -> None:
@@ -357,6 +357,7 @@ async def ensure_indexes() -> None:
     mdb = db._get_db()
     await mdb.oauth_states.create_index("expires_at", expireAfterSeconds=0)
     await mdb.oauth_handoffs.create_index("expires_at", expireAfterSeconds=0)
+    await mdb.oauth_signup_proofs.create_index("expires_at", expireAfterSeconds=0)
 
 
 async def _put(kind: str, raw: str, fields: dict, ttl: timedelta) -> None:
@@ -397,3 +398,14 @@ async def create_handoff(fields: dict) -> str:
 
 async def take_handoff(code: str) -> dict | None:
     return await _take("handoffs", code)
+
+
+async def create_signup_proof(email_key: str) -> str:
+    code = secrets.token_urlsafe(24)
+    await _put("signup_proofs", code, {"email_key": email_key}, timedelta(minutes=15))
+    return code
+
+
+async def take_signup_proof(code: str, email_key: str) -> bool:
+    proof = await _take("signup_proofs", code)
+    return proof is not None and secrets.compare_digest(proof["email_key"], email_key)

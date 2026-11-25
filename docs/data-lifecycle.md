@@ -73,6 +73,8 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `pool_bids` | yes | Awarded bids: kept, name removed; others deleted | Bids. Awarded bids are part of a contract and are kept; all others are deleted. |
 | `pool_contracts` | yes | **Kept, name removed** | Contracts and milestones are retained for the counterparty and for financial records. |
 | `pool_earnings` | yes | **Kept, name removed** | Recorded payouts (financial record). |
+| `pool_threads` | yes | **Kept, name and last-message preview removed** | Conversations between a freelancer and an agency, one per spec: the other person keeps the conversation. |
+| `pool_messages` | yes | Messages you wrote: **kept, text removed**; the other person's messages: kept as is | Messages in those conversations. The export holds both sides of your own conversations, as you see them in the app. |
 | `billing` | yes | Kept as is | Plan, credits, purchase history (financial record, no personal text). |
 | `subscriptions` | yes | Kept as is | Stripe subscription state (off until Stripe is configured). |
 | `pay_links` | yes | **Kept, name removed** | Invoice pay links (financial record). |
@@ -95,6 +97,16 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `bank_accounts` | yes | **Deleted** | Simulated bank account details. |
 | `bank_transfers` | yes | **Kept, name removed** | Simulated transfers (ledger consistency). |
 | `financing_applications` | yes | **Kept, name removed** | Simulated financing applications. |
+| `credit_contributions` | yes | **Kept, name removed** | Simulated contributions to the AutoGig demo credit pool (ledger consistency). |
+| `credit_applications` | yes | **Kept, name removed** | Simulated project-credit applications; the title, description and applicant contact fields are replaced. |
+| `credit_agreements` | yes | **Kept, name removed** | Simulated credit agreements and their repayment schedule (ledger consistency). |
+| `credit_documents` | yes (metadata only; file contents are never exported) | **Deleted** | Private supporting documents uploaded with a credit application (PDF/PNG/JPEG, 3 per application, 2 MB each). |
+
+Credit document bytes are stored in MongoDB, limited by size/type and applicant/owner access. Downloads are forced attachments
+with no-store, sandbox, same-origin resource policy, and no-index headers. The demo UI warns users not to upload real identity
+or bank documents. There is no malware scanner or application-level document encryption; do not collect real sensitive files
+until the client has chosen storage, scanning, encryption, retention, and incident-response policies.
+| `credit_audit` | yes | **Kept** | Append-only audit trail of credit actions: ids and amounts only, no personal text. |
 | `terms_acceptances` | yes | Kept as is | Proof of which Terms/Privacy version was accepted and when (no personal content). |
 | `data_requests` | yes | Kept as is | Audit trail of export/deletion requests (counts, no content). |
 | `rate_limits` | no | Not personal data | Request counters keyed by network address, not by user; each expires about two minutes after its window. Not linkable to an account. |
@@ -102,7 +114,8 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `revoked_sessions` | no | Not personal data | Revoked session ids; expire on their own. |
 | `oauth_states` | no | Not personal data | Single-use sign-in state; expires on its own. |
 | `oauth_handoffs` | no | Not personal data | Single-use sign-in handoff; expires on its own. |
-| `app_state` | no | Not personal data | Legacy single shared document; archived at startup if present. |
+| `oauth_signup_proofs` | no | Hashed email binding and signup proof | Single use and automatic expiry after 15 minutes. |
+| `app_state` | no | Not personal data | Legacy single shared document; retained until an explicit migration. |
 | `app_state_backup` | no | Not personal data | Archive of the legacy shared document: mixed data of every user from before per-user storage. The owner must review and drop it (docs/data-lifecycle.md). |
 
 ## Not covered by the app (operator tasks)

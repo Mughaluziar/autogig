@@ -79,6 +79,18 @@ add("Security", "backend has server-side auth on data routes", /Depends\((curren
   add("Truthfulness", "no stealth / concealment mode anywhere in the product", hits.length === 0, hits.join("\n    "));
 }
 
+// 4c. Funding prototype guard rails: wallet code is read-only, and no screen uses return-promising language.
+{
+  const files = [...walk(path.join(root, "components/credit")), path.join(root, "lib/wallets.ts"), path.join(root, "lib/credit.ts"),
+    ...walk(path.join(root, "app/investor/credit")), ...walk(path.join(root, "app/freelancer/credit")), ...walk(path.join(root, "app/dashboard/credit"))].filter((f) => /\.tsx?$/.test(f));
+  const signRe = /personal_sign|eth_sign\b|eth_signTypedData|eth_sendTransaction|eth_signTransaction|wallet_(switch|add)Ethereum|wallet_watchAsset|wallet_requestPermissions|\bsignMessage\b|\bsendTransaction\b|mnemonic|seed ?phrase\s*[:=]|privateKey/;
+  const signHits = files.filter((f) => signRe.test(fs.readFileSync(f, "utf8"))).map(rel);
+  add("Funding prototype", "wallet code can only read an address and chain: no signing, transactions or key/seed handling", signHits.length === 0, signHits.join("\n    "));
+  const promiseRe = /\b(APY|APR|risk[- ]free|passive income|expected returns?|projected (returns?|yield)|guaranteed (returns?|profit|yield|income)|earn up to|double your)\b/i;
+  const wordHits = files.filter((f) => promiseRe.test(fs.readFileSync(f, "utf8"))).map(rel);
+  add("Funding prototype", "no return-promising language on the credit and investor screens", wordHits.length === 0, wordHits.join("\n    "));
+}
+
 // 5. SEO / legal / ops files
 for (const [p, label, lvl] of [
   ["app/robots.ts", "robots.txt", "FAIL"], ["app/sitemap.ts", "sitemap.xml", "FAIL"], ["app/icon.svg", "favicon/icon", "WARN"],

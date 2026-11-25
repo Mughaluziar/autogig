@@ -39,6 +39,7 @@ _MAX_SETTINGS_FIELDS = 40
 _SERVER_OWNED_SETTINGS = frozenset({
     "nangoConnections", "inboundEmailToken", "inboundTokenHash", "composioSessionId",
     "outlookInboxLastSyncAt", "radarNotifiedJobIds", "bidRules",
+    "radarRecentJobs", "radarWatchedBoards", "radarSavedJobs", "radarSavedSearches", "skillProfile",
 })
 
 

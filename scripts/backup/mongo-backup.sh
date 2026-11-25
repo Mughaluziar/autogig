@@ -1,30 +1,35 @@
 #!/usr/bin/env bash
-# Logical backup of the Autopilot MongoDB database to a compressed archive.
-#
-#   MONGODB_URI=... MONGODB_DB=autopilot BACKUP_DIR=/var/backups/autopilot ./mongo-backup.sh
-#
-# Keeps the newest $KEEP archives (default 14). The URI is read from the
-# environment only and is never echoed. Needs `mongodump` (MongoDB Database
-# Tools); override the command with MONGODUMP="docker run --rm --network host
-# -v $PWD:/out mongo:7 mongodump" if it is not installed.
+# Logical backup to a private compressed archive. Set MONGODB_URI and MONGODB_DB.
 set -euo pipefail
+source "$(dirname "$0")/mongo-tools.sh"
 
 : "${MONGODB_URI:?MONGODB_URI is required}"
 DB="${MONGODB_DB:-autopilot}"
 DIR="${BACKUP_DIR:-./backups}"
 KEEP="${KEEP:-14}"
-DUMP="${MONGODUMP:-mongodump}"
+read -r -a dump <<< "${MONGODUMP:-mongodump}"
+mongo_db_name "$DB"
+if [[ ! "$KEEP" =~ ^[1-9][0-9]{0,5}$ ]]; then
+  echo "KEEP must be a positive integer." >&2
+  exit 2
+fi
 
-mkdir -p "$DIR"
-stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-out="$DIR/${DB}-${stamp}.archive.gz"
+mkdir -p -- "$DIR"
+mongo_tools_config
+stamp="$(date -u +%Y%m%dT%H%M%S%NZ)"
+temporary="$(mktemp "$DIR/.autogig-backup.XXXXXXXX")"
+out="$DIR/$DB-$stamp-${temporary##*.}.archive.gz"
+log="$(mktemp "$DIR/.autogig-dump.XXXXXXXX.log")"
+if ! "${dump[@]}" --config="$mongo_config" --db="$DB" --gzip --archive >"$temporary" 2>"$log" || [[ ! -s "$temporary" ]]; then
+  rm -f -- "$temporary"
+  echo "Backup failed. Private log: $log" >&2
+  exit 1
+fi
+mv -- "$temporary" "$out"
+rm -f -- "$log"
+printf '%s\n' "$out"
 
-# --uri carries credentials; keep it out of `set -x` traces and process output.
-$DUMP --uri="$MONGODB_URI" --db="$DB" --gzip --archive="$out" >/dev/null 2>"$DIR/.last-backup.log" || {
-  echo "backup FAILED (see $DIR/.last-backup.log)" >&2; rm -f "$out"; exit 1; }
-
-[ -s "$out" ] || { echo "backup FAILED: empty archive" >&2; rm -f "$out"; exit 1; }
-echo "backup ok: $out ($(du -h "$out" | cut -f1))"
-
-# Retention: delete everything but the newest $KEEP archives for this database.
-ls -1t "$DIR/${DB}-"*.archive.gz 2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm -f --
+mapfile -d '' -t archives < <(find "$DIR" -maxdepth 1 -type f -name "$DB-*.archive.gz" -print0 | sort -zr)
+for stale in "${archives[@]:KEEP}"; do
+  rm -f -- "$stale"
+done

@@ -24,8 +24,8 @@ const under = (path: string, prefix: string) => path === prefix || path.startsWi
 
 /** Simulated money modules (Banking, Marketplace, Capital, Token): the server may restrict them to invited accounts. */
 export const SIMULATED_PREFIXES = [
-  "/dashboard/banking", "/dashboard/marketplace", "/dashboard/capital",
-  "/investor",
+  "/dashboard/banking", "/dashboard/marketplace", "/dashboard/capital", "/dashboard/credit",
+  "/freelancer/credit", "/investor",
 ];
 export const isSimulatedPath = (pathname: string) => !under(pathname, "/investor/your-data") && SIMULATED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 

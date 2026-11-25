@@ -1,5 +1,25 @@
 # Implementation report (live)
 
+## Final credential-free code pass (2026-11-23)
+
+- Recovered interrupted freelancer-pool awards and approved earnings with idempotent repair and unique MongoDB
+  indexes. Bid rates and milestones now reject fractional-cent amounts. Job Radar retains a private, expiring
+  recent-listing snapshot in MongoDB. The generic settings endpoint cannot overwrite Radar's validated fields.
+  The dashboard search now navigates to matching pages for the signed-in role.
+- Focused backend tests: pool **12 passed** in memory and **12 passed** on disposable MongoDB; pool/Radar/settings
+  **51 passed, 1 skipped** in memory and **52 passed** on disposable MongoDB. Each run emitted the same five
+  framework deprecation warnings, with no application warnings or failures. The final pool runs cover the last
+  fractional-cent change. Earlier complete suites remain **702 passed, 9 skipped** in memory and **700 passed,
+  6 skipped** on disposable MongoDB. Redundant full reruns were stopped at the owner's request, so those earlier
+  counts must not be represented as a complete run of this final tree.
+- Frontend typecheck, lint, and production build passed. Static QA: **26 pass, 3 warn, 0 fail** (handler heuristic,
+  confirmed-payment toast wording, missing social preview image). Deploy/privacy tests: **13 passed**. Production
+  dependency audit: **0 advisories**. The correctly configured signed-proxy Chromium auth/Upwork scope passed
+  **72/72**; a separate Chromium check passed role-scoped topbar search. The first browser attempt was invalid
+  because its frontend build lacked `BACKEND_API_URL`; it was rebuilt with the disposable API and rerun.
+- No hosted integration was exercised. Atlas, Resend, Groq and inbound email still need client credentials and
+  staging checks. Fahim's Billing and Inbox/Messaging files were not changed.
+
 Last updated: 2026-11-14. Git: `git log --oneline`; the untouched original is tag `baseline-as-received` (`git diff baseline-as-received` shows everything changed).
 Status words: **DONE** = implemented and verified as stated · **PARTIAL** = implemented, part not verified · **PENDING** = not started or not finished · **BLOCKED** = needs a decision, credentials or approval from outside.
 "Verified" always says how. Nothing here claims a real third-party service works unless it says it was tested with real credentials; **none were**.
@@ -388,3 +408,65 @@ New in this pass: `tests/test_route_auth_sweep.py` (security regression), `docs/
 **Insurance:** the "protection fund" is a simulated ledger feature, explicitly "not insurance". Its workflows are tested (`test_capital.py`, 16 tests) and pass; this does not verify any real insurance, insurer, premium collection or payout.
 
 Security review notes (no new defects found; nothing weakened): API-key edge exemption is safe (any `apk_` credential is fully authenticated by `ApiKeyMiddleware`, an invalid one is a 401 even with a valid cookie; `test_edge.py` line 118); edge nonce store fails open if MongoDB errors (logged, residual risk already listed); `/health` and the reviewed public list are the only anonymous routes.
+
+## Fifth pass: AutoGig funding prototype and requirement re-audit (2026-11-16, branch `w/requirements`, from `e774a37`)
+Local only: nothing pushed, deployed, purchased or connected to a real service. **Everything financial here is simulated.** The platform is **not production-ready**.
+
+**Added:** `backend/app/credit/` + `routers/credit.py` (simulated project-credit workflow on the existing integer-cent ledger: demo contributions, applications, owner review and offers, acceptance, repayment schedule and repayments, late/default write-off, treasury with ledger check, append-only audit), `lib/wallets.ts` (EIP-6963 discovery, read-only), `lib/credit.ts`, `components/credit/*`, pages `/investor/credit`, `/freelancer/credit`, `/dashboard/credit`, `/dashboard/credit/admin`, data-map and deletion-blocker entries, `tests/test_credit.py` (24 tests), `tests/test_route_auth_sweep.py` (22), browser group `credit` (22 checks).
+**Documents:** `docs/autogig-funding-requirements.md`, `autogig-architecture.md`, `autogig-tokenomics-proposal.md`, `autogig-credit-workflow.md`, `autogig-investor-workflow.md`, `autogig-security-review.md`, `autogig-two-week-mvp-plan.md`, `open-source-evaluation.md`, `crypto-token-feasibility.md`; `requirements-checklist.md` section H.
+
+**Defects found and fixed in this pass:** offer/repay dialogs were rendered inside a blurred Card, so the card header covered them (found by the browser test, fixed by moving dialogs out of cards); two simultaneous applications could race past the "one open application" pre-check (now a unique partial index plus the same rule in memory mode); my own wrong expected values in a unit test and an e2e check (fee-first repayment) were corrected from hand arithmetic, not loosened.
+
+**Final results on this branch's tree**
+| Check | Result |
+|---|---|
+| Backend, memory mode (`pytest -q`) | **644 passed, 8 skipped, 0 failed** |
+| Backend, real MongoDB 7 (`TEST_MONGODB_URI=mongodb://127.0.0.1:27018 pytest -q`) | **646 passed, 6 skipped, 0 failed** (63 min) |
+| Chromium e2e (real MongoDB + API, edge proof enforced) | **292/292** on the final run. Earlier runs on this branch: 286/287 (dialog bug above), 291/292 (wrong expected value above) |
+| Frontend | typecheck pass; lint 0 errors, 1 existing warning; `npm run qa` 24 pass / 3 warn / 0 fail; `test:deploy-guards` 12 pass; production build compiled (before the final e2e-only and docs commits) |
+| Audits | `npm audit --omit=dev` 0; `npm audit` 6 moderate (dev tooling); `pip-audit` none; `actionlint` none |
+Skipped tests: memory mode 8 (Mongo-only tests and the local-chain test); Mongo mode 6 (five tests that inspect in-memory storage, and the local-chain test). Not run: the local-chain end-to-end (`contracts/scripts/e2e-local.sh`) because nothing in this pass changed contracts or token code.
+No dependency was added.
+
+## Sixth pass: demo-readiness hardening of the simulated AutoGig prototype (2026-11-16, branch `w/requirements`, from `bb7ed16`)
+Local only; nothing pushed, deployed or purchased; nothing real: no token, deposit, credit, return or insurance. **Not production-ready, and not independently audited.**
+
+**Changed**
+1. **Race fixed:** offers now reserve money as a ledger entry (`credit:cash` to `credit:reserved`) whose balance check runs inside the ledger's serialised write section, so overlapping approvals cannot over-commit; release/disbursement use fixed idempotent keys; crash repair in the job pass. Mutation-tested (removing the check fails the concurrent test: 5 offers instead of 2).
+2. **Scheduled jobs:** hourly idempotent pass started with the API (`CREDIT_JOBS_RUNNER`, off in tests), safe if several instances run it; one bad record cannot stop it.
+3. **Documents:** external links removed; private uploads (PDF/PNG/JPEG by magic bytes, 3 per application, 2 MB), applicant/owner only, forced sandboxed download with a generated name, owner views audited, deleted with the account. No malware scanning (documented).
+4. **Tests added:** `test_credit_concurrency.py` (14), `test_credit_jobs.py` (6), `test_credit_documents.py` (7) plus updates to `test_credit.py`; they run in both storage modes.
+5. **Screens:** reviewed in the browser at desktop and 390 px (screenshots from the suite). Found and fixed: duplicate full-height banners on a phone (notice shortened), figure cards that could be screenshotted without a demo marker (each now has a "Demo" tag).
+6. **Wallet:** the page only calls `eth_requestAccounts` and `eth_chainId`; the unused signing helper was removed; a build rule (`npm run qa`) fails on any signing/transaction/key code in the credit and wallet files, and the browser test records every wallet call. The older token program (off by default) still has its own message-signing step for linking a wallet; it never sends a transaction.
+7. **Wording:** public landing and capital screens no longer say orders are "insured" or that you "still get paid"; they say "order protection", "may cover/reimburse after review", labelled "Simulated demo". "Not FDIC insured" and "not a licensed insurer" disclaimers untouched. A build rule rejects return-promising words on the credit screens.
+8. **Docs:** `autogig-demo-checklist.md` (new), credit workflow, architecture, security review, funding requirements, data lifecycle.
+
+**Final results on this tree (commit below)**
+| Check | Result |
+|---|---|
+| Backend, memory mode | **673 passed, 8 skipped, 0 failed** |
+| Backend, real MongoDB 7 | **675 passed, 6 skipped, 0 failed** (78 min) |
+| Chromium e2e (real MongoDB + API, edge proof enforced) | **301/301** on the final build (earlier runs this pass: 300/300 before the last UI tweak) |
+| Typecheck / lint / `npm run qa` / deploy guards | pass / 0 errors, 1 old warning / 26 pass, 3 warn, 0 fail / 12 pass |
+| Production build | compiled, run after the last code change |
+| `npm audit --omit=dev` / `npm audit` / `pip-audit` / `actionlint` | 0 / 6 moderate (dev tooling) / clean / clean |
+Skips are the Mongo-only tests in memory mode, five memory-inspection tests in Mongo mode, and the local-chain test (not run: no contract or token code changed). Nothing was weakened or skipped to pass.
+
+## Credential-free release readiness (2026-11-23)
+
+- Full backend regression runs passed in memory (**702 passed, 9 skipped**) and on disposable MongoDB (**700 passed,
+  6 skipped**). Focused MongoDB credit, restart and configuration checks passed (**91**). Focused provider/startup
+  (**48**) and edge/session/route (**67**) suites cover the subsequent configuration and replay-store changes.
+- Frontend typecheck, lint, production build and all **13** deploy/edge/privacy tests passed. Static QA reported **26
+  passes, 3 warnings, 0 failures**. The 145-route local Chromium crawl found no unexpected HTTP or page errors.
+- The first complete browser workflow run recorded **292 passes and 7 failures**. Six failures came from signup and
+  Upwork fixture or timing issues, and the credit case used a heading selector for text rendered as a card title.
+  The corrected auth/Upwork rerun passed **72 of 72**, and the isolated tablet retest passed the injected outage,
+  Retry and viewport checks. The Groq response and alert emails were synthetic. The local signed proxy rejected
+  unsigned API calls.
+- A live local MongoDB backup/restore drill matched both fixture documents and both indexes. The restore command
+  refused to overwrite a populated scratch database by default. A local production-mode startup reported
+  `database: "ok"` and returned 503 for signup with no mail provider. Production npm audit reported zero advisories.
+- Billing and Inbox/Messaging remain Fahim's work. The [deployment runbook](docs/deployment-runbook.md#approval-gates-and-client-acceptance)
+  records external credentials, staged validation, volatile-data preservation, acceptance and rollback gates.
+  No hosted environment changed.

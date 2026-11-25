@@ -54,7 +54,7 @@ export function Hero({ platformCount }: { platformCount: number }) {
           <div className="mt-8 grid grid-cols-1 gap-2 text-left sm:grid-cols-2 lg:max-w-xl">
             <Link href="#insurance" data-cta="hero-insurance-chip" className="group flex items-center gap-3 rounded-xl border bg-card/80 p-3 text-sm shadow-sm backdrop-blur transition hover:border-primary/50">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 text-white"><ShieldCheck className="size-4" /></span>
-              <span className="min-w-0"><span className="block font-semibold">Insure new orders</span><span className="block text-xs text-muted-foreground">Up to 80% back if cancelled</span></span>
+              <span className="min-w-0"><span className="block font-semibold">Protect new orders</span><span className="block text-xs text-muted-foreground">Up to 80% back if cancelled</span></span>
             </Link>
             <Link href="#cards" data-cta="hero-cards-chip" className="group flex items-center gap-3 rounded-xl border bg-card/80 p-3 text-sm shadow-sm backdrop-blur transition hover:border-primary/50">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-fuchsia-500 to-primary text-white"><CreditCard className="size-4" /></span>
