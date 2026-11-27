@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,14 +13,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { apiCall } from "@/lib/api";
 import { pct, toCents, usd } from "@/lib/capital";
-import { AGREEMENT_LABELS, APP_LABELS, documentUrl, useCredit, type CreditApplication } from "@/lib/credit";
+import { AGREEMENT_LABELS, APP_LABELS, WITHDRAWAL_LABELS, documentUrl, useCredit, type CreditApplication, type Withdrawal } from "@/lib/credit";
 import { apiUrl } from "@/lib/api";
 import { Gate, SimNotice, Stat, dateOnly } from "@/components/credit/common";
 
 type Detail = { detail?: string };
 
 export function CreditAdmin() {
-  const { treasury: t, adminApps, adminAgreements, audit, loaded, denied, failed, refresh } = useCredit({ admin: true });
+  const { treasury: t, adminApps, adminAgreements, adminWithdrawals, audit, loaded, denied, failed, refresh } = useCredit({ admin: true });
   const { toast } = useToast();
   const [reviewing, setReviewing] = React.useState<CreditApplication | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -28,7 +29,7 @@ export function CreditAdmin() {
     const res = await apiCall<Detail & Record<string, number>>("/api/credit/admin/run-jobs");
     setBusy(false);
     if (!res || res.status >= 400) return toast({ title: "Jobs did not run", description: res?.data?.detail ?? "Can't reach the server." });
-    toast({ title: "Jobs finished", description: `${res.data.late} late, ${res.data.defaulted} defaulted, ${res.data.expiredOffers} offers expired.`, variant: "success" });
+    toast({ title: "Jobs finished", description: `${res.data.late} late, ${res.data.defaulted} defaulted, ${res.data.expiredOffers} offers expired, ${res.data.reminders ?? 0} reminders sent.`, variant: "success" });
     refresh();
   };
   return (
@@ -46,7 +47,8 @@ export function CreditAdmin() {
             <Stat label="Disbursed in total" value={usd(t.disbursedCents)} />
             <Stat label="Ledger check" value={t.ledgerCheck ? "Balanced" : "MISMATCH"} tone={t.ledgerCheck ? "good" : "bad"} hint="Cash and credit agree with the journal" />
           </section>
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <Link href="/dashboard/treasury" className="text-sm font-medium text-primary underline-offset-4 hover:underline">All-program treasury and reports</Link>
             <Button variant="outline" size="sm" disabled={busy} onClick={() => void runJobs()}>{busy && <Loader2 className="animate-spin" />} Run late / default checks</Button>
           </div>
           <Card>
@@ -70,6 +72,7 @@ export function CreditAdmin() {
               )}
             </CardContent>
           </Card>
+          <WithdrawalQueue rows={adminWithdrawals} available={t.availableCents} onDone={refresh} />
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">Agreements</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
@@ -103,6 +106,70 @@ export function CreditAdmin() {
         </div>
       )}
     </Gate>
+  );
+}
+
+/** Contributors' requests for simulated contributions back. Paying one moves free pool cash only (never reserved funds). */
+function WithdrawalQueue({ rows, available, onDone }: { rows: Withdrawal[]; available: number; onDone: () => void }) {
+  const { toast } = useToast();
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [notes, setNotes] = React.useState<Record<string, string>>({});
+  const decide = async (w: Withdrawal, approve: boolean) => {
+    setBusy(`${w.id}:${approve}`);
+    const res = await apiCall<Detail>(`/api/credit/admin/withdrawals/${encodeURIComponent(w.id)}`, { approve, note: notes[w.id] ?? "" });
+    setBusy(null);
+    if (!res || res.status >= 400) return toast({ title: approve ? "Not paid" : "Not declined", description: res?.data?.detail ?? "Can't reach the server." });
+    toast({ title: approve ? "Withdrawal paid (simulated)" : "Withdrawal declined", variant: approve ? "success" : undefined });
+    onDone();
+  };
+  const open = rows.filter((w) => w.status === "requested" || w.status === "paying");
+  const recent = rows.filter((w) => !open.includes(w)).slice(0, 10);
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Contribution withdrawals ({open.length} waiting)</CardTitle>
+        <CardDescription>{usd(available)} is free to pay out now. Requests wait while cash is out in credit or set aside for offers.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? <p className="text-sm text-muted-foreground">No withdrawal requests.</p> : (
+          <ul className="divide-y">
+            {[...open, ...recent].map((w) => (
+              <li key={w.id} className="flex flex-col gap-2 py-3 text-sm lg:flex-row lg:items-center">
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-2 font-medium">
+                    {usd(w.amountCents)} <Badge variant={WITHDRAWAL_LABELS[w.status].variant}>{WITHDRAWAL_LABELS[w.status].label}</Badge>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {dateOnly(w.createdAt)} · contributor {w.contributorId?.slice(0, 8)}
+                    {w.position && ` · may withdraw ${usd(w.position.withdrawableCents)} (net ${usd(w.position.netCents)}, loss share ${usd(w.position.lossShareCents)})`}
+                    {w.note && ` · “${w.note}”`}
+                  </p>
+                </div>
+                {(w.status === "requested" || w.status === "paying") && (
+                  <>
+                    {w.status === "requested" && (
+                      <Input className="lg:max-w-56" placeholder="Note (optional)" value={notes[w.id] ?? ""} aria-label="Review note"
+                        onChange={(e) => setNotes((n) => ({ ...n, [w.id]: e.target.value }))} />
+                    )}
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={busy !== null || (w.status === "requested" && w.amountCents > available)} onClick={() => void decide(w, true)}
+                        title={w.amountCents > available ? "Not enough free cash in the pool yet" : undefined}>
+                        {busy === `${w.id}:true` && <Loader2 className="animate-spin" />} {w.status === "paying" ? "Finish payment" : "Approve & pay"}
+                      </Button>
+                      {w.status === "requested" && (
+                        <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void decide(w, false)}>
+                          {busy === `${w.id}:false` && <Loader2 className="animate-spin" />} Decline
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

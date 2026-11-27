@@ -243,10 +243,24 @@ async def investor_position(user_id: str) -> dict:
             "settlement": ledger.SETTLEMENT}
 
 
-async def deposit(user_id: str, amount_cents: int, idem: str) -> dict:
+# Pool money that came from, or went back to, a member's Autopilot balance. The pool's own accounts stay
+# self-balancing; this clearing account carries the other side, like clearing:advance_payouts.
+POOL_FUNDING = "clearing:pool_funding"
+FUNDING_SOURCES = ("external", "wallet")
+
+
+def _wallet(user_id: str) -> str:
+    return f"wallet:{user_id}"  # same account as market.wallet (market imports this module, so not imported here)
+
+
+async def deposit(user_id: str, amount_cents: int, idem: str, source: str = "external") -> dict:
+    """Buy pool shares. `source="wallet"` pays from the Autopilot USD balance (checked inside the ledger's
+    serialised write, so it can't overdraw); "external" is a deposit from outside, as before."""
     reasons = investor_check(await get_profile(user_id))
     if reasons:
         raise CapitalError("You can't invest yet.", 403, reasons)
+    if source not in FUNDING_SOURCES:
+        raise CapitalError("Pay from your Autopilot balance or from outside.")
     if not MIN_DEPOSIT_CENTS <= amount_cents <= MAX_DEPOSIT_CENTS:
         raise CapitalError(f"Deposits must be between ${MIN_DEPOSIT_CENTS / 100:,.0f} and ${MAX_DEPOSIT_CENTS / 100:,.0f}.")
 
@@ -254,19 +268,33 @@ async def deposit(user_id: str, amount_cents: int, idem: str) -> dict:
         minted = ledger.shares_for_deposit(bal, amount_cents)
         if minted <= 0:
             raise LedgerRejected("The deposit is too small to buy a share at the current price.")
-        return [line("pool:cash", amount_cents), line("pool:capital", -amount_cents),
-                line(f"shares:{user_id}", minted, "SHARE"), line("shares:issued", -minted, "SHARE")]
+        out = [line("pool:cash", amount_cents), line("pool:capital", -amount_cents),
+               line(f"shares:{user_id}", minted, "SHARE"), line("shares:issued", -minted, "SHARE")]
+        if source == "wallet":
+            out += [line(_wallet(user_id), -amount_cents), line(POOL_FUNDING, amount_cents)]
+        return out
 
-    entry = await ledger.post("investor_deposit", lines, memo=f"Investor deposit {amount_cents / 100:,.2f} USD",
-                              refs={"user_id": user_id}, idem=f"deposit:{user_id}:{idem}")
+    def check(after: dict) -> None:
+        if source == "wallet" and ledger.usd(after, _wallet(user_id)) < 0:
+            raise LedgerRejected("Not enough in your Autopilot balance. Add money in Banking first.")
+
+    try:
+        entry = await ledger.post("investor_deposit", lines, memo=f"Investor deposit {amount_cents / 100:,.2f} USD"
+                                  + (" from your Autopilot balance" if source == "wallet" else ""),
+                                  refs={"user_id": user_id}, idem=f"deposit:{user_id}:{idem}", check=check)
+    except LedgerRejected as exc:
+        raise CapitalError(str(exc), 409)
     await repo.log_activity(user_id, "Capital", f"Deposited ${amount_cents / 100:,.2f} into the pool (simulated)")
     return entry
 
 
-async def withdraw(user_id: str, amount_cents: int | None, idem: str) -> dict:
+async def withdraw(user_id: str, amount_cents: int | None, idem: str, destination: str = "external") -> dict:
+    """Redeem pool shares. `destination="wallet"` pays into the Autopilot USD balance."""
     profile = await get_profile(user_id)
     if profile["kyc"].get("status") != "verified":
         raise CapitalError("Identity verification is required to withdraw.", 403)
+    if destination not in FUNDING_SOURCES:
+        raise CapitalError("Withdraw to your Autopilot balance or to outside.")
 
     def lines(bal: dict) -> list[dict]:
         held = ledger.shares(bal, f"shares:{user_id}")
@@ -276,8 +304,11 @@ async def withdraw(user_id: str, amount_cents: int | None, idem: str) -> dict:
         burn = min(ledger.shares_to_burn(bal, amount), held) if amount_cents is None else ledger.shares_to_burn(bal, amount)
         if burn > held:
             raise LedgerRejected("That's more than your position is worth.")
-        return [line("pool:cash", -amount), line("pool:capital", amount),
-                line(f"shares:{user_id}", -burn, "SHARE"), line("shares:issued", burn, "SHARE")]
+        out = [line("pool:cash", -amount), line("pool:capital", amount),
+               line(f"shares:{user_id}", -burn, "SHARE"), line("shares:issued", burn, "SHARE")]
+        if destination == "wallet":
+            out += [line(_wallet(user_id), amount), line(POOL_FUNDING, -amount)]
+        return out
 
     def check(after: dict) -> None:
         if ledger.usd(after, "pool:cash") < 0:
@@ -286,8 +317,9 @@ async def withdraw(user_id: str, amount_cents: int | None, idem: str) -> dict:
         if ledger.shares(after, f"shares:{user_id}") < 0:
             raise LedgerRejected("That's more than your position is worth.")
 
-    entry = await ledger.post("investor_withdrawal", lines, memo="Investor withdrawal", refs={"user_id": user_id},
-                              idem=f"withdraw:{user_id}:{idem}", check=check)
+    entry = await ledger.post("investor_withdrawal", lines,
+                              memo="Investor withdrawal" + (" to your Autopilot balance" if destination == "wallet" else ""),
+                              refs={"user_id": user_id}, idem=f"withdraw:{user_id}:{idem}", check=check)
     paid = sum(l["amount"] for l in entry["lines"] if l["account"] == "pool:capital")
     await repo.log_activity(user_id, "Capital", f"Withdrew ${paid / 100:,.2f} from the pool (simulated)")
     return entry

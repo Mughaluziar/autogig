@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/dashboard/data-table";
 import { apiGet, apiPost } from "@/lib/api";
 import { PlatformMatrix } from "@/components/dashboard/platform-matrix";
+import { StripeReadinessCard } from "@/components/dashboard/stripe-readiness";
 import { useEntity } from "@/lib/use-entity";
 import { useDemoStore } from "@/lib/demo-store";
 import { useToast } from "@/components/ui/toast";
@@ -32,7 +33,7 @@ export default function IntegrationsPage() {
   const { toast } = useToast();
   const demo = useDemoStore();
   // Connections, Voice and QA & Delivery only have demo data behind them: hidden for real accounts.
-  const { demoMode } = useAuth();
+  const { demoMode, user } = useAuth();
   const integrations = useEntity("integrations", integrationsSeed);
   const voiceCalls = useEntity("voice-calls", voiceSeed);
   const qaRuns = useEntity("qa-runs", qaSeed);
@@ -76,6 +77,9 @@ export default function IntegrationsPage() {
         title="Integrations"
         description={demoMode ? `${connected}/${integrations.length} connected — plus voice, QA and activity in one hub.` : "What this server can do today, how to migrate your setup, and your recent activity."}
       />
+
+      {/* Platform owners only (the endpoints refuse everyone else); needs the real backend. */}
+      {user?.owner && !demoMode && <StripeReadinessCard />}
 
       <Card className="mb-6">
         <CardHeader>

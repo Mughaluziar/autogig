@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import Link from "next/link";
 import { Loader2, Play } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -136,7 +137,10 @@ export function OperatorPanel({ onChanged }: { onChanged: () => void }) {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Ledger</CardTitle>
-          <CardDescription>Double-entry and append-only. Every entry is marked simulated.</CardDescription>
+          <CardDescription>
+            Double-entry and append-only. Every entry is marked simulated.{" "}
+            <Link href="/dashboard/treasury" className="font-medium text-primary underline-offset-4 hover:underline">Treasury, integrity checks and reports</Link>
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-2">
           <dl className="space-y-1 text-sm">

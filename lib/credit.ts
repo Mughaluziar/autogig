@@ -52,9 +52,20 @@ export type CreditAgreement = {
   schedule: Installment[]; repayments: { id: string; amountCents: number; at: string }[]; openCents: number; principalOpenCents: number;
   writtenOffCents: number; acceptedAt: string; applicantId?: string;
 };
+export type WithdrawalStatus = "requested" | "paying" | "paid" | "declined" | "cancelled";
+export type Withdrawal = {
+  id: string; amountCents: number; status: WithdrawalStatus; note?: string | null; reviewNote?: string | null; createdAt: string;
+  paidAt?: string; decidedAt?: string; contributorId?: string;
+  position?: { netCents: number; lossShareCents: number; withdrawableCents: number; poolAvailableCents: number };
+};
 export type Statement = {
   notice: string; contributedCents: number; poolContributionsCents: number; shareBps: number; attributedFeesCents: number;
   attributedLossesCents: number; simulatedNetCents: number; contributions: { id: string; amountCents: number; createdAt: string }[];
+  withdrawnCents: number; netContributedCents: number; withdrawableCents: number; pendingWithdrawalCents: number; withdrawals: Withdrawal[];
+};
+export const WITHDRAWAL_LABELS: Record<WithdrawalStatus, { label: string; variant: "success" | "warning" | "destructive" | "secondary" | "default" }> = {
+  requested: { label: "Waiting for review", variant: "warning" }, paying: { label: "Being paid", variant: "default" },
+  paid: { label: "Paid", variant: "success" }, declined: { label: "Declined", variant: "destructive" }, cancelled: { label: "Cancelled", variant: "secondary" },
 };
 export type Allocation = { reference: string; grade: string; principalCents: number; status: AgreementStatus; fundedAt: string; repaidCents: number };
 export type AuditRow = { id: string; action: string; subjectType: string; subjectId: string; actorRole: string; actorId: string; detail: Record<string, unknown>; createdAt: string };
@@ -84,8 +95,10 @@ export function useCredit(opts: { borrower?: boolean; investor?: boolean; admin?
   const [tick, setTick] = React.useState(0);
   const [state, setState] = React.useState<{
     overview: CreditOverview | null; applications: CreditApplication[]; agreements: CreditAgreement[]; statement: Statement | null;
-    allocations: Allocation[]; adminApps: CreditApplication[]; adminAgreements: CreditAgreement[]; treasury: Pool | null; audit: AuditRow[]; loaded: boolean; denied: boolean; failed: boolean;
-  }>({ overview: null, applications: [], agreements: [], statement: null, allocations: [], adminApps: [], adminAgreements: [], treasury: null, audit: [], loaded: !API_URL, denied: false, failed: false });
+    allocations: Allocation[]; adminApps: CreditApplication[]; adminAgreements: CreditAgreement[]; treasury: Pool | null; audit: AuditRow[];
+    adminWithdrawals: Withdrawal[]; loaded: boolean; denied: boolean; failed: boolean;
+  }>({ overview: null, applications: [], agreements: [], statement: null, allocations: [], adminApps: [], adminAgreements: [], treasury: null, audit: [],
+    adminWithdrawals: [], loaded: !API_URL, denied: false, failed: false });
   const { borrower, investor, admin } = opts;
   React.useEffect(() => {
     if (!API_URL) return;
@@ -100,15 +113,16 @@ export function useCredit(opts: { borrower?: boolean; investor?: boolean; admin?
       admin ? readCredit<CreditAgreement[]>("/api/credit/admin/agreements") : Promise.resolve(null),
       admin ? readCredit<Pool>("/api/credit/admin/treasury") : Promise.resolve(null),
       admin ? readCredit<AuditRow[]>("/api/credit/admin/audit") : Promise.resolve(null),
-    ]).then(([overview, applications, agreements, statement, allocations, adminApps, adminAgreements, treasury, audit]) => {
+      admin ? readCredit<Withdrawal[]>("/api/credit/admin/withdrawals") : Promise.resolve(null),
+    ]).then(([overview, applications, agreements, statement, allocations, adminApps, adminAgreements, treasury, audit, adminWithdrawals]) => {
       if (cancelled) return;
-      const required = [overview, applications, agreements, statement, allocations, adminApps, adminAgreements, treasury, audit]
+      const required = [overview, applications, agreements, statement, allocations, adminApps, adminAgreements, treasury, audit, adminWithdrawals]
         .filter((result) => result !== null);
       setState({
         overview: overview.data,
         applications: applications?.data ?? [], agreements: agreements?.data ?? [], statement: statement?.data ?? null,
         allocations: allocations?.data?.allocations ?? [], adminApps: adminApps?.data ?? [], adminAgreements: adminAgreements?.data ?? [],
-        treasury: treasury?.data ?? null, audit: audit?.data ?? [],
+        treasury: treasury?.data ?? null, audit: audit?.data ?? [], adminWithdrawals: adminWithdrawals?.data ?? [],
         loaded: true, denied: required.some((result) => result.status === 403), failed: required.some((result) => result.data === null),
       });
     });

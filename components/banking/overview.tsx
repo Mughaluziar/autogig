@@ -2,11 +2,11 @@
 import * as React from "react";
 import Link from "next/link";
 import {
-  ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Building2, CreditCard, Landmark, Plus, Send, TrendingUp, Wallet,
+  ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Building2, CreditCard, Download, Landmark, Plus, Send, TrendingUp, Users, Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usd } from "@/lib/capital";
-import { TRANSFER_LABEL, useBankingOverview, type Transfer } from "@/lib/banking";
+import { TRANSFER_DIRECTION, TRANSFER_LABEL, USDC_KINDS, shortAddress, useBankingOverview, type Transfer } from "@/lib/banking";
 import { shortDate } from "@/lib/marketplace";
 import { cn } from "@/lib/utils";
 import { Figure, Frame, Loading, StatusPill } from "@/components/marketplace/common";
@@ -15,12 +15,21 @@ import { CardCountdown } from "./cards";
 
 export const TRANSFER_ICON: Record<Transfer["kind"], typeof Wallet> = {
   deposit: ArrowDownLeft, withdraw: ArrowUpRight, to_usdc: ArrowLeftRight, to_usd: ArrowLeftRight, crypto_send: Send,
+  crypto_receive: Download, internal_send: Users, internal_receive: Users,
 };
 
+function counterparty(t: Transfer): string {
+  if (t.counterpartyLabel) return t.kind === "internal_send" ? ` · to ${t.counterpartyLabel}` : ` · from ${t.counterpartyLabel}`;
+  if (t.walletLabel) return ` · ${t.walletLabel}`;
+  if (t.address) return ` · ${shortAddress(t.address)}`;
+  return t.bankLabel ? ` · ${t.bankLabel}` : "";
+}
+
 export function TransferRow({ t }: { t: Transfer }) {
-  const Icon = TRANSFER_ICON[t.kind];
-  const incoming = t.kind === "deposit";
-  const outgoing = t.kind === "withdraw" || t.kind === "crypto_send";
+  const Icon = TRANSFER_ICON[t.kind] ?? Wallet;
+  const direction = TRANSFER_DIRECTION[t.kind] ?? "move";
+  const incoming = direction === "in";
+  const outgoing = direction === "out";
   return (
     <li className="flex items-center gap-3 px-5 py-3">
       <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full",
@@ -28,12 +37,12 @@ export function TransferRow({ t }: { t: Transfer }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{TRANSFER_LABEL[t.kind]}</p>
         <p className="truncate text-xs text-muted-foreground">
-          {shortDate(t.createdAt)}{t.bankLabel ? ` · ${t.bankLabel}` : ""}{t.address ? ` · ${t.address.slice(0, 8)}…${t.address.slice(-4)}` : ""}
+          {shortDate(t.createdAt)}{counterparty(t)}{t.note ? ` · “${t.note}”` : ""}
         </p>
       </div>
       <div className="shrink-0 text-right">
         <p className={cn("text-sm font-semibold tabular-nums", incoming && "text-success", t.status === "failed" && "text-muted-foreground line-through")}>
-          {incoming ? "+" : outgoing ? "−" : ""}{usd(t.amountCents)}{t.kind === "to_usd" || t.kind === "crypto_send" ? " USDC" : ""}
+          {incoming ? "+" : outgoing ? "−" : ""}{usd(t.amountCents)}{USDC_KINDS.includes(t.kind) ? " USDC" : ""}
         </p>
         {t.status === "failed" && <StatusPill status="cancelled" />}
       </div>
@@ -66,6 +75,7 @@ export function BankingOverviewView({ base, marketBase, full }: { base: string; 
               <Button variant="outline" asChild><Link href={`${base}/transfers?kind=withdraw`}><ArrowUpRight /> Withdraw</Link></Button>
               <Button variant="outline" asChild><Link href={`${base}/transfers?kind=to_usdc`}><ArrowLeftRight /> Convert</Link></Button>
               <Button variant="outline" asChild><Link href={`${base}/transfers?kind=crypto_send`}><Send /> Send USDC</Link></Button>
+              <Button variant="outline" asChild><Link href={`${base}/transfers?kind=internal_send`}><Users /> Pay a member</Link></Button>
             </div>
           </section>
 
@@ -85,7 +95,10 @@ export function BankingOverviewView({ base, marketBase, full }: { base: string; 
             <section className="panel min-w-0 p-0">
               <div className="flex items-center justify-between border-b px-5 py-4">
                 <h3 className="font-semibold">Recent activity</h3>
-                <Link href={`${base}/statements`} className="text-xs font-medium text-primary hover:underline">Statements</Link>
+                <div className="flex gap-3">
+                  <Link href={`${base}/transactions`} className="text-xs font-medium text-primary hover:underline">All transactions</Link>
+                  <Link href={`${base}/statements`} className="text-xs font-medium text-primary hover:underline">Statements</Link>
+                </div>
               </div>
               {data.transfers.length === 0 ? (
                 <div className="px-5 py-10 text-center text-sm text-muted-foreground">
@@ -105,10 +118,19 @@ export function BankingOverviewView({ base, marketBase, full }: { base: string; 
                   <Link href={`${base}/cards`} className="group block overflow-hidden rounded-2xl border bg-gradient-to-br from-zinc-900 via-purple-900 to-fuchsia-800 p-5 text-white">
                     <div className="flex items-center justify-between">
                       <p className="flex items-center gap-2 font-semibold"><CreditCard className="size-4" /> Autopilot Cards</p>
-                      <span className="text-xs text-white/70 group-hover:text-white">Reserve →</span>
+                      <span className="text-xs text-white/70 group-hover:text-white">{data.card ? "Manage →" : "Get a card →"}</span>
                     </div>
-                    <p className="mt-1 text-xs text-white/70">Debit and credit cards built for gig income. Waitlist members first.</p>
-                    <div className="mt-4"><CardCountdown compact onDark /></div>
+                    {data.card ? (
+                      <p className="mt-1 text-xs text-white/70">
+                        Virtual debit ••{data.card.last4} · {data.card.status === "frozen" ? "Frozen" : "Active"} ·
+                        {" "}{usd(data.card.spentTodayCents)} of {usd(data.card.dailyLimitCents)} spent today (simulated)
+                      </p>
+                    ) : (
+                      <>
+                        <p className="mt-1 text-xs text-white/70">A virtual debit card on your USD balance (simulated), and a credit card waitlist.</p>
+                        <div className="mt-4"><CardCountdown compact onDark /></div>
+                      </>
+                    )}
                   </Link>
                   <Link href={`${base}/financing`} className="panel block p-5 transition-colors hover:border-primary/50">
                     <p className="flex items-center gap-2 font-semibold"><Building2 className="size-4 text-primary" /> Up to $250,000 in business financing</p>

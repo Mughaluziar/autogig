@@ -25,6 +25,7 @@ investor deposit ─► pool cash ─► early payment ─► freelancer
 
 - **Ledger** (`capital/ledger.py`): append-only and double-entry, with integer cents. Each entry claims the next sequence number through a unique index, so concurrent postings serialize without MongoDB transactions, and cached balances rebuild from the journal. Invariants such as no negative cash and no over-redeemed shares are checked inside that serialized step.
 - **Investor shares** are minted and burned at NAV (pool cash plus outstanding advances). Rounding always favours the pool.
+- **Paying from the Autopilot balance:** `POST /api/capital/investor/deposit` takes `source: "wallet"` (pays from `wallet:<user>`, refused with 409 if the balance is short, checked inside the ledger's serialised write) and `/investor/withdraw` takes `destination: "wallet"`. The other side is `clearing:pool_funding`, so the pool's own accounts stay self-balancing. The default (`external`) behaves exactly as before.
 - **Each money-moving step** records its intent, then posts an idempotent ledger entry, then marks the step done. `run_jobs()` finishes any step interrupted between those writes.
 
 ## Order insurance (backed by the protection fund)
@@ -55,4 +56,5 @@ Each item needs a licensed partner or legal sign-off. None of it is code-complet
 - Backend: `backend/app/capital/` (policy, ledger, store, service) and `backend/app/routers/capital.py`. The scheduled job is `queue.scheduled_capital_jobs`.
 - Frontend: `/dashboard/capital` (early payment, protection, invest, operator) and the `/investor` portal. Investors sign up at `/signup/investor`.
 - Tests: `backend/tests/test_capital.py`. Ledger balance is asserted after each flow, and the tests also run against MongoDB through `TEST_MONGODB_URI`.
+- Treasury and financial reporting across every program on this ledger (grouped balances, integrity checks, period reports, journal CSV) is at `/dashboard/treasury`: see [treasury-reporting.md](treasury-reporting.md).
 - The investment marketplace (raises, Platform Index, agreements), banking (balances, bank accounts, transfers, statements), upfront USDC payouts and financing applications share this ledger and scheduled job: see [marketplace-and-banking.md](marketplace-and-banking.md).
