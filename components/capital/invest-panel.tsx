@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { StatCard } from "@/components/shared/stat-card";
 import { useToast } from "@/components/ui/toast";
 import { apiCall } from "@/lib/api";
+import { useBankingOverview } from "@/lib/banking";
 import { newIdempotencyKey, pct, toCents, usd, type InvestorPosition, type PoolSummary } from "@/lib/capital";
 
 type Detail = { detail?: string; reasons?: string[] };
@@ -43,13 +45,18 @@ export function InvestPanel({
   onChanged: () => void;
 }) {
   const { toast } = useToast();
+  const banking = useBankingOverview();
   const [deposit, setDeposit] = React.useState("");
   const [withdraw, setWithdraw] = React.useState("");
+  // Where the money comes from / goes to: the Autopilot USD balance, or outside (the original simulated deposit).
+  const [route, setRoute] = React.useState<"wallet" | "external">("external");
   const [busy, setBusy] = React.useState<"deposit" | "withdraw" | "all" | null>(null);
   // One key per typed amount: a double-click or retry can't post twice.
-  const depositKey = React.useMemo(() => newIdempotencyKey(), [deposit]); // eslint-disable-line react-hooks/exhaustive-deps
-  const withdrawKey = React.useMemo(() => newIdempotencyKey(), [withdraw]); // eslint-disable-line react-hooks/exhaustive-deps
+  const depositKey = React.useMemo(() => newIdempotencyKey(), [deposit, route]); // eslint-disable-line react-hooks/exhaustive-deps
+  const withdrawKey = React.useMemo(() => newIdempotencyKey(), [withdraw, route]); // eslint-disable-line react-hooks/exhaustive-deps
   const blocked = position?.reasons ?? [];
+  const walletCents = banking.data?.balances.usdCents ?? null;
+  const viaWallet = route === "wallet";
 
   const act = async (kind: "deposit" | "withdraw" | "all") => {
     const amount = toCents(kind === "deposit" ? deposit : withdraw);
@@ -59,9 +66,10 @@ export function InvestPanel({
     }
     setBusy(kind);
     const res = kind === "deposit"
-      ? await apiCall<Detail>("/api/capital/investor/deposit", { amountCents: amount, idempotencyKey: depositKey })
+      ? await apiCall<Detail>("/api/capital/investor/deposit", { amountCents: amount, idempotencyKey: depositKey, source: route })
       : await apiCall<Detail>("/api/capital/investor/withdraw", kind === "all"
-        ? { all: true, idempotencyKey: newIdempotencyKey() } : { amountCents: amount, idempotencyKey: withdrawKey });
+        ? { all: true, idempotencyKey: newIdempotencyKey(), destination: route }
+        : { amountCents: amount, idempotencyKey: withdrawKey, destination: route });
     setBusy(null);
     if (!res || res.status >= 400) {
       toast({ title: kind === "deposit" ? "Deposit not recorded" : "Withdrawal not recorded",
@@ -72,6 +80,7 @@ export function InvestPanel({
     setDeposit("");
     setWithdraw("");
     onChanged();
+    banking.refresh();
   };
 
   return (
@@ -106,6 +115,16 @@ export function InvestPanel({
                 {blocked.map((r) => <li key={r}>{r}</li>)}
               </ul>
             )}
+            <div className="space-y-1.5">
+              <Label htmlFor="route">Money comes from and goes back to</Label>
+              <Select id="route" value={route} onChange={(e) => setRoute(e.target.value as "wallet" | "external")}>
+                <option value="external">Outside Autopilot (simulated deposit)</option>
+                <option value="wallet">Autopilot USD balance{walletCents != null ? ` · ${usd(walletCents)} available` : ""}</option>
+              </Select>
+              {viaWallet && walletCents === 0 && (
+                <p className="text-xs text-muted-foreground">Your Autopilot balance is empty: add money in Banking first.</p>
+              )}
+            </div>
             <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); void act("deposit"); }}>
               <div className="flex-1 space-y-1.5">
                 <Label htmlFor="dep">Deposit (USD)</Label>

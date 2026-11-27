@@ -5,7 +5,14 @@ GET    /api/banking/overview                     balances, linked accounts, rece
 GET    /api/banking/accounts                     POST {holder, nickname, routing, accountNumber, kind}
 POST   /api/banking/accounts/{id}/verify         {amounts: [cents, cents]}  (micro-deposits)
 DELETE /api/banking/accounts/{id}
-GET    /api/banking/transfers                    POST {kind, amountCents, idempotencyKey, bankAccountId?, address?}
+GET    /api/banking/transfers                    POST {kind, amountCents, idempotencyKey, bankAccountId?, address?,
+                                                       cryptoAddressId?, recipientEmail?, note?}
+GET    /api/banking/transactions                 ?currency&direction&category&from&to&q&before&limit  (ledger history)
+GET    /api/banking/transactions.csv             same filters, as a spreadsheet-safe CSV
+GET    /api/banking/crypto/addresses             POST {label, address, source}; DELETE /{id}  (own wallets on Base)
+GET    /api/banking/cards                        POST (issue); POST /{id}/status {action}; POST /{id}/controls {...}
+POST   /api/banking/cards/{id}/simulate          {merchant, category, channel, amountCents, idempotencyKey}
+POST   /api/banking/cards/transactions/{id}/refund
 GET    /api/banking/statements?month=YYYY-MM
 POST   /api/banking/advance-payout               {advanceId, currency: usd|usdc}
 GET    /api/banking/financing/estimate           indicative range from verified revenue
@@ -14,11 +21,11 @@ Platform owners:
 GET    /api/banking/admin/financing              POST /api/banking/admin/financing/{id} {status, note}
 """
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from ..auth import current_user, require_owner
-from ..capital import banking, ledger, store
+from ..capital import banking, cards, ledger, store
 from .capital import _call, _out, advance_out
 
 router = APIRouter(prefix="/banking", tags=["banking"])
@@ -37,7 +44,27 @@ def account_out(account: dict) -> dict:
 
 
 def transfer_out(record: dict) -> dict:
-    return _out(record, drop=("version", "user_id", "idem"))
+    return _out(record, drop=("version", "user_id", "idem", "counterparty_id", "sender_label"))
+
+
+def address_out(record: dict) -> dict:
+    return _out(record, drop=("version", "user_id", "address_lower", "live"))
+
+
+def card_out(card: dict | None) -> dict | None:
+    if card is None:
+        return None
+    out = _out(card, drop=("version", "user_id", "live", "spend_day", "spend_cents"))
+    out["spentTodayCents"] = cards.spent_today(card)
+    out["expires"] = cards.expires_label(card)
+    return out
+
+
+def card_txn_out(txn: dict) -> dict:
+    out = _out(txn, drop=("version", "user_id", "idem", "day", "reserved"))
+    if txn.get("decline_reason"):
+        out["declineText"] = cards.DECLINE_TEXT.get(txn["decline_reason"], "Declined.")
+    return out
 
 
 def application_out(app: dict) -> dict:
@@ -49,7 +76,9 @@ async def overview(user: dict = Depends(current_user)):
     data = await banking.overview(user["id"])
     return {**data, "accounts": [account_out(a) for a in data["accounts"]],
             "transfers": [transfer_out(t) for t in data["transfers"]],
-            "applications": [application_out(a) for a in data["applications"]]}
+            "applications": [application_out(a) for a in data["applications"]],
+            "cryptoAddresses": [address_out(a) for a in await banking.crypto_addresses(user["id"])],
+            "card": card_out(await cards.current(user["id"]))}
 
 
 class AccountBody(BaseModel):
@@ -96,6 +125,9 @@ class TransferBody(BaseModel):
     idempotency_key: str = Field(alias="idempotencyKey", **IDEM)
     bank_account_id: str | None = Field(default=None, alias="bankAccountId", max_length=64)
     address: str | None = Field(default=None, max_length=64)
+    crypto_address_id: str | None = Field(default=None, alias="cryptoAddressId", max_length=64)
+    recipient_email: str | None = Field(default=None, alias="recipientEmail", max_length=320)
+    note: str | None = Field(default=None, max_length=300)
 
 
 @router.get("/transfers")
@@ -108,10 +140,142 @@ async def transfers(user: dict = Depends(current_user)):
 async def create_transfer(body: TransferBody, user: dict = Depends(current_user)):
     result = await _call(banking.transfer(user["id"], kind=body.kind, amount_cents=body.amount_cents,
                                           idem=body.idempotency_key, bank_account_id=body.bank_account_id,
-                                          address=body.address))
+                                          address=body.address, crypto_address_id=body.crypto_address_id,
+                                          recipient_email=body.recipient_email, note=body.note))
     if isinstance(result, JSONResponse):
         return result
     return {"transfer": transfer_out(result), "balances": await banking.balances_for(user["id"])}
+
+
+def _history_filters(currency, direction, category, start, end, q) -> dict:
+    return {"currency": currency, "direction": direction, "category": category, "start": start, "end": end, "search": q}
+
+
+@router.get("/transactions")
+async def transactions(currency: str | None = Query(default=None, max_length=4),
+                       direction: str | None = Query(default=None, max_length=3),
+                       category: str | None = Query(default=None, max_length=12),
+                       start: str | None = Query(default=None, alias="from", max_length=10),
+                       end: str | None = Query(default=None, alias="to", max_length=10),
+                       q: str | None = Query(default=None, max_length=80),
+                       before: int | None = Query(default=None, ge=1),
+                       limit: int = Query(default=50, ge=1, le=200),
+                       user: dict = Depends(current_user)):
+    return await _call(banking.transactions(user["id"], before=before, limit=limit,
+                                            **_history_filters(currency, direction, category, start, end, q)))
+
+
+@router.get("/transactions.csv")
+async def transactions_csv(currency: str | None = Query(default=None, max_length=4),
+                           direction: str | None = Query(default=None, max_length=3),
+                           category: str | None = Query(default=None, max_length=12),
+                           start: str | None = Query(default=None, alias="from", max_length=10),
+                           end: str | None = Query(default=None, alias="to", max_length=10),
+                           q: str | None = Query(default=None, max_length=80),
+                           user: dict = Depends(current_user)):
+    result = await _call(banking.transactions_csv(user["id"], **_history_filters(currency, direction, category, start, end, q)))
+    if isinstance(result, JSONResponse):
+        return result
+    return Response(result, media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": 'attachment; filename="autopilot-transactions.csv"', "Cache-Control": "no-store"})
+
+
+# --------------------------------------------------------------------------- #
+# Linked crypto wallets
+# --------------------------------------------------------------------------- #
+class AddressBody(BaseModel):
+    label: str = Field(default="", max_length=60)
+    address: str = Field(max_length=64)
+    source: str = Field(default="manual", max_length=20)
+
+
+@router.get("/crypto/addresses")
+async def crypto_addresses(user: dict = Depends(current_user)):
+    return [address_out(a) for a in await banking.crypto_addresses(user["id"])]
+
+
+@router.post("/crypto/addresses")
+async def add_crypto_address(body: AddressBody, user: dict = Depends(current_user)):
+    result = await _call(banking.add_crypto_address(user["id"], label=body.label, address=body.address, source=body.source))
+    return result if isinstance(result, JSONResponse) else address_out(result)
+
+
+@router.delete("/crypto/addresses/{address_id}")
+async def remove_crypto_address(address_id: str, user: dict = Depends(current_user)):
+    result = await _call(banking.remove_crypto_address(user["id"], address_id))
+    return result if isinstance(result, JSONResponse) else {"status": "ok"}
+
+
+# --------------------------------------------------------------------------- #
+# Virtual debit card (simulated)
+# --------------------------------------------------------------------------- #
+class CardStatusBody(BaseModel):
+    action: str = Field(max_length=10)
+
+
+class CardControlsBody(BaseModel):
+    per_transaction_limit_cents: int | None = Field(default=None, alias="perTransactionLimitCents", gt=0)
+    daily_limit_cents: int | None = Field(default=None, alias="dailyLimitCents", gt=0)
+    online_enabled: bool | None = Field(default=None, alias="onlineEnabled")
+    atm_enabled: bool | None = Field(default=None, alias="atmEnabled")
+
+
+class CardPurchaseBody(BaseModel):
+    merchant: str = Field(default="", max_length=60)
+    category: str = Field(default="other", max_length=20)
+    channel: str = Field(default="online", max_length=10)
+    amount_cents: int = Field(alias="amountCents", gt=0)
+    idempotency_key: str = Field(alias="idempotencyKey", **IDEM)
+
+
+@router.get("/cards")
+async def card_overview(user: dict = Depends(current_user)):
+    return {
+        "settlement": ledger.SETTLEMENT, "card": card_out(await cards.current(user["id"])),
+        "transactions": [card_txn_out(t) for t in await cards.transactions_for(user["id"])],
+        "limits": {"minLimitCents": cards.MIN_LIMIT_CENTS, "maxPerTransactionCents": cards.MAX_PER_TRANSACTION_CENTS,
+                   "maxDailyCents": cards.MAX_DAILY_CENTS},
+        "categories": list(cards.CATEGORIES), "channels": list(cards.CHANNELS),
+        "balances": await banking.balances_for(user["id"]),
+    }
+
+
+@router.post("/cards")
+async def issue_card(user: dict = Depends(current_user)):
+    result = await _call(cards.issue(user["id"]))
+    return result if isinstance(result, JSONResponse) else card_out(result)
+
+
+@router.post("/cards/{card_id}/status")
+async def card_status(card_id: str, body: CardStatusBody, user: dict = Depends(current_user)):
+    result = await _call(cards.set_status(user["id"], card_id, body.action))
+    return result if isinstance(result, JSONResponse) else card_out(result)
+
+
+@router.post("/cards/{card_id}/controls")
+async def card_controls(card_id: str, body: CardControlsBody, user: dict = Depends(current_user)):
+    result = await _call(cards.update_controls(user["id"], card_id, per_transaction_cents=body.per_transaction_limit_cents,
+                                               daily_cents=body.daily_limit_cents, online=body.online_enabled,
+                                               atm=body.atm_enabled))
+    return result if isinstance(result, JSONResponse) else card_out(result)
+
+
+@router.post("/cards/{card_id}/simulate")
+async def card_simulate(card_id: str, body: CardPurchaseBody, user: dict = Depends(current_user)):
+    result = await _call(cards.authorize(user["id"], card_id, merchant=body.merchant, category=body.category,
+                                         channel=body.channel, amount_cents=body.amount_cents, idem=body.idempotency_key))
+    if isinstance(result, JSONResponse):
+        return result
+    return {"transaction": card_txn_out(result), "card": card_out(await store.get("debit_cards", card_id, user_id=user["id"])),
+            "balances": await banking.balances_for(user["id"])}
+
+
+@router.post("/cards/transactions/{txn_id}/refund")
+async def card_refund(txn_id: str, user: dict = Depends(current_user)):
+    result = await _call(cards.refund(user["id"], txn_id))
+    if isinstance(result, JSONResponse):
+        return result
+    return {"transaction": card_txn_out(result), "balances": await banking.balances_for(user["id"])}
 
 
 @router.get("/statements")

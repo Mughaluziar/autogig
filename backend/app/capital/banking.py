@@ -1,5 +1,6 @@
-"""Banking: Autopilot balances, linked bank accounts, transfers, statements
-and business-financing applications.
+"""Banking: Autopilot balances, linked bank accounts, transfers, statements,
+the unified transaction history, linked crypto wallets, member-to-member
+transfers and business-financing applications.
 
 SIMULATED SETTLEMENT. Balances live in the capital ledger (`wallet:<user>`
 in USD, `usdc:<user>` in USDC, both integer cents) and every transfer posts a
@@ -12,12 +13,15 @@ Business financing is an application that a licensed lending partner would
 review. The indicative range comes only from revenue the marketplaces' own
 APIs verified; nothing here is a credit decision or an offer.
 """
+import csv
+import io
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from .. import repo
-from . import ledger, market, store
+from .. import db, repo
+from . import activity, ledger, limits as limits_store, market, store
+from .activity import CATEGORIES, category_of  # noqa: F401  (re-exported for callers)
 from .ledger import LedgerRejected, line
 from .service import CapitalError, _notify_operators, _update, get_profile, investor_position
 
@@ -26,9 +30,18 @@ MAX_VERIFY_ATTEMPTS = 5
 MIN_TRANSFER_CENTS = 1_00
 MAX_TRANSFER_CENTS = 50_000_00
 DAILY_DEPOSIT_CENTS = 50_000_00
-TRANSFER_KINDS = ("deposit", "withdraw", "to_usdc", "to_usd", "crypto_send")
+# Kinds a user can start. "internal_receive" is created for the recipient of an internal_send only.
+TRANSFER_KINDS = ("deposit", "withdraw", "to_usdc", "to_usd", "crypto_send", "crypto_receive", "internal_send")
 CRYPTO_NETWORK = "Base (simulated)"
 ADVANCE_PAYOUT_HOURS = 24
+DAILY_CRYPTO_RECEIVE_CENTS = 50_000_00
+DAILY_INTERNAL_SEND_CENTS = 10_000_00
+MAX_CRYPTO_ADDRESSES = 10
+NOTE_MAX = 140
+ADDRESS_RE = re.compile(r"0x[0-9a-fA-F]{40}")
+# Same answer whether the address is unknown or unverified, so the form can't be used to discover accounts.
+RECIPIENT_REFUSED = ("We can't send to that email. Money can only go to another Autopilot account whose identity has "
+                     "been verified.")
 
 FINANCING_MIN_CENTS = 5_000_00
 FINANCING_MAX_CENTS = 250_000_00
@@ -113,75 +126,207 @@ async def remove_bank_account(user_id: str, account_id: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Linked crypto wallets (the user's own addresses on Base)
+# --------------------------------------------------------------------------- #
+def _clean_address(address: str | None) -> str:
+    address = (address or "").strip()
+    if not ADDRESS_RE.fullmatch(address):
+        raise CapitalError("Enter a wallet address on Base: 0x followed by 40 hex characters.")
+    return address
+
+
+async def crypto_addresses(user_id: str) -> list[dict]:
+    return [a for a in await store.find("crypto_addresses", {"user_id": user_id}, limit=100) if a.get("live")]
+
+
+async def add_crypto_address(user_id: str, *, label: str, address: str, source: str = "manual") -> dict:
+    """Link one of the user's own wallets. Only the public address is stored: never a key or a signature."""
+    address = _clean_address(address)
+    label = " ".join((label or "").split())[:40] or f"Wallet {address[:6]}…{address[-4:]}"
+    active = await crypto_addresses(user_id)
+    if len(active) >= MAX_CRYPTO_ADDRESSES:
+        raise CapitalError(f"You can link up to {MAX_CRYPTO_ADDRESSES} wallets. Remove one first.", 409)
+    if any(a["address_lower"] == address.lower() for a in active):
+        raise CapitalError("This wallet is already linked.", 409)
+    try:
+        record = await store.insert("crypto_addresses", user_id, {
+            "label": label, "address": address, "address_lower": address.lower(), "network": CRYPTO_NETWORK,
+            "source": source if source in ("manual", "browser_wallet") else "manual", "live": True,
+            "settlement": ledger.SETTLEMENT})
+    except store.Conflict:
+        raise CapitalError("This wallet is already linked.", 409)
+    await repo.log_activity(user_id, "Banking", f"Linked wallet {address[:6]}…{address[-4:]}")
+    return record
+
+
+async def remove_crypto_address(user_id: str, address_id: str) -> dict:
+    record = await store.get("crypto_addresses", address_id, user_id=user_id)
+    if record is None or not record.get("live"):
+        raise CapitalError("Wallet not found.", 404)
+    return await _update("crypto_addresses", record, {"live": False, "removed_at": store.now()})
+
+
+# --------------------------------------------------------------------------- #
 # Transfers
 # --------------------------------------------------------------------------- #
-def _lines(kind: str, user_id: str, amount: int) -> list[dict]:
+def _lines(kind: str, user_id: str, amount: int, counterparty: str | None = None) -> list[dict]:
     w, u = market.wallet(user_id), usdc(user_id)
+    if kind == "internal_send":
+        return [line(w, -amount), line(market.wallet(counterparty), amount)]
     return {
         "deposit": [line(w, amount), line("external:bank", -amount)],
         "withdraw": [line(w, -amount), line("external:bank", amount)],
         "to_usdc": [line(w, -amount), line(u, amount)],
         "to_usd": [line(u, -amount), line(w, amount)],
         "crypto_send": [line(u, -amount), line("external:chain", amount)],
+        "crypto_receive": [line(u, amount), line("external:chain", -amount)],
     }[kind]
 
 
+def _source_account(kind: str, user_id: str) -> str | None:
+    """The balance a transfer draws from (None: money comes in from outside)."""
+    if kind in ("deposit", "crypto_receive"):
+        return None
+    return market.wallet(user_id) if kind in ("withdraw", "to_usdc", "internal_send") else usdc(user_id)
+
+
+async def _recipient(sender_id: str, email: str | None) -> dict:
+    email = (email or "").strip().lower()
+    if not re.fullmatch(r"[^@\s]{1,64}@[^@\s]{1,255}", email):
+        raise CapitalError("Enter the recipient's email address.")
+    recipient = await db.find_user(email)
+    if recipient is None or recipient.get("deleted_at"):
+        raise CapitalError(RECIPIENT_REFUSED)
+    if recipient["id"] == sender_id:
+        raise CapitalError("You can't send money to yourself. Use Convert to move money between your balances.")
+    if ((await store.profile(recipient["id"]) or {}).get("kyc") or {}).get("status") != "verified":
+        raise CapitalError(RECIPIENT_REFUSED)
+    return recipient
+
+
+async def _ensure_receipt(record: dict) -> None:
+    """The recipient's copy of a completed internal transfer. Idempotent (fixed key per transfer), so a retry
+    of the sender's request, or a crash after the ledger entry, never shows the money twice or not at all."""
+    if record["kind"] != "internal_send" or record["status"] != "completed" or not record.get("counterparty_id"):
+        return
+    key = f"recv-{record['id']}"
+    if await store.find("bank_transfers", {"user_id": record["counterparty_id"], "idem": key}, limit=1):
+        return
+    try:
+        await store.insert("bank_transfers", record["counterparty_id"], {
+            "kind": "internal_receive", "amount_cents": record["amount_cents"], "status": "completed", "idem": key,
+            "bank_account_id": None, "bank_label": None, "address": None, "network": None,
+            "counterparty_id": record["user_id"], "counterparty_label": record.get("sender_label") or "An Autopilot member",
+            "note": record.get("note"), "seq": record.get("seq"), "completed_at": record.get("completed_at"),
+            "settlement": ledger.SETTLEMENT})
+    except store.Conflict:
+        return  # a concurrent retry wrote the copy (and tells the recipient)
+    amount = f"${record['amount_cents'] / 100:,.2f}"
+    who = record.get("sender_label") or "An Autopilot member"
+    await repo.notify(record["counterparty_id"], "Money received",
+                      f"{who} sent you {amount} (simulated)." + (f" Note: {record['note']}" if record.get("note") else ""),
+                      "success")
+
+
 async def transfer(user_id: str, *, kind: str, amount_cents: int, idem: str, bank_account_id: str | None = None,
-                   address: str | None = None) -> dict:
+                   address: str | None = None, crypto_address_id: str | None = None,
+                   recipient_email: str | None = None, note: str | None = None, sender_label: str | None = None) -> dict:
+    """Move money in, out or between balances. Each kind needs its own counterparty: a verified bank account
+    (deposit, withdraw), a wallet address or a linked wallet (crypto_send), a linked wallet (crypto_receive) or a
+    verified member's email (internal_send). The idempotency key makes a retried request return the first result."""
     if kind not in TRANSFER_KINDS:
         raise CapitalError("Choose a transfer type.")
     if not MIN_TRANSFER_CENTS <= amount_cents <= MAX_TRANSFER_CENTS:
         raise CapitalError(f"Transfers must be between ${MIN_TRANSFER_CENTS / 100:,.2f} and ${MAX_TRANSFER_CENTS / 100:,.0f}.")
     existing = await store.find("bank_transfers", {"user_id": user_id, "idem": idem}, limit=1)
     if existing:
+        await _ensure_receipt(existing[0])
         return existing[0]
-    bank = None
+    bank = linked = recipient = None
     if kind in ("deposit", "withdraw"):
         bank = await store.get("bank_accounts", bank_account_id or "", user_id=user_id)
         if bank is None or bank["status"] == "removed":
             raise CapitalError("Choose a linked bank account.", 404)
         if bank["status"] != "verified":
             raise CapitalError("Verify this bank account first.", 409)
+    if kind in ("crypto_send", "crypto_receive") and crypto_address_id:
+        linked = await store.get("crypto_addresses", crypto_address_id, user_id=user_id)
+        if linked is None or not linked.get("live"):
+            raise CapitalError("Choose one of your linked wallets.", 404)
+        address = linked["address"]
+    if kind == "crypto_receive" and linked is None:
+        raise CapitalError("Choose the linked wallet the USDC comes from.")
     if kind == "crypto_send":
-        address = (address or "").strip()
-        if not re.fullmatch(r"0x[0-9a-fA-F]{40}", address):
-            raise CapitalError("Enter a wallet address on Base: 0x followed by 40 hex characters.")
-    if kind == "deposit":
-        since = store.now() - timedelta(days=1)
-        today = sum(t["amount_cents"] for t in await store.find("bank_transfers", {"user_id": user_id, "kind": "deposit"},
-                                                                 limit=500)
-                    if t["status"] == "completed" and store.aware(t["created_at"]) >= since)
-        if today + amount_cents > DAILY_DEPOSIT_CENTS:
-            raise CapitalError(f"Deposits are limited to ${DAILY_DEPOSIT_CENTS / 100:,.0f} a day.", 409)
-    record = await store.insert("bank_transfers", user_id, {
-        "kind": kind, "amount_cents": amount_cents, "status": "posting", "idem": idem,
-        "bank_account_id": bank["id"] if bank else None, "bank_label": f"{bank['nickname']}" if bank else None,
-        "address": address if kind == "crypto_send" else None,
-        "network": CRYPTO_NETWORK if kind == "crypto_send" else None, "settlement": ledger.SETTLEMENT,
-    })
-    source = market.wallet(user_id) if kind in ("withdraw", "to_usdc") else usdc(user_id)
-    check = None if kind == "deposit" else ledger.require_non_negative(source)
+        address = _clean_address(address)
+    note = " ".join((note or "").split())[:NOTE_MAX] or None
+    if kind == "internal_send":
+        if ((await store.profile(user_id) or {}).get("kyc") or {}).get("status") != "verified":
+            raise CapitalError("Verify your identity (Capital, then Verification) before sending money to other members.", 403)
+        recipient = await _recipient(user_id, recipient_email)
+        if not sender_label:
+            # Name and email together: a display name alone could impersonate someone else.
+            sender = await db.find_user_by_id(user_id) or {}
+            name = " ".join((sender.get("name") or "").split())[:60]
+            sender_label = f"{name} ({sender.get('email')})" if name else sender.get("email")
+    limits = {"deposit": (DAILY_DEPOSIT_CENTS, "Deposits"), "crypto_receive": (DAILY_CRYPTO_RECEIVE_CENTS, "USDC receipts"),
+              "internal_send": (DAILY_INTERNAL_SEND_CENTS, "Transfers to other members")}
+    # The daily limit is reserved atomically before anything is recorded (capital/limits.py), keyed by the request's
+    # idempotency key, so concurrent requests can't both slip under it and a retry isn't counted twice.
+    reserved = None
+    if kind in limits:
+        cap, what = limits[kind]
+        reserved = (f"transfer:{idem}", limits_store.today())
+        if not await limits_store.reserve(user_id, kind, amount_cents, cap, reserved[0], day=reserved[1]):
+            raise CapitalError(f"{what} are limited to ${cap / 100:,.0f} a day.", 409)
+    crypto = kind in ("crypto_send", "crypto_receive")
     try:
-        entry = await ledger.post(f"bank_{kind}", _lines(kind, user_id, amount_cents), memo=_memo(kind, record),
-                                  refs={"user_id": user_id, "transfer_id": record["id"]},
-                                  idem=f"bank:{record['id']}", check=check)
+        # The unique (user_id, idem) index makes a simultaneous copy of this request fail here (store.Conflict).
+        record = await store.insert("bank_transfers", user_id, {
+            "kind": kind, "amount_cents": amount_cents, "status": "posting", "idem": idem,
+            "bank_account_id": bank["id"] if bank else None, "bank_label": f"{bank['nickname']}" if bank else None,
+            "address": address if crypto else None, "network": CRYPTO_NETWORK if crypto else None,
+            "wallet_label": linked["label"] if linked else None,
+            "counterparty_id": recipient["id"] if recipient else None,
+            "counterparty_label": recipient["email"] if recipient else None,
+            "sender_label": (sender_label or "")[:120] or None if recipient else None,
+            "note": note if kind == "internal_send" else None, "settlement": ledger.SETTLEMENT,
+        })
+    except store.Conflict:
+        # The same request (same key) is being handled right now: answer with its record. Its reservation is that
+        # request's, so nothing is released here.
+        return (await store.find("bank_transfers", {"user_id": user_id, "idem": idem}, limit=1))[0]
+    source = _source_account(kind, user_id)
+    refs = {"user_id": user_id, "transfer_id": record["id"]}
+    if recipient:
+        refs["users"] = [user_id, recipient["id"]]
+    try:
+        entry = await ledger.post(f"bank_{kind}", _lines(kind, user_id, amount_cents, recipient["id"] if recipient else None),
+                                  memo=_memo(kind, record), refs=refs, idem=f"bank:{record['id']}",
+                                  check=ledger.require_non_negative(source) if source else None)
     except LedgerRejected:
+        if reserved:
+            await limits_store.release(user_id, kind, amount_cents, reserved[0], day=reserved[1])
         await _update("bank_transfers", record, {"status": "failed", "reason": "Insufficient balance"})
         raise CapitalError("Not enough balance for that transfer.", 409)
     record = await _update("bank_transfers", record, {"status": "completed", "seq": entry["seq"],
                                                       "completed_at": store.now()})
+    await _ensure_receipt(record)
     await repo.log_activity(user_id, "Banking", f"{_memo(kind, record)} (simulated)")
     return record
 
 
 def _memo(kind: str, record: dict) -> str:
     amount = f"${record['amount_cents'] / 100:,.2f}"
+    wallet = record.get("wallet_label") or (record.get("address") or "")[:10] + "…"
     return {
         "deposit": f"Added {amount} from {record.get('bank_label') or 'bank'}",
         "withdraw": f"Withdrew {amount} to {record.get('bank_label') or 'bank'}",
         "to_usdc": f"Converted {amount} to USDC",
         "to_usd": f"Converted {amount} USDC to USD",
-        "crypto_send": f"Sent {amount} USDC to {(record.get('address') or '')[:10]}…",
+        "crypto_send": f"Sent {amount} USDC to {wallet}",
+        "crypto_receive": f"Received {amount} USDC from {wallet}",
+        # The memo is visible to both members, so it names neither of them.
+        "internal_send": f"Member transfer of {amount}",
     }[kind]
 
 
@@ -267,6 +412,68 @@ async def statement(user_id: str, month: str) -> dict:
             "inCents": sum(max(0, r["usdCents"]) + max(0, r["usdcCents"]) for r in rows),
             "outCents": sum(min(0, r["usdCents"]) + min(0, r["usdcCents"]) for r in rows) * -1,
             "rows": rows}
+
+
+# --------------------------------------------------------------------------- #
+# Transaction history: every movement of the user's USD and USDC balances
+# --------------------------------------------------------------------------- #
+MAX_HISTORY_DAYS = 366
+
+
+def _day(value: str | None, field: str):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise CapitalError(f"Use a date like 2026-11-27 for {field}.")
+
+
+def _filters(*, currency: str | None = None, direction: str | None = None, category: str | None = None,
+             start: str | None = None, end: str | None = None, search: str | None = None) -> dict:
+    """Validate the history filters. Dates are inclusive UTC days."""
+    if currency not in (None, "", "usd", "usdc"):
+        raise CapitalError("Currency is usd or usdc.")
+    if direction not in (None, "", "in", "out"):
+        raise CapitalError("Direction is in or out.")
+    if category not in (None, "", *CATEGORIES):
+        raise CapitalError(f"Category is one of: {', '.join(CATEGORIES)}.")
+    since, until = _day(start, "from"), _day(end, "to")
+    if since and until and until < since:
+        raise CapitalError("The end date is before the start date.")
+    if since and until and (until - since).days > MAX_HISTORY_DAYS:
+        raise CapitalError(f"Choose at most {MAX_HISTORY_DAYS} days.")
+    return activity.filters(currency=currency, direction=direction, category=category, since=since,
+                            until=until + timedelta(days=1) if until else None, search=search)
+
+
+async def transactions(user_id: str, *, before: int | None = None, limit: int = 50, **filters) -> dict:
+    """One page of the history, newest first, with totals over every matching row (capital/activity.py)."""
+    f = _filters(**filters)
+    rows, more = await activity.page(user_id, f, before=before, limit=limit)
+    totals = await activity.totals(user_id, f)
+    return {"settlement": ledger.SETTLEMENT, "rows": [activity.view(r) for r in rows], "categories": list(CATEGORIES),
+            "nextBefore": rows[-1]["seq"] if more else None,
+            "inCents": totals["in"], "outCents": totals["out"], "count": totals["count"]}
+
+
+def _cell(value) -> str:
+    """Spreadsheet-safe text: a cell starting with = + - @ (or a tab/CR) would run as a formula in Excel/Sheets."""
+    text = str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+async def transactions_csv(user_id: str, **filters) -> str:
+    """Every matching row (not one page), newest first."""
+    f = _filters(**filters)
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(["Date", "Category", "Description", "USD", "USDC", "USD balance", "USDC balance", "Reference"])
+    async for row in activity.every(user_id, f):
+        r = activity.view(row)
+        writer.writerow([r["at"], r["category"], _cell(r["memo"]), f"{r['usdCents'] / 100:.2f}", f"{r['usdcCents'] / 100:.2f}",
+                         f"{r['balanceUsdCents'] / 100:.2f}", f"{r['balanceUsdcCents'] / 100:.2f}", r["seq"]])
+    return buf.getvalue()
 
 
 # --------------------------------------------------------------------------- #

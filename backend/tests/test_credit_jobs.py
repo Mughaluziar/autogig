@@ -34,13 +34,13 @@ def test_a_pass_marks_late_then_defaulted_and_a_second_pass_changes_nothing(clie
     fl = freelancer(client, owner)
     funded(client, owner, fl)
     start = cstore.now()
-    assert run(client, service.run_jobs, None, start + timedelta(days=31)) == {"late": 1, "defaulted": 0, "expiredOffers": 0, "repaired": 0}
-    assert run(client, service.run_jobs, None, start + timedelta(days=31)) == {"late": 0, "defaulted": 0, "expiredOffers": 0, "repaired": 0}
+    assert run(client, service.run_jobs, None, start + timedelta(days=31)) == {"late": 1, "defaulted": 0, "expiredOffers": 0, "repaired": 0, "reminders": 0, "withdrawalsRepaired": 0}
+    assert run(client, service.run_jobs, None, start + timedelta(days=31)) == {"late": 0, "defaulted": 0, "expiredOffers": 0, "repaired": 0, "reminders": 0, "withdrawalsRepaired": 0}
     s1 = run(client, _seq)
     assert run(client, service.run_jobs, None, start + timedelta(days=95))["defaulted"] == 1
     s2 = run(client, _seq)
     assert s2 == s1 + 1                                                    # exactly one write-off entry
-    assert run(client, service.run_jobs, None, start + timedelta(days=95)) == {"late": 0, "defaulted": 0, "expiredOffers": 0, "repaired": 0}
+    assert run(client, service.run_jobs, None, start + timedelta(days=95)) == {"late": 0, "defaulted": 0, "expiredOffers": 0, "repaired": 0, "reminders": 0, "withdrawalsRepaired": 0}
     assert run(client, _seq) == s2
     t = treasury(client, owner)
     assert t["lossesCents"] == 100_000 and t["outstandingCents"] == 0 and t["ledgerCheck"]
@@ -72,7 +72,7 @@ def test_the_scheduled_entry_point_never_raises_and_does_the_same_work(client, o
     pool(client, owner)
     fl = freelancer(client, owner)
     funded(client, owner, fl)
-    assert run(client, service.scheduled_pass) == {"late": 0, "defaulted": 0, "expiredOffers": 0, "repaired": 0}   # nothing due yet
+    assert run(client, service.scheduled_pass) == {"late": 0, "defaulted": 0, "expiredOffers": 0, "repaired": 0, "reminders": 0, "withdrawalsRepaired": 0}   # nothing due yet
     async def boom(*a, **k):
         raise RuntimeError("database went away")
     monkeypatch.setattr(service, "run_jobs", boom)

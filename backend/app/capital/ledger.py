@@ -208,6 +208,31 @@ async def entries(*, user_id: str | None = None, limit: int = 200) -> list[dict]
     return [_public(d) async for d in cursor]
 
 
+async def user_entries_after(user_id: str, after_seq: int, *, limit: int = 500) -> list[dict]:
+    """Oldest first: entries naming the user (as `entries` does) with seq > after_seq. Uses the (refs.*, seq)
+    indexes, so catching up a derived view (capital/activity.py) reads only what's new."""
+    if not db.enabled():
+        return [_public(deepcopy(e)) for e in _mem_journal if e["seq"] > after_seq and _involves(e, user_id)][:limit]
+    query = {"$or": [{"refs.user_id": user_id}, {"refs.users": user_id}], "seq": {"$gt": after_seq}}
+    cursor = db._get_db().capital_journal.find(query).sort("seq", ASCENDING).limit(limit)
+    return [_public(d) async for d in cursor]
+
+
+async def journal(*, upto_seq: int | None = None):
+    """Every entry oldest first (seq order), in both storage modes. Read-only, for replays, audits and exports
+    (capital/treasury.py). `upto_seq` pins the read to a head already taken, so entries posted meanwhile can't
+    make a replay disagree with that head. Memory mode iterates a snapshot of the list."""
+    if not db.enabled():
+        for entry in list(_mem_journal):
+            if upto_seq is not None and entry["seq"] > upto_seq:
+                break
+            yield _public(deepcopy(entry))
+        return
+    query = {} if upto_seq is None else {"_id": {"$lte": upto_seq}}
+    async for doc in db._get_db().capital_journal.find(query).sort("_id", ASCENDING):
+        yield _public(doc)
+
+
 # --------------------------------------------------------------------------- #
 # Pool arithmetic (pure)
 # --------------------------------------------------------------------------- #

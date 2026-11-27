@@ -1,5 +1,6 @@
 """Minimal Stripe REST client: Checkout Sessions (one-off payments and plan
-subscriptions), the billing portal, and webhook signatures.
+subscriptions), the billing portal, webhook signatures, and the read-only
+account / webhook-endpoint lookups the owner's readiness check uses.
 
 Calls the HTTP API with httpx (no SDK dependency). Debit and credit cards both
 use the `card` payment method: Checkout can't restrict a card's funding type,
@@ -28,7 +29,12 @@ SIGNATURE_TOLERANCE_SECONDS = 300
 
 
 class StripeError(Exception):
-    """Stripe rejected the call or couldn't be reached. Nothing was charged."""
+    """Stripe rejected the call or couldn't be reached. Nothing was charged.
+    `status` is Stripe's HTTP status when it answered (None when unreachable)."""
+
+    def __init__(self, message: str = "", status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 def configured(settings: Settings) -> bool:
@@ -102,6 +108,38 @@ async def _post(settings: Settings, path: str, form: dict, what: str) -> dict:
         return res.json()
     except ValueError as exc:
         raise StripeError("The payment provider sent an unreadable reply.") from exc
+
+
+async def _get(settings: Settings, path: str, params: dict, what: str) -> dict:
+    """Read-only call. Stripe's error text isn't passed on (it can echo part of the key), only the status."""
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            res = await client.get(f"{API_BASE}{path}", params=params, headers=_headers(settings))
+    except httpx.HTTPError as exc:
+        log.warning("stripe %s failed: %s", what, type(exc).__name__)
+        raise StripeError("The payment provider couldn't be reached.") from exc
+    if res.status_code >= 400:
+        log.warning("stripe %s rejected (%s)", what, res.status_code)
+        raise StripeError(f"The payment provider answered {res.status_code}.", status=res.status_code)
+    try:
+        body = res.json()
+    except ValueError as exc:
+        raise StripeError("The payment provider sent an unreadable reply.") from exc
+    if not isinstance(body, dict):
+        raise StripeError("The payment provider sent an unreadable reply.")
+    return body
+
+
+async def retrieve_account(settings: Settings) -> dict:
+    """The Stripe account the secret key belongs to (activation and payout flags)."""
+    return await _get(settings, "/account", {}, "account")
+
+
+async def list_webhook_endpoints(settings: Settings) -> list[dict]:
+    """Webhook endpoints registered in the key's mode (test and live endpoints are separate)."""
+    body = await _get(settings, "/webhook_endpoints", {"limit": "100"}, "webhook endpoints")
+    data = body.get("data")
+    return [e for e in data if isinstance(e, dict)] if isinstance(data, list) else []
 
 
 async def create_subscription_session(

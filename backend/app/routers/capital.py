@@ -133,12 +133,15 @@ async def pool(user: dict = Depends(current_user)):
 class DepositBody(BaseModel):
     amount_cents: int = Field(alias="amountCents", gt=0)
     idempotency_key: str = Field(alias="idempotencyKey", min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    # "wallet" pays from the Autopilot USD balance; "external" (default) is a deposit from outside.
+    source: str = Field(default="external", max_length=10)
 
 
 class WithdrawBody(BaseModel):
     amount_cents: int | None = Field(default=None, alias="amountCents", gt=0)
     all: bool = False
     idempotency_key: str = Field(alias="idempotencyKey", min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    destination: str = Field(default="external", max_length=10)
 
 
 @router.get("/investor")
@@ -149,7 +152,7 @@ async def investor(user: dict = Depends(current_user)):
 
 @router.post("/investor/deposit")
 async def deposit(body: DepositBody, user: dict = Depends(current_user)):
-    result = await _call(service.deposit(user["id"], body.amount_cents, body.idempotency_key))
+    result = await _call(service.deposit(user["id"], body.amount_cents, body.idempotency_key, body.source))
     if isinstance(result, JSONResponse):
         return result
     return {"entry": result, "position": await service.investor_position(user["id"])}
@@ -159,7 +162,8 @@ async def deposit(body: DepositBody, user: dict = Depends(current_user)):
 async def withdraw(body: WithdrawBody, user: dict = Depends(current_user)):
     if not body.all and body.amount_cents is None:
         raise HTTPException(422, "Give an amount, or withdraw all.")
-    result = await _call(service.withdraw(user["id"], None if body.all else body.amount_cents, body.idempotency_key))
+    result = await _call(service.withdraw(user["id"], None if body.all else body.amount_cents, body.idempotency_key,
+                                          body.destination))
     if isinstance(result, JSONResponse):
         return result
     return {"entry": result, "position": await service.investor_position(user["id"])}

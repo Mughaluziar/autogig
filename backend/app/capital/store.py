@@ -17,7 +17,11 @@
   bank_accounts      linked bank accounts (last four digits only)
   bank_transfers     deposits, withdrawals, conversions, crypto sends
   financing_applications  business-financing applications for partner review
-  credit_*           AutoGig project-credit prototype (contributions, applications, agreements, private documents, append-only audit)
+  crypto_addresses   the user's own external wallets (Base) for USDC sends and receipts
+  debit_cards        simulated virtual debit cards on the Autopilot USD balance
+  card_transactions  card authorizations (approved, declined, refunded)
+  credit_*           AutoGig project-credit prototype (contributions, contribution withdrawals, applications,
+                     agreements, private documents, append-only audit)
 
 Every update is compare-and-set on `version`, like the orders store.
 """
@@ -34,7 +38,8 @@ COLLECTIONS = ("capital_profiles", "capital_advances", "capital_coverages", "cap
                "token_wallets", "token_subscriptions", "token_proposals", "token_alerts",
                "market_listings", "market_investments", "market_agreements", "market_distributions",
                "bank_accounts", "bank_transfers", "financing_applications",
-               "credit_contributions", "credit_applications", "credit_agreements", "credit_audit", "credit_documents")
+               "crypto_addresses", "debit_cards", "card_transactions",
+               "credit_contributions", "credit_withdrawals", "credit_applications", "credit_agreements", "credit_audit", "credit_documents")
 _mem: dict[str, list[dict]] = {c: [] for c in COLLECTIONS}
 
 
@@ -45,6 +50,10 @@ class Conflict(Exception):
 def reset_memory() -> None:
     for rows in _mem.values():
         rows.clear()
+    # Derived views and counters over these records and the ledger share this lifecycle.
+    from . import activity, limits
+    activity.reset_memory()
+    limits.reset_memory()
 
 
 def now() -> datetime:
@@ -66,6 +75,9 @@ def _clean(doc: dict | None) -> dict | None:
 async def ensure_indexes() -> None:
     if not db.enabled():
         return
+    from . import activity, limits
+    await activity.ensure_indexes()
+    await limits.ensure_indexes()
     mdb = db._get_db()
     await mdb.capital_profiles.create_index("user_id", unique=True)
     await mdb.capital_profiles.create_index([("kyc.status", ASCENDING)])
@@ -100,6 +112,18 @@ async def ensure_indexes() -> None:
     await mdb.bank_transfers.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
     await mdb.financing_applications.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
     await mdb.financing_applications.create_index([("status", ASCENDING), ("created_at", DESCENDING)])
+    await mdb.bank_transfers.create_index("counterparty_id", sparse=True)
+    # One transfer per request key, so two simultaneous copies of a request can't both post.
+    await mdb.bank_transfers.create_index([("user_id", ASCENDING), ("idem", ASCENDING)], unique=True,
+                                          name="one_transfer_per_request", partialFilterExpression={"idem": {"$type": "string"}})
+    await mdb.crypto_addresses.create_index([("user_id", ASCENDING), ("address_lower", ASCENDING)], unique=True,
+                                            name="one_active_link_per_address", partialFilterExpression={"live": True})
+    await mdb.debit_cards.create_index("user_id", unique=True, name="one_live_card_per_user",
+                                       partialFilterExpression={"live": True})
+    await mdb.card_transactions.create_index([("user_id", ASCENDING), ("idem", ASCENDING)], unique=True)
+    await mdb.card_transactions.create_index([("card_id", ASCENDING), ("created_at", DESCENDING)])
+    await mdb.credit_withdrawals.create_index([("user_id", ASCENDING), ("idem", ASCENDING)], unique=True)
+    await mdb.credit_withdrawals.create_index([("status", ASCENDING), ("created_at", DESCENDING)])
     await mdb.credit_contributions.create_index([("user_id", ASCENDING), ("idem", ASCENDING)], unique=True)
     await mdb.credit_contributions.create_index("ledger_seq")
     await mdb.credit_applications.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
@@ -134,6 +158,14 @@ async def insert(coll: str, user_id: str, fields: dict) -> dict:
             raise Conflict("This investment was already submitted.")
         if coll == "credit_contributions" and any(r["user_id"] == user_id and r.get("idem") == doc.get("idem") for r in rows):
             raise Conflict("This contribution was already submitted.")
+        if coll in ("card_transactions", "credit_withdrawals", "bank_transfers") and doc.get("idem") and any(
+                r["user_id"] == user_id and r.get("idem") == doc.get("idem") for r in rows):
+            raise Conflict("This request was already submitted.")
+        if coll == "crypto_addresses" and doc.get("live") and any(
+                r["user_id"] == user_id and r.get("live") and r.get("address_lower") == doc.get("address_lower") for r in rows):
+            raise Conflict("This wallet is already linked.")
+        if coll == "debit_cards" and doc.get("live") and any(r["user_id"] == user_id and r.get("live") for r in rows):
+            raise Conflict("You already have a card.")
         if coll == "credit_applications" and doc.get("open") and any(r["user_id"] == user_id and r.get("open") for r in rows):
             raise Conflict("You already have an open application.")
         if coll == "credit_documents" and any(r.get("application_id") == doc.get("application_id") and r.get("slot") == doc.get("slot") for r in rows):

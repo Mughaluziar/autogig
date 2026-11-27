@@ -13,7 +13,8 @@ import { useDemoStore } from "@/lib/demo-store";
  * Invoices can be split into milestones and shared through a pay link
  * (backend/app/routers/payments.py), where the client pays by debit card,
  * credit card or crypto. Money only moves through that pay link: a payment
- * the server confirms is applied here with applyOnlinePayments. Everything
+ * the server confirms is applied here with applyOnlinePayments, and so is a
+ * full refund (or lost dispute), which makes the part due again. Everything
  * else (marking paid, income, expenses) is a record the user keeps.
  */
 
@@ -47,11 +48,24 @@ export type Invoice = {
 };
 export type LedgerState = { txns: Txn[]; invoices: Invoice[]; goal: number; seq: number };
 
+/** A Stripe dispute on a pay-link payment (status as Stripe names it: needs_response, under_review, won, lost…). */
+export type PayLinkDispute = { status: string; reason: string; amount: number; openedOn: string | null; respondBy: string | null; closedOn: string | null };
+/** "refunded": the whole payment went back to the client (full refund or lost dispute). Not payable online until re-opened. */
+export type OnlineStatus = "due" | "paid" | "refunded";
+export type PayLinkMilestone = {
+  id: string; title: string; amount: number; due: string; status: OnlineStatus; paidOn: string | null; paidVia: PaidVia | null;
+  /** Refunded so far (a partial refund keeps the part paid). Optional: absent from older servers. */
+  refunded?: number; refundedOn?: string | null; dispute?: PayLinkDispute | null;
+};
 /** A pay link as GET /api/pay-links returns it. */
 export type PayLinkView = {
-  invoiceId: string; token: string; active: boolean; methods: PayMethod[]; total: number; paid: number; remaining: number; extraPayments: number;
-  milestones: { id: string; title: string; amount: number; due: string; status: "due" | "paid"; paidOn: string | null; paidVia: PaidVia | null }[];
+  invoiceId: string; token: string; active: boolean; methods: PayMethod[]; total: number; paid: number; remaining: number;
+  /** Duplicate payments not refunded yet. */
+  extraPayments: number;
+  refunded?: number;
+  milestones: PayLinkMilestone[];
 };
+export const disputeOpen = (d?: PayLinkDispute | null) => !!d && !["won", "lost", "warning_closed"].includes(d.status);
 
 export const PAY_METHODS: { id: PayMethod; label: string; short: string }[] = [
   { id: "debit", label: "Debit card", short: "Debit" },
@@ -149,19 +163,20 @@ function payPart(s: LedgerState, id: string, partId: string, via: PaidVia, date:
   };
 }
 
-function unpayPart(s: LedgerState, id: string, partId: string): LedgerState {
+/** `note` replaces the timeline text (a refund says so instead of "marked unpaid"). */
+function unpayPart(s: LedgerState, id: string, partId: string, note?: string): LedgerState {
   const inv = s.invoices.find((i) => i.id === id);
   if (!inv) return s;
   if (!inv.milestones?.length) {
     if (partId !== FULL_PAYMENT || inv.status !== "Paid") return s;
-    return { ...s, txns: s.txns.filter((t) => t.invoiceId !== id), invoices: s.invoices.map((i) => (i.id === id ? withEvent({ ...i, status: "Sent", paidOn: undefined, paidVia: undefined }, "Payment undone") : i)) };
+    return { ...s, txns: s.txns.filter((t) => t.invoiceId !== id), invoices: s.invoices.map((i) => (i.id === id ? withEvent({ ...i, status: "Sent", paidOn: undefined, paidVia: undefined }, note ?? "Payment undone") : i)) };
   }
   const m = inv.milestones.find((x) => x.id === partId);
   if (!m || m.status !== "Paid") return s;
   const milestones = inv.milestones.map((x) => (x.id === partId ? { ...x, status: "Due" as const, paidOn: undefined, paidVia: undefined } : x));
   return {
     ...s, txns: s.txns.filter((t) => !(t.invoiceId === id && t.milestoneId === partId)),
-    invoices: s.invoices.map((i) => (i.id === id ? withEvent({ ...i, milestones, status: i.status === "Paid" ? "Sent" : i.status, paidOn: undefined }, `${m.title} marked unpaid`) : i)),
+    invoices: s.invoices.map((i) => (i.id === id ? withEvent({ ...i, milestones, status: i.status === "Paid" ? "Sent" : i.status, paidOn: undefined }, note ?? `${m.title} marked unpaid`) : i)),
   };
 }
 
@@ -235,16 +250,26 @@ export function useLedger() {
   const markMilestoneUnpaid = (id: string, partId: string) => commit((s) => unpayPart(s, id, partId));
   const deleteInvoice = (id: string) => commit((s) => ({ ...s, txns: s.txns.filter((t) => t.invoiceId !== id), invoices: s.invoices.filter((i) => i.id !== id) }));
 
-  /** Apply payments the server confirmed through pay links. Returns the parts
-   *  newly marked paid (computed from the current state; applying is
+  /** Apply payments the server confirmed through pay links. A part the server
+   *  says was refunded in full (or lost to a dispute) and is still paid
+   *  online here goes back to due and its income entry is removed. Returns the
+   *  parts newly marked paid (computed from the current state; applying is
    *  idempotent, so a repeated or concurrent call changes nothing). */
   const applyOnlinePayments = (links: PayLinkView[]) => {
     const fresh: { invoice: Invoice; part: Milestone; via: PayMethod }[] = [];
     const plan: { id: string; partId: string; via: PayMethod; date: string }[] = [];
+    const refunds: { id: string; partId: string; note: string }[] = [];
     for (const link of links) {
       const inv = state.invoices.find((i) => i.id === link.invoiceId);
       if (!inv) continue;
       for (const m of link.milestones) {
+        if (m.status === "refunded") {
+          const part = payableParts(inv).find((p) => p.id === m.id);
+          if (part?.status === "Paid" && isOnline(part.paidVia)) {
+            refunds.push({ id: inv.id, partId: m.id, note: `${m.title} ${m.dispute?.status === "lost" ? "lost to a dispute" : "refunded"} · ${PAID_VIA_LABEL[part.paidVia!]}` });
+          }
+          continue;
+        }
         if (m.status !== "paid" || !m.paidVia || m.paidVia === "manual") continue;
         const part = payableParts(inv).find((p) => p.id === m.id);
         if (!part) continue;
@@ -253,21 +278,29 @@ export function useLedger() {
         plan.push({ id: inv.id, partId: m.id, via: m.paidVia, date: m.paidOn || todayStr() });
       }
     }
-    if (plan.length) {
-      commit((s) => plan.reduce((acc, p) => {
-        const inv = acc.invoices.find((i) => i.id === p.id);
-        const part = inv && payableParts(inv).find((x) => x.id === p.partId);
-        if (!inv || !part) return acc;
-        if (part.status === "Due") return payPart(acc, p.id, p.partId, p.via, p.date);
-        // Marked paid by hand here, but the client actually paid online: keep the
-        // payment, record how it really arrived.
-        if (part.paidVia === p.via) return acc;
-        return {
-          ...acc, invoices: acc.invoices.map((i) => (i.id !== p.id ? i : i.milestones?.length
-            ? { ...i, milestones: i.milestones.map((x) => (x.id === p.partId ? { ...x, paidVia: p.via } : x)) }
-            : { ...i, paidVia: p.via })),
-        };
-      }, s));
+    if (plan.length || refunds.length) {
+      commit((s) => {
+        const paid = plan.reduce((acc, p) => {
+          const inv = acc.invoices.find((i) => i.id === p.id);
+          const part = inv && payableParts(inv).find((x) => x.id === p.partId);
+          if (!inv || !part) return acc;
+          if (part.status === "Due") return payPart(acc, p.id, p.partId, p.via, p.date);
+          // Marked paid by hand here, but the client actually paid online: keep the
+          // payment, record how it really arrived.
+          if (part.paidVia === p.via) return acc;
+          return {
+            ...acc, invoices: acc.invoices.map((i) => (i.id !== p.id ? i : i.milestones?.length
+              ? { ...i, milestones: i.milestones.map((x) => (x.id === p.partId ? { ...x, paidVia: p.via } : x)) }
+              : { ...i, paidVia: p.via })),
+          };
+        }, s);
+        return refunds.reduce((acc, r) => {
+          const inv = acc.invoices.find((i) => i.id === r.id);
+          const part = inv && payableParts(inv).find((x) => x.id === r.partId);
+          // Only a payment made online is reversed; one marked paid by hand since then is the owner's record.
+          return part?.status === "Paid" && isOnline(part.paidVia) ? unpayPart(acc, r.id, r.partId, r.note) : acc;
+        }, paid);
+      });
     }
     return fresh;
   };

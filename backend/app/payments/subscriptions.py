@@ -6,7 +6,9 @@ Collection
                   and subscription ids, plan, status, trial and period ends,
                   whether a trial was ever used (one free trial per account),
                   and the Stripe event / session ids already applied, so
-                  webhook retries are no-ops.
+                  webhook retries are no-ops. `packs` lists the credit-pack
+                  payments (PaymentIntent id, pack, amount and refunded cents),
+                  so a refund finds its user and is applied once.
 
 The plan and credits themselves stay in repo.py's billing document; this only
 remembers how they were paid for.
@@ -14,15 +16,19 @@ remembers how they were paid for.
 from copy import deepcopy
 from datetime import datetime, timezone
 
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
+
 from .. import db
 
 _mem: dict[str, dict] = {}
 _MAX_SEEN = 200
+_MAX_PACKS = 200
 
 EMPTY = {
     "customer_id": None, "subscription_id": None, "plan": None, "status": None,
     "trial_end": None, "current_period_end": None, "cancel_at_period_end": False,
-    "trial_used": False, "seen": [],
+    "trial_used": False, "seen": [], "packs": [],
 }
 
 
@@ -43,6 +49,7 @@ async def ensure_indexes() -> None:
         return
     await _coll().create_index("subscription_id", sparse=True)
     await _coll().create_index("customer_id", sparse=True)
+    await _coll().create_index("packs.payment_intent", sparse=True)
 
 
 def _clean(doc: dict | None) -> dict:
@@ -101,3 +108,63 @@ async def claim(user_id: str, key: str) -> bool:
         except Exception:
             return await claim(user_id, key)
     return False
+
+
+# --------------------------------------------------------------------------- #
+# Credit-pack payments, for refunds
+# --------------------------------------------------------------------------- #
+async def record_pack_payment(user_id: str, payment_intent: str, pack: str, amount_cents: int) -> None:
+    """Remember a paid credit pack (once per PaymentIntent)."""
+    if not (user_id and payment_intent):
+        return
+    rec = {"payment_intent": payment_intent, "pack": pack, "amount_cents": amount_cents, "refunded_cents": 0,
+           "full": False, "at": now()}
+    if not db.enabled():
+        doc = _mem.setdefault(user_id, deepcopy(EMPTY))
+        if not any(p["payment_intent"] == payment_intent for p in doc["packs"]):
+            doc["packs"] = (doc["packs"] + [rec])[-_MAX_PACKS:]
+        return
+    try:
+        await _coll().update_one({"_id": user_id, "packs.payment_intent": {"$ne": payment_intent}},
+                                 {"$push": {"packs": {"$each": [rec], "$slice": -_MAX_PACKS}}}, upsert=True)
+    except DuplicateKeyError:
+        pass  # the document exists and already holds this payment
+
+
+async def find_pack_payment(payment_intent: str) -> tuple[str, dict] | None:
+    """(user id, pack payment) for a credit-pack PaymentIntent."""
+    if not payment_intent:
+        return None
+    if not db.enabled():
+        for uid, doc in _mem.items():
+            hit = next((p for p in doc.get("packs") or [] if p["payment_intent"] == payment_intent), None)
+            if hit:
+                return uid, deepcopy(hit)
+        return None
+    doc = await _coll().find_one({"packs.payment_intent": payment_intent},
+                                 {"packs": {"$elemMatch": {"payment_intent": payment_intent}}})
+    return (doc["_id"], doc["packs"][0]) if doc and doc.get("packs") else None
+
+
+async def advance_pack_refund(user_id: str, payment_intent: str, refunded_cents: int, *, full: bool) -> dict | None:
+    """Raise a pack payment's refunded total to the charge's cumulative amount_refunded. Atomic and monotonic:
+    returns the record as it was before for the one call that moved it forward, None for a replay or an older
+    state. `full` is stored once, so whoever sees it flip from False takes the credits back exactly once."""
+    stamp = now()
+    if not db.enabled():
+        doc = _mem.get(user_id) or {}
+        rec = next((p for p in doc.get("packs") or [] if p["payment_intent"] == payment_intent), None)
+        if rec is None or rec["refunded_cents"] >= refunded_cents:
+            return None
+        before = deepcopy(rec)
+        rec.update(refunded_cents=refunded_cents, refunded_at=stamp, full=rec["full"] or full)
+        return before
+    sets = {"packs.$.refunded_cents": refunded_cents, "packs.$.refunded_at": stamp}
+    if full:
+        sets["packs.$.full"] = True
+    doc = await _coll().find_one_and_update(
+        {"_id": user_id, "packs": {"$elemMatch": {"payment_intent": payment_intent, "refunded_cents": {"$lt": refunded_cents}}}},
+        {"$set": sets}, projection={"packs": {"$elemMatch": {"payment_intent": payment_intent}}},
+        return_document=ReturnDocument.BEFORE,
+    )
+    return doc["packs"][0] if doc and doc.get("packs") else None

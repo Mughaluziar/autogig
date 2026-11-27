@@ -9,10 +9,11 @@ import { useDemoStore } from "@/lib/demo-store";
 // Collections the backend only serves in demo mode (SEED_DEMO_DATA=true, see
 // backend/app/main.py). A real account would just get a 404 for each, so they
 // are never requested: the caller keeps its empty-state value and the browser
-// console stays clean. Anything not listed here is fetched as before.
+// console stays clean. Anything not listed here is fetched as before. ("conversations" is not listed: outside
+// demo mode it is the user's own unified inbox, served by backend/app/routers/inbox.py.)
 export const DEMO_ONLY_KEYS = new Set([
   "kpis", "agents", "revenue-streams", "hitl", "contracts", "leads", "clients", "milestones",
-  "conversations", "invoices", "proposals", "jobs", "sales-leads", "sequences", "integrations",
+  "invoices", "proposals", "jobs", "sales-leads", "sequences", "integrations",
   "voice-calls", "qa-runs", "addons", "personas", "portfolio", "bids", "freelancers", "payouts",
   "affiliates", "market-rates", "competitors", "monetization", "users", "funnel", "channel-mix",
   "analytics", "overview", "specs", "margins", "margins/timeseries", "margins/by-project",

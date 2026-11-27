@@ -61,10 +61,11 @@ def create_link(client, owner, **over) -> dict:
 
 
 def event(token, milestone_id, amount, *, session_id="cs_test_1", method="credit",
-          status="paid", etype="checkout.session.completed") -> bytes:
-    return json.dumps({"id": f"evt_{session_id}", "type": etype, "data": {"object": {
+          status="paid", etype="checkout.session.completed", event_id=None, payment_intent=None) -> bytes:
+    # Stripe gives every event its own id; a replay re-sends the same one.
+    return json.dumps({"id": event_id or f"evt_{session_id}_{etype}_{status}", "type": etype, "data": {"object": {
         "id": session_id, "object": "checkout.session", "payment_status": status,
-        "amount_total": amount, "currency": "usd", "payment_intent": "pi_123",
+        "amount_total": amount, "currency": "usd", "payment_intent": payment_intent or f"pi_{session_id}",
         "metadata": {"pay_token": token, "milestone_id": milestone_id, "method": method},
     }}}).encode()
 
@@ -218,8 +219,11 @@ def test_webhook_marks_the_milestone_paid_once(client, owner, stripe):
     body = event(token, "m1", 50_000)
     res = post_event(client, body)
     assert res.status_code == 200 and res.json()["paid"] is True
-    # Stripe retries deliveries: a replay changes nothing.
-    assert post_event(client, body).json()["paid"] is False
+    # Stripe retries deliveries: a replay of the event id is answered from the event log and changes nothing.
+    assert post_event(client, body).json() == {"received": True, "duplicate": True}
+    # A different event about the same session (Stripe can describe one payment twice) changes nothing either.
+    again = post_event(client, event(token, "m1", 50_000, event_id="evt_other")).json()
+    assert again["paid"] is False and again["duplicate"] is True
 
     link = client.get("/api/pay-links", headers=owner["headers"]).json()["links"][0]
     m1 = link["milestones"][0]

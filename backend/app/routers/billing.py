@@ -22,6 +22,15 @@ simulate a purchase (status "Simulated", no money moves) so the app can be
 tried end to end. They're refused once Stripe is configured (use checkout)
 and in production (no free upgrades by API call).
 
+Refunds and failed renewals (signed webhook too):
+  charge.refunded for a credit pack   records a "Refunded" purchase (negative amount) and notifies the user.
+                                      Partial refund: the credits stay (a goodwill refund). Full refund: the pack's
+                                      credits are taken back, but only what's left, never below zero, so credits
+                                      already spent stay spent. Plan (subscription) refunds don't change the plan;
+                                      cancel the subscription in Stripe to end it.
+  invoice.payment_failed              the subscription goes past_due and the user is told to update their card
+                                      in Manage billing (Stripe's billing portal). invoice.paid makes it active again.
+
 Bid credits are spent by the server itself when a real bid goes out (see
 routers/freelancer.py and routers/automation.py, and for freelancer accounts their
 bids in the freelancer pool, pool/credits.py), never by the browser.
@@ -38,6 +47,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, model_validator
+from pymongo import ReturnDocument
 
 from .. import db, repo
 from ..auth import current_user
@@ -143,6 +153,7 @@ _RECEIPT_NOTES = {
     "Trial": "A free trial started. Nothing was charged.",
     "Ended": "The plan ended. Nothing was charged.",
     "Simulated": "Simulated purchase on a development server: no payment was taken and no money moved.",
+    "Refunded": "Refunded through Stripe to the original card or wallet. Banks usually show it within 5 to 10 days.",
 }
 
 
@@ -161,7 +172,7 @@ async def receipt(purchase_id: str, user: dict = Depends(current_user)):
         "amount": round(float(found.get("amount") or 0), 2), "currency": "USD", "status": status,
         "recurring": bool(found.get("recurring")), "charged": status == "Paid" and float(found.get("amount") or 0) > 0,
         # The purchase record doesn't keep the card/crypto split, so say only what is known.
-        "paymentMethod": found.get("method") or ("Stripe" if status == "Paid" else None),
+        "paymentMethod": found.get("method") or ("Stripe" if status in ("Paid", "Refunded") else None),
         "billedTo": {"name": account.get("name", ""), "email": user["email"], "company": account.get("company", "")},
         "issuer": "Autopilot",
         "note": _RECEIPT_NOTES.get(status, ""),
@@ -334,7 +345,111 @@ async def spend(body: SpendBody, user: dict = Depends(current_user)):
 BILLING_EVENTS = (
     "checkout.session.completed", "checkout.session.async_payment_succeeded",
     "customer.subscription.updated", "customer.subscription.deleted", "invoice.paid",
+    "invoice.payment_failed", "charge.refunded",
 )
+
+
+async def _take_back_credits(user_id: str, field: str, n: int) -> int:
+    """Remove up to n credits, never below zero, in one atomic step (a bid may
+    spend one at the same moment). Returns how many were removed."""
+    if n <= 0:
+        return 0
+    await repo._ensure_billing(user_id)  # a new account's default credits live only in DEFAULT_BILLING until then
+    if not db.enabled():
+        doc = repo._mem_docs["billing"].get(user_id)
+        if not doc:
+            return 0
+        removed = max(0, min(n, int(doc.get(field) or 0)))
+        doc[field] -= removed
+        return removed
+    before = await db._get_db().billing.find_one_and_update(
+        {"_id": user_id}, [{"$set": {field: {"$max": [0, {"$subtract": [f"${field}", n]}]}}}],
+        projection={field: 1}, return_document=ReturnDocument.BEFORE,
+    )
+    return max(0, min(n, int((before or {}).get(field) or 0)))
+
+
+async def _pack_refunded(charge: dict) -> dict | None:
+    """charge.refunded for a credit pack. None when the charge isn't one (an
+    invoice pay link), so the caller handles it. Applied once per increase of
+    Stripe's cumulative amount_refunded."""
+    meta = charge.get("metadata") or {}
+    if meta.get("pay_token"):
+        return None
+    payment_intent = str(charge.get("payment_intent") or "")[:255]
+    amount, refunded = charge.get("amount"), charge.get("amount_refunded")
+    if not payment_intent:
+        return None
+    user_id = str(meta.get("user_id") or "") if meta.get("kind") == "pack" else ""
+    if not user_id:
+        found = await subscriptions.find_pack_payment(payment_intent)
+        if not found:
+            return None
+        user_id = found[0]
+    if not isinstance(amount, int) or not isinstance(refunded, int) or refunded <= 0:
+        return {"received": True}
+    # A pack bought before pack payments were recorded: its charge metadata says what it was.
+    pack_id = str(meta.get("pack") or "")
+    if pack_id in CREDIT_PACKS:
+        await subscriptions.record_pack_payment(user_id, payment_intent, pack_id, amount)
+    found = await subscriptions.find_pack_payment(payment_intent)
+    record = found[1] if found else {}
+    pack = CREDIT_PACKS.get(str(record.get("pack") or pack_id))
+    if not pack:
+        return {"received": True}
+    paid = int(record.get("amount_cents") or amount)
+    total = min(refunded, paid)
+    full = bool(charge.get("refunded")) or total >= paid
+    before = await subscriptions.advance_pack_refund(user_id, payment_intent, total, full=full)
+    if before is None:
+        return {"received": True, "duplicate": True}
+    delta = total - int(before.get("refunded_cents") or 0)
+    removed = await _take_back_credits(user_id, pack["field"], pack["credits"]) if full and not before.get("full") else 0
+    unit = "bid" if pack["field"] == "bidCredits" else "profile"
+    took = f"{removed} {unit} credit{'s' if removed != 1 else ''} removed" if removed else "no unused credits left to remove"
+    item = f"Refund · {pack['label']}" + (f" ({took})" if full else " (partial)")
+    await repo.record_purchase(user_id, _purchase(item, -delta / 100, "Refunded"))
+    if full:
+        body = (f"${delta / 100:,.2f} for {pack['label']} went back to your card. "
+                + (f"The pack's unused credits were removed ({removed})." if removed else "Its credits were already used, so nothing was removed."))
+    else:
+        body = f"${delta / 100:,.2f} of {pack['label']} went back to your card. Your credits stay."
+    await repo.notify(user_id, "Refund issued", body)
+    await repo.log_activity(user_id, "Billing", f"Refunded ${delta / 100:,.2f} for {pack['label']}" + (f", {took}" if full else ""))
+    return {"received": True, "refunded": delta}
+
+
+async def _payment_failed(invoice: dict, event_id: str) -> dict:
+    """invoice.payment_failed: a renewal (or the first charge after a trial)
+    was declined. The plan stays while Stripe retries; the user updates the
+    card in the billing portal."""
+    sub_id = str(invoice.get("subscription") or "")
+    meta = ((invoice.get("subscription_details") or {}).get("metadata") or {})
+    user_id = str(meta.get("user_id") or "") or await subscriptions.find_user_by_subscription(sub_id)
+    if not user_id:
+        return {"received": True}
+    attempt = invoice.get("attempt_count") if isinstance(invoice.get("attempt_count"), int) else 0
+    if not await subscriptions.claim(user_id, f"pf:{invoice.get('id') or event_id}:{attempt}"):
+        return {"received": True, "duplicate": True}
+    sub = await subscriptions.get(user_id)
+    if not sub_id or sub.get("subscription_id") != sub_id or sub.get("status") in ENDED:
+        # An older subscription, or one that already ended (its "plan ended" notice says so): nothing to keep.
+        await repo.log_activity(user_id, "Billing", "A payment for an ended or replaced plan failed")
+        return {"received": True}
+    await subscriptions.update(user_id, {"status": "past_due"})
+    plan = PAID_PLANS.get(sub.get("plan") or "")
+    amount = invoice.get("amount_due")
+    what = (f"${amount / 100:,.2f} " if isinstance(amount, int) and amount > 0 else "") + \
+        (f"for your {plan['name']} plan" if plan else "for your plan")
+    retry = _iso(invoice.get("next_payment_attempt"))
+    when = f" Stripe tries again on {retry[:10]}." if retry else ""
+    account = await db.find_user_by_id(user_id) or {}
+    page = "Billing" if _is_freelancer(account) else "Money → Plan & credits"
+    await repo.notify(user_id, "Payment failed",
+                      f"We couldn't charge your card {what}.{when} Update your card with Manage billing on {page} "
+                      "to keep your plan.", kind="warning")
+    await repo.log_activity(user_id, "Billing", f"Plan payment failed (attempt {attempt or 1})")
+    return {"received": True, "pastDue": True}
 
 
 async def _end_plan(user_id: str, sub_id: str, reason: str) -> None:
@@ -389,6 +504,7 @@ async def _session_completed(session: dict) -> dict:
             return {"received": True}
         if not await subscriptions.claim(user_id, f"cs:{session_id}"):
             return {"received": True, "duplicate": True}
+        await subscriptions.record_pack_payment(user_id, str(session.get("payment_intent") or "")[:255], meta["pack"], amount)
         await repo.record_purchase(user_id, _purchase(pack["label"], amount / 100, "Paid"), add_credits={pack["field"]: pack["credits"]})
         await repo.notify(user_id, f"{pack['label']} added", f"Paid ${amount / 100:,.2f}. Your credits are ready to use.")
         await send_sale_alert(user_id, "purchase", pack["label"], amount / 100)
@@ -409,6 +525,12 @@ async def handle_stripe_event(event: dict) -> dict | None:
         if (obj.get("metadata") or {}).get("kind") not in ("plan", "pack"):
             return None
         return await _session_completed(obj)
+
+    if etype == "charge.refunded":
+        return await _pack_refunded(obj)
+
+    if etype == "invoice.payment_failed":
+        return await _payment_failed(obj, event_id)
 
     if etype.startswith("customer.subscription."):
         sub_id = str(obj.get("id") or "")

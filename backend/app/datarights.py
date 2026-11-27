@@ -152,6 +152,11 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
     Coll("capital_journal", (("refs.user_id", "id"), ("refs.users", "id")), "keep", "Append-only simulated ledger; "
          "never rewritten. It holds ids and amounts, no names.", True, lambda: capital_ledger._mem_journal),
     Coll("capital_head", (), "none", "Ledger head pointer (balances per account id).", False),
+    Coll("wallet_activity", _uid(), "delete", "Transaction-history view derived from the ledger (rebuilt from it; "
+         "the ledger itself is kept).", False, lambda: {}),
+    Coll("wallet_activity_cursors", (("_id", "key"),), "delete", "Where the user's transaction-history view is up to.",
+         False, lambda: {}),
+    Coll("capital_daily_limits", _uid(), "delete", "Daily transfer-limit counters.", False, lambda: {}),
     Coll("capital_profiles", _uid(), "delete", "KYC profile (simulated verification).", True,
          lambda: capital_store._mem["capital_profiles"]),
     Coll("capital_advances", _uid(), "scrub", "Simulated advances (ledger consistency).", True,
@@ -178,12 +183,23 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
          lambda: capital_store._mem["market_distributions"]),
     Coll("bank_accounts", _uid(), "delete", "Simulated bank account details.", True,
          lambda: capital_store._mem["bank_accounts"]),
-    Coll("bank_transfers", _uid(), "scrub", "Simulated transfers (ledger consistency).", True,
-         lambda: capital_store._mem["bank_transfers"], scrub=("address", "note")),
+    Coll("bank_transfers", (("user_id", "id"), ("counterparty_id", "id")), "scrub",
+         "Simulated transfers (ledger consistency). A transfer between two members is in both members' records; "
+         "deleting one replaces their label in the other's copy.", True,
+         lambda: capital_store._mem["bank_transfers"], scrub=("address", "note"),
+         names={"user_id": ("sender_label",), "counterparty_id": ("counterparty_label",)}),
+    Coll("crypto_addresses", _uid(), "delete", "The user's own linked wallet addresses (public addresses only).", True,
+         lambda: capital_store._mem["crypto_addresses"]),
+    Coll("debit_cards", _uid(), "scrub", "Simulated virtual debit cards (last four digits only, never a card number).",
+         True, lambda: capital_store._mem["debit_cards"], scrub=("name_on_card",)),
+    Coll("card_transactions", _uid(), "scrub", "Simulated card purchases and refunds (ledger consistency).", True,
+         lambda: capital_store._mem["card_transactions"], scrub=("merchant",)),
     Coll("financing_applications", _uid(), "scrub", "Simulated financing applications.", True,
          lambda: capital_store._mem["financing_applications"], scrub=("email",)),
     Coll("credit_contributions", _uid(), "scrub", "Simulated contributions to the demo credit pool.", True,
          lambda: capital_store._mem["credit_contributions"]),
+    Coll("credit_withdrawals", _uid(), "scrub", "Requests to withdraw simulated contributions (ledger consistency).",
+         True, lambda: capital_store._mem["credit_withdrawals"], scrub=("note", "review_note")),
     Coll("credit_applications", _uid(), "scrub", "Simulated project-credit applications.", True,
          lambda: capital_store._mem["credit_applications"], scrub=("applicant_name", "applicant_email", "description", "title")),
     Coll("credit_agreements", _uid(), "scrub", "Simulated credit agreements (ledger consistency).", True,
@@ -202,6 +218,8 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
          "after its window. Not linkable to an account."),
     Coll("edge_nonces", (), "none", "Single-use request identifiers of the website proxy (replay protection); expire in about two minutes. No personal data."),
     Coll("revoked_sessions", (), "none", "Revoked session ids; expire on their own."),
+    Coll("stripe_events", (), "none", "Stripe webhook event log: Stripe event and object ids, event type, what the webhook "
+         "did with it and when. No names, emails, amounts or user ids; expires after 90 days."),
     Coll("oauth_states", (), "none", "Single-use sign-in state; expires on its own."),
     Coll("oauth_handoffs", (), "none", "Single-use sign-in handoff; expires on its own."),
     Coll("oauth_signup_proofs", (), "none", "Hashed email binding and single-use signup proof; expires on its own."),
@@ -366,9 +384,11 @@ async def blockers(user_doc: dict) -> list[str]:
         out.append(f"{len(active)} contract(s) are still active. Finish or end them first so nobody is left unpaid.")
     for name, label in (("capital_advances", "advance"), ("capital_coverages", "cover"), ("market_investments", "investment"),
                         ("market_listings", "listing"), ("financing_applications", "financing application"),
-                        ("credit_applications", "credit application"), ("credit_agreements", "credit agreement")):
+                        ("credit_applications", "credit application"), ("credit_agreements", "credit agreement"),
+                        ("credit_withdrawals", "contribution withdrawal"), ("debit_cards", "debit card")):
         open_rows = [r for r in await rows(DATA_MAP[name], ctx)
-                     if r.get("status") in ("active", "open", "funding", "submitted", "in_review", "outstanding", "live", "offered", "late")]
+                     if r.get("status") in ("active", "open", "funding", "submitted", "in_review", "outstanding", "live", "offered",
+                                            "late", "requested", "frozen")]
         if open_rows:
             out.append(f"{len(open_rows)} simulated {label}(s) are still open. Close or settle them first.")
     return out

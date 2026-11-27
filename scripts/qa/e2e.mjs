@@ -659,13 +659,15 @@ await guard("demo", "anonymous visitors, nav routes, Coming soon pages, mobile c
   check("demo", "Command Center lists Calendar as Coming soon and has no Agent Fleet panel", /Calendar/.test(cc) && /Coming soon/i.test(cc) && !/Agent Fleet/.test(cc));
 
   // Coming soon pages stay on their URL and say so.
-  for (const r of ["/dashboard/agents", "/dashboard/calendar", "/dashboard/clients", "/dashboard/contracts", "/dashboard/milestones", "/dashboard/freelancers"]) {
+  await ag.goto("/dashboard/agents", { waitUntil: "networkidle" }); await ag.waitForTimeout(800);
+  check("demo", "Agent Fleet opens for a live agency account (not Coming soon)", new URL(ag.url()).pathname === "/dashboard/agents" && /Agent Fleet/.test(await text(ag)) && !/Coming soon/i.test(await text(ag)), (await text(ag)).slice(0, 120));
+  for (const r of ["/dashboard/calendar", "/dashboard/clients", "/dashboard/contracts", "/dashboard/milestones", "/dashboard/freelancers"]) {
     await ag.goto(r, { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
     check("demo", `${r} says Coming soon without redirecting`, new URL(ag.url()).pathname === r && /Coming soon/i.test(await text(ag)), ag.url());
   }
   await ag.goto("/dashboard/audit-log", { waitUntil: "networkidle" }); await ag.waitForTimeout(500);
   check("demo", "Audit Log shows real timestamps", !/\bnever\b/i.test(await text(ag)));
-  const soonRe = /^\/(dashboard\/(agents|calendar|bidding|clients|contracts|milestones|freelancers|arbitrage|margins|hitl|personas|portfolio|job-hunter|marketing)|freelancer\/(qa|messages|billing))(\/|$)/;
+  const soonRe = /^\/(dashboard\/(calendar|bidding|clients|contracts|milestones|freelancers|arbitrage|margins|hitl|personas|portfolio|job-hunter|marketing)|freelancer\/(qa|messages|billing))(\/|$)/;
   for (const r of ["/dashboard/analytics", "/dashboard/analytics/activity", "/dashboard/analytics/pipeline", "/dashboard/analytics/earnings", "/dashboard/accounts", "/dashboard/command", "/dashboard/gigs", "/dashboard/pool"]) {
     await ag.goto(r, { waitUntil: "networkidle" }); await ag.waitForTimeout(400);
     const hrefs = await ag.$$eval("main a[href^='/']", (as) => as.map((a) => a.getAttribute("href")));

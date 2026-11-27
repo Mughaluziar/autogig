@@ -3,26 +3,49 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, CheckCircle2, Circle, Copy, CopyPlus, ExternalLink, FileText, History, Link2, Loader2, Pencil, Send, Trash2, Undo2,
+  ArrowLeft, CheckCircle2, Circle, Copy, CopyPlus, ExternalLink, FileText, History, Link2, Loader2, Pencil, RotateCcw, Send, Trash2, Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
+import { apiCall } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/components/money/money-provider";
 import { InvoicePreview } from "@/components/money/invoice-preview";
-import { ClientMark, fmtDate, fmtDateTime, isOnline, methodsOf, money, StatusPill } from "@/components/money/format";
-import { amountDue, effectiveStatus, PAID_VIA_LABEL, payableParts, todayStr } from "@/lib/ledger";
+import { ClientMark, detailOf, fmtDate, fmtDateTime, isOnline, methodsOf, money, StatusPill } from "@/components/money/format";
+import {
+  amountDue, disputeOpen, effectiveStatus, PAID_VIA_LABEL, payableParts, payLinkSnapshot, todayStr,
+  type Milestone, type PayLinkMilestone,
+} from "@/lib/ledger";
 import { cn } from "@/lib/utils";
+
+/** What the server knows about a part beyond paid/due: refunds and disputes (Stripe events). */
+function onlineNote(m: Milestone, online?: PayLinkMilestone): { text: string; tone: "warn" | "bad" } | null {
+  if (!online) return null;
+  if (online.status === "refunded" && m.status === "Due") {
+    const how = online.dispute?.status === "lost" ? "Lost to a dispute" : "Refunded";
+    return { text: `${how} ${fmtDate(online.refundedOn)}. Your client can't pay it online until you ask again.`, tone: "warn" };
+  }
+  if (m.status !== "Paid") return null;
+  if (online.dispute && disputeOpen(online.dispute)) {
+    const by = online.dispute.respondBy ? ` by ${fmtDate(online.dispute.respondBy)}` : "";
+    return { text: `Disputed by your client's bank. Respond in your Stripe Dashboard${by}.`, tone: "bad" };
+  }
+  const notes: string[] = [];
+  if (online.refunded) notes.push(`${money(online.refunded)} refunded`);
+  if (online.dispute?.status === "won") notes.push("dispute won");
+  return notes.length ? { text: notes.join(" · "), tone: "warn" } : null;
+}
 
 export default function InvoiceDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = React.use(props.params);
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();
-  const { L, canLink, payStatus, links, share, linkBusy, removeInvoice, copy, payUrl } = useMoney();
+  const { L, canLink, payStatus, links, share, linkBusy, removeInvoice, copy, payUrl, refresh } = useMoney();
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [reopening, setReopening] = React.useState<string | null>(null);
   const i = L.invoices.find((x) => x.id === params.id);
 
   if (!L.ready) return <div className="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading invoice…</div>;
@@ -45,6 +68,20 @@ export default function InvoiceDetailPage(props: { params: Promise<{ id: string 
   const link = links.find((l) => l.invoiceId === i.id);
   const today = todayStr();
   const events = [...(i.events ?? [])].reverse();
+
+  // A refunded part stays closed on the pay link until the owner re-opens it here.
+  const askAgain = async (m: Milestone) => {
+    setReopening(m.id);
+    const res = await apiCall<any>("/api/pay-links", { ...payLinkSnapshot(i), reopen: [m.id] });
+    setReopening(null);
+    if (res?.status !== 200) {
+      toast({ title: "Couldn't re-open it", description: detailOf(res?.data, "Couldn't reach the server. Try again in a moment.") });
+      return;
+    }
+    L.logEvent(i.id, `${m.title} re-opened for payment`, "sent");
+    refresh();
+    toast({ title: `${m.title} can be paid again`, description: "Your client can pay it from the same link.", variant: "success" });
+  };
 
   const text = () => {
     const lines = [`Invoice ${i.number}`, `To: ${i.client}`, `Amount: ${money(i.amount)}`, `Issued: ${fmtDate(i.issued)}`, `Due: ${fmtDate(i.due)}`];
@@ -118,21 +155,35 @@ export default function InvoiceDetailPage(props: { params: Promise<{ id: string 
               <ul className="space-y-2" data-testid="milestone-list">
                 {parts.map((m) => {
                   const overdue = m.status === "Due" && !!m.due && m.due < today;
+                  const online = link?.milestones.find((x) => x.id === m.id);
+                  const refunded = m.status === "Due" && online?.status === "refunded";
+                  const disputed = m.status === "Paid" && disputeOpen(online?.dispute);
+                  const note = onlineNote(m, online);
                   return (
-                    <li key={m.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border p-3", m.status === "Paid" ? "bg-success/5" : overdue ? "border-destructive/40 bg-destructive/5" : "bg-card")}>
-                      {m.status === "Paid" ? <CheckCircle2 className="size-5 shrink-0 text-success" /> : <Circle className={cn("size-5 shrink-0", overdue ? "text-destructive" : "text-muted-foreground")} />}
+                    <li key={m.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border p-3", disputed ? "border-destructive/40 bg-destructive/5" : m.status === "Paid" ? "bg-success/5" : refunded ? "border-warning/40 bg-warning/5" : overdue ? "border-destructive/40 bg-destructive/5" : "bg-card")}>
+                      {m.status === "Paid" ? <CheckCircle2 className="size-5 shrink-0 text-success" /> : refunded ? <RotateCcw className="size-5 shrink-0 text-warning" /> : <Circle className={cn("size-5 shrink-0", overdue ? "text-destructive" : "text-muted-foreground")} />}
                       <div className="min-w-0 flex-1 basis-40">
                         <p className="truncate text-sm font-medium">{m.title}</p>
                         <p className={cn("text-[11px]", overdue ? "text-destructive" : "text-muted-foreground")}>
                           {m.status === "Paid" ? `Paid ${fmtDate(m.paidOn)} · ${PAID_VIA_LABEL[m.paidVia ?? "manual"]}` : m.due ? `Due ${fmtDate(m.due)}${overdue ? " · overdue" : ""}` : "Due on receipt"}
                         </p>
+                        {note && <p className={cn("text-[11px]", note.tone === "bad" ? "text-destructive" : "text-warning")}>{note.text}</p>}
                       </div>
                       <p className="text-sm font-bold">{money(m.amount)}</p>
                       {m.status === "Paid"
                         ? isOnline(m.paidVia)
-                          ? <span className="rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">Paid online</span>
+                          ? <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", disputed ? "bg-destructive/15 text-destructive" : "bg-success/15 text-success")}>{disputed ? "Disputed" : "Paid online"}</span>
                           : <Button size="sm" variant="ghost" onClick={() => { L.markMilestoneUnpaid(i.id, m.id); toast({ title: "Marked unpaid", description: "The income entry was removed." }); }}><Undo2 className="size-3.5" /> Undo</Button>
-                        : <Button size="sm" variant="outline" onClick={() => { L.markMilestonePaid(i.id, m.id); toast({ title: `${m.title} marked paid`, description: "Added to your income.", variant: "success" }); }}><CheckCircle2 className="size-3.5" /> Mark paid</Button>}
+                        : (
+                          <span className="flex flex-wrap gap-1.5">
+                            {refunded && (
+                              <Button size="sm" variant="outline" disabled={reopening === m.id} onClick={() => askAgain(m)}>
+                                {reopening === m.id ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />} Ask to pay again
+                              </Button>
+                            )}
+                            <Button size="sm" variant="outline" onClick={() => { L.markMilestonePaid(i.id, m.id); toast({ title: `${m.title} marked paid`, description: "Added to your income.", variant: "success" }); }}><CheckCircle2 className="size-3.5" /> Mark paid</Button>
+                          </span>
+                        )}
                     </li>
                   );
                 })}
