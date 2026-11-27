@@ -11,7 +11,7 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { apiCall } from "@/lib/api";
 import { newIdempotencyKey, pct, toCents, usd } from "@/lib/capital";
-import { AGREEMENT_LABELS, useCredit, type CreditOverview, type Statement } from "@/lib/credit";
+import { AGREEMENT_LABELS, WITHDRAWAL_LABELS, useCredit, type CreditOverview, type Statement } from "@/lib/credit";
 import { CHAIN_NAMES, connect, useWallets } from "@/lib/wallets";
 import { Gate, SimNotice, Stat, dateOnly } from "@/components/credit/common";
 
@@ -27,6 +27,7 @@ export function CreditInvestor() {
             <ContributeCard overview={overview} onDone={refresh} />
             <StatementCard statement={statement} />
           </div>
+          {statement && statement.contributedCents > 0 && <WithdrawCard statement={statement} onDone={refresh} />}
           <Allocations rows={allocations} />
           <History statement={statement} />
           <div className="grid gap-4 lg:grid-cols-2">
@@ -76,7 +77,7 @@ function ContributeCard({ overview, onDone }: { overview: CreditOverview; onDone
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Add a demo contribution</CardTitle>
-        <CardDescription>Between {usd(min)} and {usd(max)}. Simulated funds only; contributions cannot be withdrawn in this prototype.</CardDescription>
+        <CardDescription>Between {usd(min)} and {usd(max)}. Simulated funds only. You can ask for contributions back below; the platform pays requests when the pool has uncommitted cash.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={(e) => void submit(e)} className="space-y-3" aria-label="Demo contribution">
@@ -108,6 +109,9 @@ function StatementCard({ statement }: { statement: Statement | null }) {
         {!statement || statement.contributedCents === 0 ? <p className="text-sm text-muted-foreground">Record a demo contribution to see a statement.</p> : (
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <dt className="text-muted-foreground">You contributed</dt><dd className="text-right tabular-nums">{usd(statement.contributedCents)}</dd>
+            {statement.withdrawnCents > 0 && (<>
+              <dt className="text-muted-foreground">Withdrawn</dt><dd className="text-right tabular-nums">−{usd(statement.withdrawnCents)}</dd>
+            </>)}
             <dt className="text-muted-foreground">Share of the demo pool</dt><dd className="text-right tabular-nums">{pct(statement.shareBps)}</dd>
             <dt className="text-muted-foreground">Attributed fees</dt><dd className="text-right tabular-nums">{usd(statement.attributedFeesCents)}</dd>
             <dt className="text-muted-foreground">Attributed losses</dt><dd className="text-right tabular-nums">{usd(statement.attributedLossesCents)}</dd>
@@ -148,15 +152,92 @@ function Allocations({ rows }: { rows: ReturnType<typeof useCredit>["allocations
   );
 }
 
+function WithdrawCard({ statement, onDone }: { statement: Statement; onDone: () => void }) {
+  const { toast } = useToast();
+  const [amount, setAmount] = React.useState("");
+  const [note, setNote] = React.useState("");
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [key, setKey] = React.useState(newIdempotencyKey);
+  const cents = toCents(amount);
+  const ok = cents != null && cents >= 1_000 && cents <= statement.withdrawableCents;
+  const waiting = statement.withdrawals.filter((w) => w.status === "requested" || w.status === "paying");
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy("ask");
+    const res = await apiCall<{ detail?: string }>("/api/credit/withdrawals", { amountCents: cents, idempotencyKey: key, note });
+    setBusy(null);
+    if (!res || res.status >= 400) return toast({ title: "Request not sent", description: res?.data?.detail ?? "Can't reach the server." });
+    toast({ title: "Withdrawal requested", description: "The platform reviews it and pays it when the pool has uncommitted cash. Simulated.", variant: "success" });
+    setAmount(""); setNote(""); setKey(newIdempotencyKey());
+    onDone();
+  };
+  const cancel = async (id: string) => {
+    setBusy(id);
+    const res = await apiCall<{ detail?: string }>(`/api/credit/withdrawals/${encodeURIComponent(id)}/cancel`);
+    setBusy(null);
+    if (!res || res.status >= 400) return toast({ title: "Request not cancelled", description: res?.data?.detail ?? "Can't reach the server." });
+    onDone();
+  };
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Ask for contributions back</CardTitle>
+        <CardDescription>
+          Up to {usd(statement.withdrawableCents)}: your net contributions, less your share of any written-off credit and requests already
+          waiting. Attributed fees are an illustration and are not paid out.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {waiting.length > 0 && (
+          <ul className="divide-y rounded-md border text-sm">
+            {waiting.map((w) => (
+              <li key={w.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                <span className="tabular-nums">{usd(w.amountCents)} · {dateOnly(w.createdAt)}</span>
+                <span className="flex items-center gap-2">
+                  <Badge variant={WITHDRAWAL_LABELS[w.status].variant}>{WITHDRAWAL_LABELS[w.status].label}</Badge>
+                  {w.status === "requested" && (
+                    <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void cancel(w.id)}>
+                      {busy === w.id && <Loader2 className="animate-spin" />} Cancel
+                    </Button>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[minmax(0,0.6fr)_minmax(0,1fr)_auto] sm:items-end">
+          <div className="space-y-1.5">
+            <Label htmlFor="wd-amt">Amount (USD)</Label>
+            <Input id="wd-amt" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" disabled={statement.withdrawableCents < 1_000} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="wd-note">Note (optional)</Label>
+            <Input id="wd-note" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="Why you need it back" />
+          </div>
+          <Button type="submit" variant="outline" disabled={busy !== null || !ok}>{busy === "ask" && <Loader2 className="animate-spin" />} Request</Button>
+        </form>
+        {cents != null && cents > statement.withdrawableCents && <p role="alert" className="text-xs text-destructive">That&apos;s more than you can ask for now ({usd(statement.withdrawableCents)}).</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function History({ statement }: { statement: Statement | null }) {
+  const rows = [
+    ...(statement?.contributions ?? []).map((c) => ({ id: c.id, at: c.createdAt, label: "Demo contribution", cents: c.amountCents, status: null as string | null })),
+    ...(statement?.withdrawals ?? []).map((w) => ({ id: w.id, at: w.paidAt ?? w.createdAt, label: "Withdrawal", cents: -w.amountCents, status: w.status as string })),
+  ].sort((a, b) => (a.at < b.at ? 1 : -1));
   return (
     <Card>
       <CardHeader className="pb-2"><CardTitle className="text-base">Transaction history</CardTitle></CardHeader>
       <CardContent>
-        {!statement || statement.contributions.length === 0 ? <p className="text-sm text-muted-foreground">No transactions yet.</p> : (
+        {rows.length === 0 ? <p className="text-sm text-muted-foreground">No transactions yet.</p> : (
           <ul className="divide-y text-sm">
-            {statement.contributions.map((c) => (
-              <li key={c.id} className="flex justify-between py-2"><span>Demo contribution · {dateOnly(c.createdAt)}</span><span className="tabular-nums">{usd(c.amountCents)}</span></li>
+            {rows.map((r) => (
+              <li key={r.id} className="flex justify-between gap-2 py-2">
+                <span>{r.label} · {dateOnly(r.at)}{r.status && r.status !== "paid" ? ` · ${WITHDRAWAL_LABELS[r.status as keyof typeof WITHDRAWAL_LABELS]?.label ?? r.status}` : ""}</span>
+                <span className={`tabular-nums ${r.status === "declined" || r.status === "cancelled" ? "text-muted-foreground line-through" : r.status && r.status !== "paid" ? "text-muted-foreground" : ""}`}>{r.cents < 0 ? "−" : ""}{usd(Math.abs(r.cents))}</span>
+              </li>
             ))}
           </ul>
         )}

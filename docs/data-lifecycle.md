@@ -95,9 +95,13 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `market_agreements` | yes | **Kept, name removed** | Simulated agreements. |
 | `market_distributions` | yes | **Kept, name removed** | Simulated distributions. |
 | `bank_accounts` | yes | **Deleted** | Simulated bank account details. |
-| `bank_transfers` | yes | **Kept, name removed** | Simulated transfers (ledger consistency). |
+| `bank_transfers` | yes | **Kept, name removed** | Simulated transfers (ledger consistency). A transfer between two members appears in both members' records; when one deletes their account, their label in the other member's copy is replaced and transfer notes are removed. |
+| `crypto_addresses` | yes | **Deleted** | The user's own linked wallet addresses on Base (public addresses only; no keys or signatures). |
+| `debit_cards` | yes | **Kept, name removed** | Simulated virtual debit cards: last four digits, expiry and limits only (no card number exists). Accounts with a live (active or frozen) card must cancel it before deletion. |
+| `card_transactions` | yes | **Kept, name removed** | Simulated card purchases and refunds (ledger consistency); the merchant text is removed. |
 | `financing_applications` | yes | **Kept, name removed** | Simulated financing applications. |
 | `credit_contributions` | yes | **Kept, name removed** | Simulated contributions to the AutoGig demo credit pool (ledger consistency). |
+| `credit_withdrawals` | yes | **Kept, name removed** | Requests to withdraw simulated credit-pool contributions (ledger consistency); notes are removed. A waiting request blocks deletion until it is paid, declined or cancelled. |
 | `credit_applications` | yes | **Kept, name removed** | Simulated project-credit applications; the title, description and applicant contact fields are replaced. |
 | `credit_agreements` | yes | **Kept, name removed** | Simulated credit agreements and their repayment schedule (ledger consistency). |
 | `credit_documents` | yes (metadata only; file contents are never exported) | **Deleted** | Private supporting documents uploaded with a credit application (PDF/PNG/JPEG, 3 per application, 2 MB each). |
@@ -112,6 +116,7 @@ until the client has chosen storage, scanning, encryption, retention, and incide
 | `rate_limits` | no | Not personal data | Request counters keyed by network address, not by user; each expires about two minutes after its window. Not linkable to an account. |
 | `edge_nonces` | no | Not personal data | Single-use request identifiers of the website proxy (replay protection); expire in about two minutes. No personal data. |
 | `revoked_sessions` | no | Not personal data | Revoked session ids; expire on their own. |
+| `stripe_events` | no | Not personal data | Stripe webhook event log: Stripe event and object ids, event type, what the webhook did with it and when. No names, emails, amounts or user ids; expires after 90 days. |
 | `oauth_states` | no | Not personal data | Single-use sign-in state; expires on its own. |
 | `oauth_handoffs` | no | Not personal data | Single-use sign-in handoff; expires on its own. |
 | `oauth_signup_proofs` | no | Hashed email binding and signup proof | Single use and automatic expiry after 15 minutes. |

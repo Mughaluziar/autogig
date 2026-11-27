@@ -5,6 +5,7 @@ GET  /api/credit/overview                          pool totals, policy limits, m
 GET  /api/credit/pool/allocations                  anonymised list of credit funded from the demo pool
 POST /api/credit/contributions                     {amountCents, idempotencyKey, acceptRisk}
 GET  /api/credit/statement                         my simulated statement
+GET  /api/credit/withdrawals                       POST {amountCents, idempotencyKey, note?}; POST /{id}/cancel
 Freelancer / agency (identity-verified in the capital module):
 POST /api/credit/applications                      GET /api/credit/applications
 POST /api/credit/applications/{id}/accept|reject|withdraw
@@ -13,6 +14,7 @@ Platform owners:
 GET  /api/credit/admin/applications                POST /api/credit/admin/applications/{id}/decision
 GET  /api/credit/admin/treasury                    GET  /api/credit/admin/audit
 POST /api/credit/admin/run-jobs                    GET  /api/credit/admin/agreements
+GET  /api/credit/admin/withdrawals                 POST /api/credit/admin/withdrawals/{id} {approve, note}
 """
 import base64
 import binascii
@@ -108,7 +110,43 @@ async def contribute(body: ContributionBody, user: dict = Depends(current_user))
 
 @router.get("/statement")
 async def statement(user: dict = Depends(current_user)):
-    return await service.statement(user["id"])
+    out = await service.statement(user["id"])
+    # Records leave the API in camelCase without internal fields (idempotency keys, owner ids, versions).
+    out["contributions"] = [_out(c, drop=("version", "user_id", "idem")) for c in out["contributions"]]
+    out["withdrawals"] = [_withdrawal_out(w) for w in out["withdrawals"]]
+    return out
+
+
+def _withdrawal_out(w: dict, *, admin: bool = False) -> dict:
+    out = _out(w, drop=("version", "user_id", "idem"))
+    out["settlement"] = "simulated"
+    if admin:
+        out["contributorId"] = w["user_id"]
+    return out
+
+
+class WithdrawalBody(BaseModel):
+    amount_cents: int = Field(alias="amountCents", gt=0)
+    idempotency_key: str = Field(alias="idempotencyKey", min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    note: str = Field(default="", max_length=300)
+
+
+@router.get("/withdrawals")
+async def my_withdrawals(user: dict = Depends(current_user)):
+    return {"settlement": "simulated", "notice": NOTE, "position": await service.contribution_position(user["id"]),
+            "withdrawals": [_withdrawal_out(w) for w in await store.find("credit_withdrawals", {"user_id": user["id"]}, limit=200)]}
+
+
+@router.post("/withdrawals")
+async def request_withdrawal(body: WithdrawalBody, user: dict = Depends(current_user)):
+    result = await _call(service.request_withdrawal(user, body.amount_cents, body.idempotency_key, body.note))
+    return result if isinstance(result, JSONResponse) else _withdrawal_out(result)
+
+
+@router.post("/withdrawals/{withdrawal_id}/cancel")
+async def cancel_withdrawal(withdrawal_id: str, user: dict = Depends(current_user)):
+    result = await _call(service.cancel_withdrawal(user, withdrawal_id))
+    return result if isinstance(result, JSONResponse) else _withdrawal_out(result)
 
 
 class ApplicationBody(BaseModel):
@@ -214,6 +252,29 @@ async def admin_audit(owner: dict = Depends(require_owner)):
 @router.post("/admin/run-jobs")
 async def admin_run_jobs(owner: dict = Depends(require_owner)):
     return await service.run_jobs(owner)
+
+
+class WithdrawalReviewBody(BaseModel):
+    approve: bool
+    note: str = Field(default="", max_length=300)
+
+
+@router.get("/admin/withdrawals")
+async def admin_withdrawals(owner: dict = Depends(require_owner)):
+    rows = await store.find("credit_withdrawals", {}, limit=500)
+    out = []
+    for w in rows:
+        item = _withdrawal_out(w, admin=True)
+        if w["status"] == "requested":
+            item["position"] = await service.contribution_position(w["user_id"], exclude=w["id"])
+        out.append(item)
+    return out
+
+
+@router.post("/admin/withdrawals/{withdrawal_id}")
+async def admin_review_withdrawal(withdrawal_id: str, body: WithdrawalReviewBody, owner: dict = Depends(require_owner)):
+    result = await _call(service.review_withdrawal(owner, withdrawal_id, approve=body.approve, note=body.note))
+    return result if isinstance(result, JSONResponse) else _withdrawal_out(result, admin=True)
 
 
 # ------------------------------------------------------------------------------------------------ private documents

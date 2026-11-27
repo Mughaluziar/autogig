@@ -5,10 +5,21 @@ Collection
               unguessable handle the pay page uses. Amounts are integer cents.
               `version` gives compare-and-set updates, so the owner refreshing
               the snapshot can't overwrite a milestone the webhook just marked
-              paid. A milestone paid online is never changed afterwards.
+              paid. The owner can't change a milestone paid online afterwards;
+              only Stripe refund and dispute events change its state.
 
-Every per-user query filters by user_id. Lookups by token serve the public
-pay page and the Stripe webhook, which carry no session.
+Each milestone paid online keeps its Stripe PaymentIntent id
+(`payment_intent`), and so does every record in `extra_payments` (payments
+not counted toward a milestone: a client paying twice, or the refunded payment
+of a milestone the owner later re-opened, marked paid by hand or removed).
+Refund and dispute events find their payment through it. See
+payments/reversals.py.
+
+Every per-user query filters by user_id. Lookups by token or PaymentIntent
+serve the public pay page and the Stripe webhook, which carry no session.
+
+The Stripe webhook event log (payments/events.py) shares this module's
+lifecycle: reset_memory and ensure_indexes cover it too.
 """
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -18,12 +29,14 @@ from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from .. import db
+from . import events
 
 _mem: list[dict] = []
 
 
 def reset_memory() -> None:
     _mem.clear()
+    events.reset_memory()
 
 
 def now() -> datetime:
@@ -58,6 +71,9 @@ async def ensure_indexes() -> None:
     await _coll().create_index([("user_id", ASCENDING), ("invoice_id", ASCENDING)], unique=True)
     await _coll().create_index("token", unique=True)
     await _coll().create_index([("user_id", ASCENDING), ("updated_at", DESCENDING)])
+    await _coll().create_index("milestones.payment_intent", sparse=True)
+    await _coll().create_index("extra_payments.payment_intent", sparse=True)
+    await events.ensure_indexes()
 
 
 async def get_for_invoice(user_id: str, invoice_id: str) -> dict | None:
@@ -70,6 +86,20 @@ async def get_by_token(token: str) -> dict | None:
     if not db.enabled():
         return _clean(next((d for d in _mem if d["token"] == token), None))
     return _clean(await _coll().find_one({"token": token}))
+
+
+async def find_by_payment_intent(payment_intent: str) -> dict | None:
+    """The link holding the payment made with this PaymentIntent (refund and
+    dispute events name the PaymentIntent, not the link)."""
+    if not payment_intent:
+        return None
+    if not db.enabled():
+        def holds(d: dict) -> bool:
+            return any(m.get("payment_intent") == payment_intent for m in d["milestones"]) or \
+                any(p.get("payment_intent") == payment_intent for p in d.get("extra_payments") or [])
+        return _clean(next((d for d in _mem if holds(d)), None))
+    return _clean(await _coll().find_one({"$or": [{"milestones.payment_intent": payment_intent},
+                                                  {"extra_payments.payment_intent": payment_intent}]}))
 
 
 async def list_for_user(user_id: str) -> list[dict]:
@@ -146,14 +176,17 @@ async def mark_milestone_paid(token: str, milestone_id: str, fields: dict) -> di
 
 async def add_extra_payment(token: str, record: dict) -> None:
     """A payment that arrived for a milestone already paid (the client paid
-    twice). Kept so the owner can refund it from Stripe."""
+    twice). Kept so the owner can refund it from Stripe. Bumps the version so
+    a compare-and-set writer working from an older read can't drop it."""
     if not db.enabled():
         for d in _mem:
             if d["token"] == token:
                 d.setdefault("extra_payments", []).append(deepcopy(record))
+                d["version"] += 1
                 d["updated_at"] = now()
         return
-    await _coll().update_one({"token": token}, {"$push": {"extra_payments": record}, "$set": {"updated_at": now()}})
+    await _coll().update_one({"token": token}, {"$push": {"extra_payments": record}, "$set": {"updated_at": now()},
+                                                "$inc": {"version": 1}})
 
 
 async def deactivate(user_id: str, invoice_id: str) -> bool:

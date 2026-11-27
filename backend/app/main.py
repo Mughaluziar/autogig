@@ -209,6 +209,9 @@ app.include_router(capital.router, prefix=settings.api_prefix, dependencies=[Dep
 from .routers import banking as banking_routes, marketplace as marketplace_routes  # noqa: E402
 app.include_router(marketplace_routes.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 app.include_router(banking_routes.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
+# Treasury and financial reporting over that ledger: read-only, platform owners only (the router checks).
+from .routers import treasury as treasury_routes  # noqa: E402
+app.include_router(treasury_routes.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])
 # Token program: the transparency report is public (no personal data); the
 # rest needs a session, and admin routes check for a platform owner.
 app.include_router(credit.router, prefix=settings.api_prefix, dependencies=[Depends(require_simulated_access)])

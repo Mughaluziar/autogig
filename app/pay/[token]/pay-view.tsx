@@ -2,7 +2,7 @@
 import * as React from "react";
 import Link from "next/link";
 import {
-  AlertCircle, Bot, CheckCircle2, Circle, Coins, CreditCard, Loader2, Lock, RefreshCw, SearchX, ShieldCheck, XCircle,
+  AlertCircle, Bot, CheckCircle2, Circle, Coins, CreditCard, Loader2, Lock, RefreshCw, RotateCcw, SearchX, ShieldCheck, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,10 +10,15 @@ import { API_URL, apiUrl, fetchWithTimeout } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Method = "debit" | "credit" | "crypto";
-type Part = { id: string; title: string; amount: number; due: string; status: "due" | "paid"; paidOn: string | null; paidVia: string | null };
+// "refunded": the payment went back to the payer; it can't be paid online again unless the sender re-opens it.
+// refunded/refundedOn/disputed are absent on servers from before refunds were tracked.
+type Part = {
+  id: string; title: string; amount: number; due: string; status: "due" | "paid" | "refunded"; paidOn: string | null; paidVia: string | null;
+  refunded?: number; refundedOn?: string | null; disputed?: boolean;
+};
 type PayPage = {
   business: string; number: string; client: string; description: string; currency: string;
-  methods: Method[]; live: boolean; cryptoLive: boolean; milestones: Part[]; total: number; paid: number; remaining: number;
+  methods: Method[]; live: boolean; cryptoLive: boolean; milestones: Part[]; total: number; paid: number; remaining: number; refunded?: number;
   // Printed breakdown (absent on links created before it existed).
   lineItems?: { description: string; quantity: number; unitPrice: number; amount: number }[];
   subtotal?: number | null; discount?: number; taxRate?: number; tax?: number; notes?: string; issued?: string; due?: string;
@@ -26,7 +31,14 @@ const METHODS: Record<Method, { label: string; hint: string; icon: typeof Credit
 };
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const money = (n: number) => usd.format(n);
-const fmtDate = (d: string | null) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" }) : "");
+const fmtDate = (d: string | null | undefined) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" }) : "");
+
+function partStatus(m: Part): string {
+  if (m.status === "refunded") return `Refunded ${fmtDate(m.refundedOn)}`;
+  if (m.status === "due") return m.due ? `Due ${fmtDate(m.due)}` : "Due now";
+  const extra = m.disputed ? " · under review" : m.refunded ? ` · ${money(m.refunded)} refunded` : "";
+  return `Paid ${fmtDate(m.paidOn)}${extra}`;
+}
 
 export function PayView({ token, returnStatus }: { token: string; returnStatus: "success" | "cancelled" | null }) {
   const [state, setState] = React.useState<"loading" | "ready" | "notfound" | "error">("loading");
@@ -163,6 +175,7 @@ export function PayView({ token, returnStatus }: { token: string; returnStatus: 
               <div><dt className="text-[11px] text-muted-foreground">Paid</dt><dd className="mt-0.5 font-semibold text-success">{money(page.paid)}</dd></div>
               <div><dt className="text-[11px] text-muted-foreground">Remaining</dt><dd className="mt-0.5 font-bold gradient-text">{money(page.remaining)}</dd></div>
             </dl>
+            {!!page.refunded && <p className="mt-2 text-center text-xs text-muted-foreground">{money(page.refunded)} was refunded to you.</p>}
             {page.paid > 0 && (
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label="Paid so far" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((page.paid / Math.max(page.total, 0.01)) * 100)}>
                 <div className="h-full rounded-full bg-gradient-to-r from-success to-primary" style={{ width: `${Math.min(100, (page.paid / Math.max(page.total, 0.01)) * 100)}%` }} />
@@ -175,18 +188,19 @@ export function PayView({ token, returnStatus }: { token: string; returnStatus: 
                 <div role="radiogroup" aria-label="Choose what to pay" className="space-y-2">
                   {page.milestones.map((m) => {
                     const paid = m.status === "paid";
-                    const active = !paid && part?.id === m.id;
+                    const refunded = m.status === "refunded";
+                    const active = m.status === "due" && part?.id === m.id;
                     return (
-                      <button key={m.id} type="button" role="radio" aria-checked={active} disabled={paid}
+                      <button key={m.id} type="button" role="radio" aria-checked={active} disabled={paid || refunded}
                         onClick={() => setSelected(m.id)}
                         className={cn("flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
-                          paid ? "cursor-default bg-muted/30 opacity-80" : active ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/50")}>
-                        {paid ? <CheckCircle2 className="size-5 shrink-0 text-success" /> : <Circle className={cn("size-5 shrink-0", active ? "fill-primary text-primary" : "text-muted-foreground")} />}
+                          paid || refunded ? "cursor-default bg-muted/30 opacity-80" : active ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/50")}>
+                        {paid ? <CheckCircle2 className="size-5 shrink-0 text-success" /> : refunded ? <RotateCcw className="size-5 shrink-0 text-muted-foreground" /> : <Circle className={cn("size-5 shrink-0", active ? "fill-primary text-primary" : "text-muted-foreground")} />}
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium"><span className="mr-1.5 text-muted-foreground">{page.milestones.indexOf(m) + 1}.</span>{m.title}</span>
-                          <span className="block text-[11px] text-muted-foreground">{paid ? `Paid ${fmtDate(m.paidOn)}` : m.due ? `Due ${fmtDate(m.due)}` : "Due now"}</span>
+                          <span className="block text-[11px] text-muted-foreground">{partStatus(m)}</span>
                         </span>
-                        <span className={cn("text-sm font-semibold", paid && "text-muted-foreground line-through decoration-1")}>{money(m.amount)}</span>
+                        <span className={cn("text-sm font-semibold", (paid || refunded) && "text-muted-foreground line-through decoration-1")}>{money(m.amount)}</span>
                       </button>
                     );
                   })}
@@ -200,7 +214,13 @@ export function PayView({ token, returnStatus }: { token: string; returnStatus: 
         {/* Payment — first on phones when there's nothing to choose */}
         <Card className={cn("h-fit md:sticky md:top-6 md:col-span-2", !split && "order-first md:order-none")}>
           <CardContent className="p-5 sm:p-6">
-            {!part ? (
+            {!part && page.milestones.some((m) => m.status === "refunded") ? (
+              <div className="flex flex-col items-center gap-2 py-6 text-center">
+                <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground"><RotateCcw className="size-6" /></span>
+                <p className="mt-1 font-semibold">Nothing to pay online right now</p>
+                <p className="text-sm text-muted-foreground">{split ? "The rest of this invoice was refunded." : "This payment was refunded."} Contact {who} if you need to pay it again.</p>
+              </div>
+            ) : !part ? (
               <div className="flex flex-col items-center gap-2 py-6 text-center">
                 <span className="flex size-12 items-center justify-center rounded-full bg-success/15 text-success"><CheckCircle2 className="size-6" /></span>
                 <p className="mt-1 font-semibold">Paid in full</p>
