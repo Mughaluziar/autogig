@@ -22,6 +22,7 @@ from .. import db
 
 COLL = "capital_daily_limits"
 RETENTION = timedelta(days=3)
+_ATTEMPTS = 20
 
 _mem: dict[str, dict] = {}
 _mem_lock = threading.Lock()
@@ -66,21 +67,24 @@ async def reserve(user_id: str, kind: str, amount: int, cap: int, ref: str, *, d
     coll = db._get_db()[COLL]
     claim = ({"_id": key, "refs": {"$ne": ref}, "total": {"$lte": cap - amount}},
              {"$inc": {"total": amount}, "$push": {"refs": ref}})
-    if await coll.find_one_and_update(*claim, return_document=ReturnDocument.AFTER):
-        return True
-    if await coll.find_one({"_id": key}, {"_id": 1}):
-        # Already reserved by this request (a retry), else over the cap.
-        return bool(await coll.find_one({"_id": key, "refs": ref}, {"_id": 1}))
     start = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    try:
-        await coll.insert_one({"_id": key, "user_id": user_id, "kind": kind, "day": day, "total": amount, "refs": [ref],
-                               "expires_at": start + RETENTION})
-        return True
-    except DuplicateKeyError:
-        # Another request created today's counter after our first try: one more atomic attempt.
+    for _ in range(_ATTEMPTS):
         if await coll.find_one_and_update(*claim, return_document=ReturnDocument.AFTER):
             return True
-        return bool(await coll.find_one({"_id": key, "refs": ref}, {"_id": 1}))
+        doc = await coll.find_one({"_id": key}, {"total": 1, "refs": 1})
+        if doc is None:
+            try:
+                await coll.insert_one({"_id": key, "user_id": user_id, "kind": kind, "day": day, "total": amount,
+                                       "refs": [ref], "expires_at": start + RETENTION})
+                return True
+            except DuplicateKeyError:
+                continue  # another request created today's counter first: claim against it
+        if ref in (doc.get("refs") or []):
+            return True   # already reserved by this request (a retry)
+        if int(doc.get("total") or 0) + amount > cap:
+            return False  # genuinely over the cap
+        # The counter changed between our update and our read (a concurrent reserve or release): try again.
+    return False
 
 
 async def release(user_id: str, kind: str, amount: int, ref: str, *, day: str) -> None:
