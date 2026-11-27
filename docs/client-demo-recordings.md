@@ -48,12 +48,31 @@ Password for every account: `Demo-Synthetic-Pass-2026`. `*.example.test` address
 | `maya.freelancer@demo.example.test` (Maya Lopez) | Freelancer | Clean account, no bids | Video 1 |
 | `leo.freelancer@demo.example.test` (Leo Chen) | Freelancer | Holds the bakery contract | Video 2 |
 
+## What is live, what is simulated (say this in each video)
+
+| Shown in the videos | On the local recording stack | In production |
+|---|---|---|
+| Pool specs, bids, awards, contracts, milestones, messages | Real app logic and database | Same |
+| Payouts ("I paid this", Earnings) | **Records only**: the page says Autopilot does not move money | Same: records only, no payment rail |
+| Forwarded marketplace messages (Unified Inbox) | The seed posts them the way the mail provider would | Live: marketplace notification emails forwarded to the private address |
+| Inbox replies | Drafted and saved; **you paste and send on the marketplace** ("Autopilot sends nothing") | Same |
+| AI drafts (✨ in the inbox, Writer, Copilot) | **Simulated**: a fixed sample text, no AI provider is called | Live with the configured AI provider; still waits for approval |
+| Job Radar / Scout scans | **Blocked**: no job feeds are reached, so runs find 0 listings | Live public feeds and approved APIs |
+| Outlook mailbox | Not connected ("not enabled") | Needs Microsoft consent and approval |
+| Banking, cards, crypto, credit, treasury | Not part of these videos; **simulated** everywhere (banner on every page) | Simulated: no bank, card network, chain or lender |
+
 ## 3. Recording setup
 
 - Browser window 1280×800, zoom 100%, light theme, bookmarks bar hidden. Use two browser profiles (or one normal
   and one private window) so the agency and the freelancer stay signed in side by side.
 - Close notifications on the recording machine. Don't show the terminals (they hold the local secrets).
-- If "Quiet hours" shows on Agent Fleet, that's the default guardrail: mention it, or change it under Guardrails.
+- Record during the day: the default fleet guardrail has quiet hours from 23:00 to 07:00 (the recording machine's time),
+  and Agent Fleet shows a "Quiet hours" banner in that window. Or turn quiet hours off under **Guardrails** first.
+- Don't type into **Copilot** or press the ✨ draft button on the local stack: the AI is simulated and answers with a
+  fixed sample text that won't match the question.
+- Forwarded notifications show the marketplace (Upwork, Fiverr, Freelancer) as the sender: that's what a forwarded
+  notification email carries. The message text is the client's.
+- The agency's Freelancer Pool already shows the awarded bakery spec (prepared for video 2); that's expected.
 
 ## Video 1: Getting the first sale through the platform (≈4 min)
 
@@ -80,9 +99,10 @@ Story: every conversation in one place: marketplace clients and the agency–fre
 1. **Agency** → **Unified Inbox** (`/dashboard/conversations`): the three forwarded messages from Upwork, Fiverr and
    Freelancer.com, with platform filters. Show **Forward marketplace notifications here** (the private forwarding
    address) and explain that marketplaces' email notifications land here.
-2. Open the Upwork message → type a reply in the composer → **Save** → **Copy reply**. Say: Autopilot drafts and
-   saves; you paste and send on the marketplace ("Autopilot sends nothing"). Optional: the ✨ button drafts a reply
-   with AI. On the local stack the AI is simulated and returns a fixed sample text, so prefer typing the reply.
+2. Open the Upwork message ("Hi! Are you available to start Monday…") → type
+   `Hi Dana, yes, we can start Monday. I'll send a short plan today.` → **Save** ("Draft saved") → **Copy reply**.
+   Say: Autopilot drafts and saves; you paste and send on the marketplace ("Autopilot sends nothing"). The ✨ button
+   drafts with AI in production; skip it here (simulated locally).
 3. **Freelancer** (Leo) → **Contracts** → **Message agency** → `Hi Hana, sharing the first logo concepts tomorrow.`
    → **Send** (opens **Messages**).
 4. **Agency** → Freelancer Pool → **Messages** tab (the sidebar shows the unread badge) → open Leo's conversation →
@@ -103,8 +123,9 @@ Story: the fleet is yours to shape, and nothing reaches a client without your OK
    skip listings mentioning `wordpress, unpaid` → **Save changes**. Reload: the settings persist (saved on the server).
    Then open the starter **Writer** (click it on the live map → **Edit prompt and rules**) → tone and **Prompt and
    rules** `Always mention food & beverage experience. Never promise delivery under 5 days.` → **Save changes**.
-4. **Dry run**: the run log explains what the agent would do without saving anything. On the local stack, job feeds
-   are blocked, so the dry run reports that no listings were reached: say so, or record this step on staging.
+4. **Dry run** (optional): the run log explains what the agent would do without saving anything. On the local stack
+   job feeds are blocked, so it reports "No new matches in 0 listings". Say "this test environment has no live job
+   feeds", or skip the step. Live matches can only be shown on staging, after approval.
 5. **Guardrails** (top tabs): daily draft cap, quiet hours and the kill switch. **Approvals**: where drafts wait.
    End on the control center with **Pause all**.
 

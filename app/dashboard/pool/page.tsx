@@ -103,11 +103,14 @@ function Pool() {
         <TabsContent value="specs" className="mt-4 space-y-4">
           <LoadState loading={specs.loading} error={specs.error} onRetry={specs.reload} />
           {!specs.loading && !specs.error && !specs.data?.length && <EmptyState title="No specs yet" description="Broadcast your first spec to the freelancer pool." />}
-          {specs.data?.map((s) => (
+          {specs.data?.map((s) => {
+            // Open specs count the bids still waiting; once awarded or closed, the bids it received.
+            const bidCount = s.status === "open" ? s.bidsIn : (s.bids?.length ?? s.bidsIn);
+            return (
             <Card key={s.id}>
               <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-base">{s.title}</CardTitle>
-                <div className="flex items-center gap-2"><Badge variant="outline">{s.bidsIn} bid{s.bidsIn === 1 ? "" : "s"}</Badge><StatusBadge status={s.status} /></div>
+                <div className="flex items-center gap-2"><Badge variant="outline">{bidCount} bid{bidCount === 1 ? "" : "s"}</Badge><StatusBadge status={s.status} /></div>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <p className="text-muted-foreground">{s.estHours} h est. · due {formatDate(s.deadline)}{s.maxRate ? ` · max ${formatCurrency(s.maxRate)}/h` : ""} · {(s.stack ?? []).join(", ")}</p>
@@ -135,7 +138,8 @@ function Pool() {
                 {s.status === "open" && <Button size="sm" variant="outline" onClick={() => void act(`/api/pool/admin/specs/${s.id}/close`, {}, "Spec closed")}><X className="size-4" /> Close without awarding</Button>}
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </TabsContent>
 
         <TabsContent value="contracts" className="mt-4 space-y-4">
