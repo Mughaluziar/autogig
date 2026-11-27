@@ -101,13 +101,13 @@ export function TransactionsView({ base, full }: { base: string; full: boolean }
           <div className="space-y-1.5">
             <Label htmlFor="tx-cur">Currency</Label>
             <Select id="tx-cur" value={draft.currency} onChange={set("currency")}>
-              <option value="">USD and USDC</option><option value="usd">USD</option><option value="usdc">USDC</option>
+              <option value="">All</option><option value="usd">USD</option><option value="usdc">USDC</option>
             </Select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="tx-dir">Direction</Label>
             <Select id="tx-dir" value={draft.direction} onChange={set("direction")}>
-              <option value="">In and out</option><option value="in">Money in</option><option value="out">Money out</option>
+              <option value="">All</option><option value="in">Money in</option><option value="out">Money out</option>
             </Select>
           </div>
           <div className="space-y-1.5">

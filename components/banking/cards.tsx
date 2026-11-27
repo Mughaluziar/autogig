@@ -83,9 +83,11 @@ function CardArt({ kind, card }: { kind: "debit" | "credit"; card?: DebitCard | 
         off && "grayscale")}>
       <div className="absolute -right-10 -top-10 size-40 rounded-full bg-white/10 blur-2xl" />
       <div className="relative flex h-full flex-col justify-between">
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-3">
           <p className="text-sm font-bold">Autopilot</p>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/80">{card ? "Virtual debit · simulated" : kind}</p>
+          <p className="text-right text-[10px] font-semibold uppercase leading-tight tracking-[0.15em] text-white/80">
+            {card ? <>Virtual debit<br />Simulated</> : kind}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="h-6 w-9 rounded-md bg-gradient-to-br from-amber-200 to-amber-400 opacity-90" />
