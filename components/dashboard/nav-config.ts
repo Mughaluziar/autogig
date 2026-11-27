@@ -66,7 +66,7 @@ export const DEMO_ONLY_ROUTES = [
   "/dashboard/arbitrage", "/dashboard/margins", "/dashboard/hitl",
   "/dashboard/personas", "/dashboard/portfolio",
   "/dashboard/job-hunter", "/dashboard/marketing",
-  "/dashboard/agents", "/dashboard/calendar", "/dashboard/bidding",
+  "/dashboard/calendar", "/dashboard/bidding",
   "/freelancer/qa",
   "/dashboard/clients", "/dashboard/contracts", "/dashboard/milestones", "/dashboard/freelancers",
 ];
