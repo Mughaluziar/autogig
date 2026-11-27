@@ -152,6 +152,11 @@ DATA_MAP: dict[str, Coll] = {c.name: c for c in (
     Coll("capital_journal", (("refs.user_id", "id"), ("refs.users", "id")), "keep", "Append-only simulated ledger; "
          "never rewritten. It holds ids and amounts, no names.", True, lambda: capital_ledger._mem_journal),
     Coll("capital_head", (), "none", "Ledger head pointer (balances per account id).", False),
+    Coll("wallet_activity", _uid(), "delete", "Transaction-history view derived from the ledger (rebuilt from it; "
+         "the ledger itself is kept).", False, lambda: {}),
+    Coll("wallet_activity_cursors", (("_id", "key"),), "delete", "Where the user's transaction-history view is up to.",
+         False, lambda: {}),
+    Coll("capital_daily_limits", _uid(), "delete", "Daily transfer-limit counters.", False, lambda: {}),
     Coll("capital_profiles", _uid(), "delete", "KYC profile (simulated verification).", True,
          lambda: capital_store._mem["capital_profiles"]),
     Coll("capital_advances", _uid(), "scrub", "Simulated advances (ledger consistency).", True,

@@ -20,7 +20,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from .. import db, repo
-from . import ledger, market, store
+from . import activity, ledger, limits as limits_store, market, store
+from .activity import CATEGORIES, category_of  # noqa: F401  (re-exported for callers)
 from .ledger import LedgerRejected, line
 from .service import CapitalError, _notify_operators, _update, get_profile, investor_position
 
@@ -189,12 +190,6 @@ def _source_account(kind: str, user_id: str) -> str | None:
     return market.wallet(user_id) if kind in ("withdraw", "to_usdc", "internal_send") else usdc(user_id)
 
 
-async def _sum_today(user_id: str, kind: str) -> int:
-    since = store.now() - timedelta(days=1)
-    return sum(t["amount_cents"] for t in await store.find("bank_transfers", {"user_id": user_id, "kind": kind}, limit=500)
-               if t["status"] == "completed" and store.aware(t["created_at"]) >= since)
-
-
 async def _recipient(sender_id: str, email: str | None) -> dict:
     email = (email or "").strip().lower()
     if not re.fullmatch(r"[^@\s]{1,64}@[^@\s]{1,255}", email):
@@ -217,12 +212,15 @@ async def _ensure_receipt(record: dict) -> None:
     key = f"recv-{record['id']}"
     if await store.find("bank_transfers", {"user_id": record["counterparty_id"], "idem": key}, limit=1):
         return
-    await store.insert("bank_transfers", record["counterparty_id"], {
-        "kind": "internal_receive", "amount_cents": record["amount_cents"], "status": "completed", "idem": key,
-        "bank_account_id": None, "bank_label": None, "address": None, "network": None,
-        "counterparty_id": record["user_id"], "counterparty_label": record.get("sender_label") or "An Autopilot member",
-        "note": record.get("note"), "seq": record.get("seq"), "completed_at": record.get("completed_at"),
-        "settlement": ledger.SETTLEMENT})
+    try:
+        await store.insert("bank_transfers", record["counterparty_id"], {
+            "kind": "internal_receive", "amount_cents": record["amount_cents"], "status": "completed", "idem": key,
+            "bank_account_id": None, "bank_label": None, "address": None, "network": None,
+            "counterparty_id": record["user_id"], "counterparty_label": record.get("sender_label") or "An Autopilot member",
+            "note": record.get("note"), "seq": record.get("seq"), "completed_at": record.get("completed_at"),
+            "settlement": ledger.SETTLEMENT})
+    except store.Conflict:
+        return  # a concurrent retry wrote the copy (and tells the recipient)
     amount = f"${record['amount_cents'] / 100:,.2f}"
     who = record.get("sender_label") or "An Autopilot member"
     await repo.notify(record["counterparty_id"], "Money received",
@@ -272,21 +270,31 @@ async def transfer(user_id: str, *, kind: str, amount_cents: int, idem: str, ban
             sender_label = f"{name} ({sender.get('email')})" if name else sender.get("email")
     limits = {"deposit": (DAILY_DEPOSIT_CENTS, "Deposits"), "crypto_receive": (DAILY_CRYPTO_RECEIVE_CENTS, "USDC receipts"),
               "internal_send": (DAILY_INTERNAL_SEND_CENTS, "Transfers to other members")}
+    # The daily limit is reserved atomically before anything is recorded (capital/limits.py), keyed by the request's
+    # idempotency key, so concurrent requests can't both slip under it and a retry isn't counted twice.
+    reserved = None
     if kind in limits:
         cap, what = limits[kind]
-        if await _sum_today(user_id, kind) + amount_cents > cap:
+        reserved = (f"transfer:{idem}", limits_store.today())
+        if not await limits_store.reserve(user_id, kind, amount_cents, cap, reserved[0], day=reserved[1]):
             raise CapitalError(f"{what} are limited to ${cap / 100:,.0f} a day.", 409)
     crypto = kind in ("crypto_send", "crypto_receive")
-    record = await store.insert("bank_transfers", user_id, {
-        "kind": kind, "amount_cents": amount_cents, "status": "posting", "idem": idem,
-        "bank_account_id": bank["id"] if bank else None, "bank_label": f"{bank['nickname']}" if bank else None,
-        "address": address if crypto else None, "network": CRYPTO_NETWORK if crypto else None,
-        "wallet_label": linked["label"] if linked else None,
-        "counterparty_id": recipient["id"] if recipient else None,
-        "counterparty_label": recipient["email"] if recipient else None,
-        "sender_label": (sender_label or "")[:120] or None if recipient else None,
-        "note": note if kind == "internal_send" else None, "settlement": ledger.SETTLEMENT,
-    })
+    try:
+        # The unique (user_id, idem) index makes a simultaneous copy of this request fail here (store.Conflict).
+        record = await store.insert("bank_transfers", user_id, {
+            "kind": kind, "amount_cents": amount_cents, "status": "posting", "idem": idem,
+            "bank_account_id": bank["id"] if bank else None, "bank_label": f"{bank['nickname']}" if bank else None,
+            "address": address if crypto else None, "network": CRYPTO_NETWORK if crypto else None,
+            "wallet_label": linked["label"] if linked else None,
+            "counterparty_id": recipient["id"] if recipient else None,
+            "counterparty_label": recipient["email"] if recipient else None,
+            "sender_label": (sender_label or "")[:120] or None if recipient else None,
+            "note": note if kind == "internal_send" else None, "settlement": ledger.SETTLEMENT,
+        })
+    except store.Conflict:
+        # The same request (same key) is being handled right now: answer with its record. Its reservation is that
+        # request's, so nothing is released here.
+        return (await store.find("bank_transfers", {"user_id": user_id, "idem": idem}, limit=1))[0]
     source = _source_account(kind, user_id)
     refs = {"user_id": user_id, "transfer_id": record["id"]}
     if recipient:
@@ -296,6 +304,8 @@ async def transfer(user_id: str, *, kind: str, amount_cents: int, idem: str, ban
                                   memo=_memo(kind, record), refs=refs, idem=f"bank:{record['id']}",
                                   check=ledger.require_non_negative(source) if source else None)
     except LedgerRejected:
+        if reserved:
+            await limits_store.release(user_id, kind, amount_cents, reserved[0], day=reserved[1])
         await _update("bank_transfers", record, {"status": "failed", "reason": "Insufficient balance"})
         raise CapitalError("Not enough balance for that transfer.", 409)
     record = await _update("bank_transfers", record, {"status": "completed", "seq": entry["seq"],
@@ -407,22 +417,7 @@ async def statement(user_id: str, month: str) -> dict:
 # --------------------------------------------------------------------------- #
 # Transaction history: every movement of the user's USD and USDC balances
 # --------------------------------------------------------------------------- #
-# Ledger entry kind -> category shown and filtered in the history. Unknown kinds land in "other".
-CATEGORIES = ("bank", "crypto", "member", "card", "investing", "other")
-_CATEGORY = {
-    "bank_deposit": "bank", "bank_withdraw": "bank",
-    "bank_to_usdc": "crypto", "bank_to_usd": "crypto", "bank_crypto_send": "crypto", "bank_crypto_receive": "crypto",
-    "bank_internal_send": "member",
-    "card_purchase": "card", "card_refund": "card",
-    "investor_deposit": "investing", "investor_withdrawal": "investing", "advance_payout_wallet": "investing",
-}
 MAX_HISTORY_DAYS = 366
-
-
-def category_of(kind: str) -> str:
-    if kind in _CATEGORY:
-        return _CATEGORY[kind]
-    return "investing" if kind.startswith("market_") else "other"
 
 
 def _day(value: str | None, field: str):
@@ -434,30 +429,9 @@ def _day(value: str | None, field: str):
         raise CapitalError(f"Use a date like 2026-11-27 for {field}.")
 
 
-async def wallet_activity(user_id: str) -> list[dict]:
-    """Oldest first, with the running USD and USDC balances after each movement. Built from the ledger, the only
-    source of truth, so it includes card spend, investments, distributions and transfers between members."""
-    accounts = {market.wallet(user_id): "usd", usdc(user_id): "usdc"}
-    running = {"usd": 0, "usdc": 0}
-    rows = []
-    for entry in reversed(await ledger.entries(user_id=user_id, limit=5000)):
-        delta = {"usd": 0, "usdc": 0}
-        for item in entry["lines"]:
-            if item["account"] in accounts and item["unit"] == "USD":
-                delta[accounts[item["account"]]] += item["amount"]
-        if not delta["usd"] and not delta["usdc"]:
-            continue
-        running = {k: running[k] + delta[k] for k in running}
-        rows.append({"seq": entry["seq"], "at": entry["at"], "kind": entry["kind"], "category": category_of(entry["kind"]),
-                     "memo": entry["memo"], "usdCents": delta["usd"], "usdcCents": delta["usdc"],
-                     "balanceUsdCents": running["usd"], "balanceUsdcCents": running["usdc"]})
-    return rows
-
-
-async def history(user_id: str, *, currency: str | None = None, direction: str | None = None,
-                  category: str | None = None, start: str | None = None, end: str | None = None,
-                  search: str | None = None) -> list[dict]:
-    """Filtered history, newest first. Dates are inclusive UTC days."""
+def _filters(*, currency: str | None = None, direction: str | None = None, category: str | None = None,
+             start: str | None = None, end: str | None = None, search: str | None = None) -> dict:
+    """Validate the history filters. Dates are inclusive UTC days."""
     if currency not in (None, "", "usd", "usdc"):
         raise CapitalError("Currency is usd or usdc.")
     if direction not in (None, "", "in", "out"):
@@ -469,35 +443,18 @@ async def history(user_id: str, *, currency: str | None = None, direction: str |
         raise CapitalError("The end date is before the start date.")
     if since and until and (until - since).days > MAX_HISTORY_DAYS:
         raise CapitalError(f"Choose at most {MAX_HISTORY_DAYS} days.")
-    until = until + timedelta(days=1) if until else None
-    needle = " ".join((search or "").lower().split())[:80]
-    out = []
-    for row in reversed(await wallet_activity(user_id)):
-        at = datetime.strptime(row["at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        amount = row["usdCents"] if currency == "usd" else row["usdcCents"] if currency == "usdc" else row["usdCents"] + row["usdcCents"]
-        if currency and not amount:
-            continue
-        if direction == "in" and amount <= 0 or direction == "out" and amount >= 0:
-            continue
-        if category and row["category"] != category:
-            continue
-        if since and at < since or until and at >= until:
-            continue
-        if needle and needle not in row["memo"].lower():
-            continue
-        out.append(row)
-    return out
+    return activity.filters(currency=currency, direction=direction, category=category, since=since,
+                            until=until + timedelta(days=1) if until else None, search=search)
 
 
 async def transactions(user_id: str, *, before: int | None = None, limit: int = 50, **filters) -> dict:
-    rows = await history(user_id, **filters)
-    if before is not None:
-        rows = [r for r in rows if r["seq"] < before]
-    page = rows[:limit]
-    return {"settlement": ledger.SETTLEMENT, "rows": page, "categories": list(CATEGORIES),
-            "nextBefore": page[-1]["seq"] if len(rows) > limit else None,
-            "inCents": sum(max(0, r["usdCents"]) + max(0, r["usdcCents"]) for r in rows),
-            "outCents": -sum(min(0, r["usdCents"]) + min(0, r["usdcCents"]) for r in rows), "count": len(rows)}
+    """One page of the history, newest first, with totals over every matching row (capital/activity.py)."""
+    f = _filters(**filters)
+    rows, more = await activity.page(user_id, f, before=before, limit=limit)
+    totals = await activity.totals(user_id, f)
+    return {"settlement": ledger.SETTLEMENT, "rows": [activity.view(r) for r in rows], "categories": list(CATEGORIES),
+            "nextBefore": rows[-1]["seq"] if more else None,
+            "inCents": totals["in"], "outCents": totals["out"], "count": totals["count"]}
 
 
 def _cell(value) -> str:
@@ -507,11 +464,13 @@ def _cell(value) -> str:
 
 
 async def transactions_csv(user_id: str, **filters) -> str:
-    rows = await history(user_id, **filters)
+    """Every matching row (not one page), newest first."""
+    f = _filters(**filters)
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(["Date", "Category", "Description", "USD", "USDC", "USD balance", "USDC balance", "Reference"])
-    for r in rows:
+    async for row in activity.every(user_id, f):
+        r = activity.view(row)
         writer.writerow([r["at"], r["category"], _cell(r["memo"]), f"{r['usdCents'] / 100:.2f}", f"{r['usdcCents'] / 100:.2f}",
                          f"{r['balanceUsdCents'] / 100:.2f}", f"{r['balanceUsdcCents'] / 100:.2f}", r["seq"]])
     return buf.getvalue()

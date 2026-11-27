@@ -64,6 +64,9 @@ Generated from `DATA_MAP`; `tests/test_data_map_complete.py` fails if a collecti
 | `order_accounts` | yes | **Deleted** | Connected marketplace accounts (inbound-address hash is not exported). |
 | `order_events` | yes | **Deleted** | Order timeline. |
 | `bid_daily_limits` | no | **Deleted** | Daily bid counters. |
+| `capital_daily_limits` | no | **Deleted** | Daily transfer-limit counters. |
+| `wallet_activity` | no | **Deleted** | Transaction-history view derived from the ledger (rebuilt from it; the ledger itself is kept). |
+| `wallet_activity_cursors` | no | **Deleted** | Where the user's transaction-history view is up to. |
 | `waitlist` | yes | **Deleted** | Early-access signups for this email. |
 | `beta_testers` | yes | **Deleted** | Beta signup for this email. |
 | `login_failures` | no | **Deleted** | Failed-login counters for this email. |
